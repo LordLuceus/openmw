@@ -522,6 +522,10 @@ add_component_dir(testing
     util
 )
 
+add_component_dir(accessibility
+    accessibilitymanager
+)
+
 if (USE_QT)
     add_component_qt_dir (contentselector
         model/modelitem model/esmfile
@@ -639,6 +643,9 @@ else()
 endif()
 
 target_link_libraries(components ${BULLET_LIBRARIES})
+
+# Accessibility / screen-reader output is provided by Prism (see extern/CMakeLists.txt).
+target_link_libraries(components prism::prism)
 
 if (USE_QT)
     add_library(components_qt STATIC ${COMPONENT_QT_FILES})

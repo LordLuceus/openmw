@@ -296,3 +296,76 @@ if ((BUILD_COMPONENTS_TESTS OR BUILD_OPENCS_TESTS OR BUILD_OPENMW_TESTS) AND NOT
     add_library(GTest::GTest ALIAS gtest)
     add_library(GMock::GMock ALIAS gmock)
 endif()
+
+# ---------------------------------------------------------------------------
+# Prism - Platform-agnostic Reader Interface for Speech and Messages.
+# Used by components/accessibility to drive screen-reader / TTS output.
+# Repository: https://github.com/ethindp/prism  (MPL-2.0)
+# ---------------------------------------------------------------------------
+if (NOT OPENMW_USE_SYSTEM_PRISM)
+
+    # Disable everything we don't need.
+    set(PRISM_ENABLE_GDEXTENSION OFF CACHE BOOL "" FORCE)
+    set(PRISM_ENABLE_TESTS OFF CACHE BOOL "" FORCE)
+    set(PRISM_ENABLE_DEMOS OFF CACHE BOOL "" FORCE)
+    set(PRISM_ENABLE_VCPKG_SPECIFIC_OPTIONS OFF CACHE BOOL "" FORCE)
+    set(PRISM_ENABLE_LINTING OFF CACHE BOOL "" FORCE)
+
+    # On MSVC, Prism otherwise defaults to the static CRT (/MT) when GDExtension is off.
+    # OpenMW uses the default DLL CRT (/MD); force Prism to match so we don't get
+    # "mismatch detected for _ITERATOR_DEBUG_LEVEL" link errors.
+    if (MSVC)
+        set(CMAKE_MSVC_RUNTIME_LIBRARY
+            "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL"
+            CACHE STRING "Match OpenMW's dynamic CRT" FORCE)
+
+        # CMake's compiler-features table doesn't yet claim MSVC supports C23,
+        # but cl.exe does via /std:clatest. Prism's CMakeLists sets
+        # CMAKE_C_STANDARD 23 + CMAKE_C_STANDARD_REQUIRED ON, which would fail
+        # the dialect check. Disable the strict requirement and pass the flag
+        # manually so Prism's C sources compile under MSVC 19.39+.
+        set(CMAKE_C_STANDARD_REQUIRED OFF CACHE BOOL "" FORCE)
+        add_compile_options($<$<COMPILE_LANGUAGE:C>:/std:clatest>)
+    endif()
+
+    include(FetchContent)
+    FetchContent_Declare(prism
+        GIT_REPOSITORY https://github.com/ethindp/prism.git
+        GIT_TAG        v0.16.5
+        GIT_SHALLOW    TRUE
+        SOURCE_DIR     fetched/prism
+    )
+    FetchContent_MakeAvailable(prism)
+
+    if (MSVC)
+        # Prism asks for strict C23, but CMake doesn't have an entry for MSVC C23
+        # in its compiler-features table even though cl.exe 19.39+ supports it
+        # via /std:clatest. Drop the strict requirement on every Prism target so
+        # CMake falls back gracefully to the latest C standard cl.exe supports.
+        foreach(_t prism prism_backend_iface prism_third_party_simdutf
+                   prism_third_party_dr_wav)
+            if (TARGET ${_t})
+                set_target_properties(${_t} PROPERTIES C_STANDARD_REQUIRED OFF)
+            endif()
+        endforeach()
+        get_property(_prism_backend_dir TARGET prism PROPERTY SOURCE_DIR)
+        # Each backend is built as its own OBJECT library named prism_backend_<name>.
+        get_directory_property(_prism_targets DIRECTORY "${_prism_backend_dir}" BUILDSYSTEM_TARGETS)
+        foreach(_t ${_prism_targets})
+            get_target_property(_type ${_t} TYPE)
+            if (_type STREQUAL "OBJECT_LIBRARY" OR _type STREQUAL "STATIC_LIBRARY"
+                OR _type STREQUAL "SHARED_LIBRARY" OR _type STREQUAL "INTERFACE_LIBRARY")
+                set_target_properties(${_t} PROPERTIES C_STANDARD_REQUIRED OFF)
+                # Prism's CMakeLists unconditionally enables IPO (cl /GL) on every
+                # target. That forces /LTCG on the entire openmw.exe link, adding
+                # several minutes per change. Disable it -- OpenMW itself only
+                # turns on IPO when OPENMW_LTO_BUILD=ON, and we want dev links fast.
+                set_target_properties(${_t} PROPERTIES
+                    INTERPROCEDURAL_OPTIMIZATION OFF
+                    INTERPROCEDURAL_OPTIMIZATION_RELEASE OFF
+                    INTERPROCEDURAL_OPTIMIZATION_RELWITHDEBINFO OFF
+                    INTERPROCEDURAL_OPTIMIZATION_MINSIZEREL OFF)
+            endif()
+        endforeach()
+    endif()
+endif()

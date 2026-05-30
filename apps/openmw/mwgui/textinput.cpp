@@ -5,8 +5,10 @@
 
 #include <MyGUI_Button.h>
 #include <MyGUI_EditBox.h>
+#include <MyGUI_LanguageManager.h>
 #include <MyGUI_UString.h>
 
+#include <components/accessibility/accessibilitymanager.hpp>
 #include <components/esm/refid.hpp>
 
 namespace MWGui
@@ -47,6 +49,10 @@ namespace MWGui
     void TextInputDialog::setTextLabel(std::string_view label)
     {
         setText("LabelT", label);
+        // Cache the localized prompt so we can speak it on open.
+        auto resolved
+            = MyGUI::LanguageManager::getInstance().replaceTags({ label.data(), label.size() });
+        mPromptLabel = resolved.asUTF8();
     }
 
     void TextInputDialog::onOpen()
@@ -54,6 +60,16 @@ namespace MWGui
         WindowModal::onOpen();
         // Make sure the edit box has focus
         MWBase::Environment::get().getWindowManager()->setKeyFocusWidget(mTextEdit);
+        // Announce the prompt and current edit-box contents (if any) so the
+        // user knows what's being asked of them.
+        if (!mPromptLabel.empty())
+        {
+            std::string announcement = mPromptLabel;
+            std::string current = mTextEdit->getCaption().asUTF8();
+            if (!current.empty())
+                announcement += ". Current value: " + current;
+            Accessibility::AccessibilityManager::instance().speak(announcement);
+        }
     }
 
     // widget controls

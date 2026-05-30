@@ -31,6 +31,10 @@ namespace MWGui
 
     private:
         MyGUI::EditBox* mTextEdit;
+        // Cached prompt label shown above the edit box. Captured by
+        // setTextLabel() so we can read it aloud through the screen reader
+        // when the dialog opens.
+        std::string mPromptLabel;
     };
 }
 #endif

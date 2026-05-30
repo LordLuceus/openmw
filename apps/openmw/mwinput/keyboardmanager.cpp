@@ -6,6 +6,7 @@
 
 #include <components/sdlutil/sdlmappings.hpp>
 
+#include "../mwaccessibility/scanner.hpp"
 #include "../mwbase/environment.hpp"
 #include "../mwbase/inputmanager.hpp"
 #include "../mwbase/luamanager.hpp"
@@ -31,6 +32,17 @@ namespace MWInput
 
     void KeyboardManager::keyPressed(const SDL_KeyboardEvent& arg)
     {
+        // Give the accessibility scanner first crack at the key. It only
+        // consumes a small set (PgUp/PgDn, Enter, Home, End, Backspace)
+        // and only during gameplay; everything else falls through to
+        // normal handling.
+        if (!arg.repeat
+            && MWAccessibility::Scanner::instance().handleKey(arg.keysym.scancode, arg.keysym.mod))
+        {
+            MWBase::Environment::get().getInputManager()->setJoystickLastUsed(false);
+            return;
+        }
+
         // HACK: to make default keybinding for the console work without printing an extra "^" upon closing
         // This assumes that SDL_TextInput events always come *after* the key event
         // (which is somewhat reasonable, and hopefully true for all SDL platforms)

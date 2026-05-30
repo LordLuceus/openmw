@@ -45,6 +45,13 @@ namespace MWGui
 
         bool mHasAnimatedMenu;
 
+        // True once the main menu has been hidden at least once (e.g. the
+        // loading wallpaper covered it). Used by the accessibility hooks to
+        // skip the very first setVisible(true) -- which on initial launch
+        // fires *before* the wallpaper pushes, so the announcement would be
+        // covered/duplicated by the time the wallpaper dismisses.
+        bool mAccessibilityHasBeenCovered = false;
+
     public:
         MainMenu(int w, int h, const VFS::Manager* vfs, const std::string& versionDescription);
 
@@ -68,6 +75,14 @@ namespace MWGui
         std::map<std::string, Gui::ImageButton*, std::less<>> mButtons;
 
         void onButtonClicked(MyGUI::Widget* sender);
+        // MyGUI focus callbacks. We speak the button name when it gains focus
+        // (either through keyboard navigation or mouse hover).
+        void onButtonKeyFocus(MyGUI::Widget* sender, MyGUI::Widget* oldFocus);
+        void onButtonMouseFocus(MyGUI::Widget* sender, MyGUI::Widget* oldFocus);
+        // Used by the accessibility hooks to detect when the menu was
+        // covered (e.g. by the intro video widget grabbing key focus) and
+        // is now becoming interactive again.
+        void onButtonKeyLostFocus(MyGUI::Widget* sender, MyGUI::Widget* newFocus);
         void onNewGameConfirmed();
         void onExitConfirmed();
 

@@ -11,6 +11,7 @@
 
 #include <SDL.h>
 
+#include <components/accessibility/accessibilitymanager.hpp>
 #include <components/debug/debuglog.hpp>
 #include <components/debug/gldebug.hpp>
 
@@ -54,6 +55,7 @@
 #include <components/settings/shadermanager.hpp>
 #include <components/settings/values.hpp>
 
+#include "mwaccessibility/scanner.hpp"
 #include "mwinput/inputmanagerimp.hpp"
 
 #include "mwgui/windowmanagerimp.hpp"
@@ -230,6 +232,13 @@ bool OMW::Engine::frame(unsigned frameNumber, float frametime)
             mLuaManager->synchronizedUpdate();
         }
 
+        // Tick the accessibility scanner after Lua sync so any actor-
+        // control writes the scanner makes (auto-walk forward + yaw)
+        // are NOT clobbered by the player-input Lua script for this
+        // frame, and so any auto-walk cancel triggered by movement
+        // keys this frame is applied before mechanics runs.
+        MWAccessibility::Scanner::instance().onFrame(frametime);
+
         // update game state
         {
             ScopedProfile<UserStatsType::State> profile(frameStart, frameNumber, *timer, *stats);
@@ -394,6 +403,10 @@ OMW::Engine::Engine(Files::ConfigurationManager& configurationManager)
             throw std::runtime_error("Could not initialize SDL! " + std::string(SDL_GetError()));
         }
     }
+
+    // Bring up the screen-reader / TTS backend as early as possible so anything
+    // emitted before the main loop (loading messages, errors, etc) can be spoken.
+    Accessibility::AccessibilityManager::instance().init();
 }
 
 OMW::Engine::~Engine()
@@ -437,6 +450,8 @@ OMW::Engine::~Engine()
     }
 
     SDL_Quit();
+
+    Accessibility::AccessibilityManager::instance().shutdown();
 
     Log(Debug::Info) << "Quitting peacefully.";
 }

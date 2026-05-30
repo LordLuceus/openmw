@@ -111,6 +111,10 @@ add_openmw_dir (mwstate
     statemanagerimp charactermanager character quicksavemanager
     )
 
+add_openmw_dir (mwaccessibility
+    scanner autowalker
+    )
+
 add_openmw_dir (mwbase
     environment world scriptmanager dialoguemanager journal soundmanager mechanicsmanager
     inputmanager windowmanager statemanager luamanager

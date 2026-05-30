@@ -5,6 +5,7 @@
 #include <MyGUI_RenderManager.h>
 #include <MyGUI_TextBox.h>
 
+#include <components/accessibility/accessibilitymanager.hpp>
 #include <components/misc/frameratelimiter.hpp>
 #include <components/settings/values.hpp>
 #include <components/vfs/manager.hpp>
@@ -26,6 +27,24 @@
 
 namespace MWGui
 {
+    namespace
+    {
+        // Main menu buttons are texture images rather than localised text, so
+        // we keep an in-tree mapping from button id to a spoken English label.
+        // TODO(a11y): move these into a proper L10n yaml once we wire L10n up.
+        std::string_view mainMenuButtonLabel(std::string_view id)
+        {
+            if (id == "return") return "Return";
+            if (id == "newgame") return "New Game";
+            if (id == "savegame") return "Save Game";
+            if (id == "loadgame") return "Load Game";
+            if (id == "options") return "Options";
+            if (id == "credits") return "Credits";
+            if (id == "exitgame") return "Exit Game";
+            return id;
+        }
+    }
+
     void MenuVideo::run()
     {
         Misc::FrameRateLimiter frameRateLimiter
@@ -142,7 +161,13 @@ namespace MWGui
             }
             else
                 MWBase::Environment::get().getWindowManager()->setKeyFocusWidget(mButtons["return"]);
+
         }
+        // Note: we deliberately do NOT reset mAccessibilityHasBeenCovered on
+        // setVisible(false). Once the menu has been covered (e.g. by the
+        // intro video) once in this session, every subsequent focus event
+        // (in-game pause, returning from a sub-window, etc.) is a genuine
+        // user-facing event we want to speak.
 
         Layout::setVisible(visible);
     }
@@ -206,6 +231,47 @@ namespace MWGui
         {
             winMgr->toggleSettingsWindow();
         }
+    }
+
+    void MainMenu::onButtonKeyFocus(MyGUI::Widget* sender, MyGUI::Widget* /*oldFocus*/)
+    {
+        if (!sender) return;
+        // Suppress speech until the menu has been *truly* active at least once.
+        // On initial launch, the engine pushes GM_MainMenu (which calls
+        // setKeyFocusWidget here, firing this event) *before* playVideo()
+        // grabs focus for the Bethesda intro. At that instant getMode()
+        // still reports GM_MainMenu but the user can't interact yet -- the
+        // video is about to cover us. mAccessibilityHasBeenCovered is set
+        // when one of our buttons loses key focus (i.e. the video grabbed
+        // it), so the next focus-gain after that is a genuine "menu is
+        // active now" event.
+        if (!mAccessibilityHasBeenCovered)
+            return;
+        if (MWBase::Environment::get().getWindowManager()->getMode() != MWGui::GM_MainMenu)
+            return;
+        const std::string& name = *sender->getUserData<std::string>();
+        Accessibility::AccessibilityManager::instance().speak(mainMenuButtonLabel(name));
+    }
+
+    void MainMenu::onButtonMouseFocus(MyGUI::Widget* sender, MyGUI::Widget* /*oldFocus*/)
+    {
+        if (!sender) return;
+        if (!mAccessibilityHasBeenCovered)
+            return;
+        if (MWBase::Environment::get().getWindowManager()->getMode() != MWGui::GM_MainMenu)
+            return;
+        const std::string& name = *sender->getUserData<std::string>();
+        Accessibility::AccessibilityManager::instance().speak(mainMenuButtonLabel(name));
+    }
+
+    void MainMenu::onButtonKeyLostFocus(MyGUI::Widget* /*sender*/, MyGUI::Widget* newFocus)
+    {
+        // Only treat this as "covered" if focus actually moved to a different
+        // widget (the intro video, a confirmation dialog, a sub-window). MyGUI
+        // also fires LostFocus when focus is cleared (newFocus == nullptr),
+        // which can happen transiently during menu setup; ignore those.
+        if (newFocus != nullptr)
+            mAccessibilityHasBeenCovered = true;
     }
 
     bool MainMenu::onControllerButtonEvent(const SDL_ControllerButtonEvent& arg)
@@ -333,6 +399,9 @@ namespace MWGui
                 button->setProperty("ImageNormal", "textures\\menu_" + buttonId + ".dds");
                 button->setProperty("ImagePushed", "textures\\menu_" + buttonId + "_pressed.dds");
                 button->eventMouseButtonClick += MyGUI::newDelegate(this, &MainMenu::onButtonClicked);
+                button->eventKeySetFocus += MyGUI::newDelegate(this, &MainMenu::onButtonKeyFocus);
+                button->eventMouseSetFocus += MyGUI::newDelegate(this, &MainMenu::onButtonMouseFocus);
+                button->eventKeyLostFocus += MyGUI::newDelegate(this, &MainMenu::onButtonKeyLostFocus);
                 button->setUserData(buttonId);
             }
         }

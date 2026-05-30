@@ -6,6 +6,7 @@
 #include <MyGUI_RenderManager.h>
 #include <MyGUI_UString.h>
 
+#include <components/accessibility/accessibilitymanager.hpp>
 #include <components/debug/debuglog.hpp>
 #include <components/misc/strings/algorithm.hpp>
 #include <components/settings/values.hpp>
@@ -100,6 +101,10 @@ namespace MWGui
         box->mCurrentTime = 0;
         auto realMessage = MyGUI::LanguageManager::getInstance().replaceTags({ message.data(), message.size() });
         box->mMaxTime = realMessage.length() * mMessageBoxSpeed;
+
+        // Speak the (resolved) message text via the active screen-reader backend.
+        // realMessage is a MyGUI::UString -- convert to std::string for Prism.
+        Accessibility::AccessibilityManager::instance().speak(realMessage.asUTF8(), /*interrupt=*/false);
 
         if (stat)
             mStaticMessageBox = box.get();
@@ -394,6 +399,25 @@ namespace MWGui
         }
 
         setVisible(true);
+
+        // Announce the modal: message body first, then each available
+        // choice as "<label>, button" -- mirroring how a screen reader
+        // describes a focused control (e.g. "Ok, button"). Use
+        // interrupt=true so a new modal doesn't queue behind a stale one.
+        {
+            std::string announcement = mMessageWidget->getCaption().asUTF8();
+            for (MyGUI::Button* button : mButtons)
+            {
+                if (!announcement.empty() && announcement.back() != '.')
+                    announcement += '.';
+                announcement += ' ';
+                announcement += button->getCaption().asUTF8();
+                announcement += ", button";
+            }
+            if (!announcement.empty() && announcement.back() != '.')
+                announcement += '.';
+            Accessibility::AccessibilityManager::instance().speak(announcement);
+        }
     }
 
     MyGUI::Widget* InteractiveMessageBox::getDefaultKeyFocus()
