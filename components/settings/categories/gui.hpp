@@ -30,6 +30,12 @@ namespace Settings
             makeClampSanitizerInt(0, 32766) };
         SettingValue<bool> mControllerTooltips{ mIndex, "GUI", "controller tooltips" };
         SettingValue<bool> mSubtitles{ mIndex, "GUI", "subtitles" };
+        // Accessibility: when true and mSubtitles is also true,
+        // subtitle text is spoken via the screen-reader backend
+        // (Prism). When false, subtitles are still shown on screen but
+        // not announced -- useful for sighted players who turned on
+        // subtitles only for the visual element.
+        SettingValue<bool> mReadSubtitlesAloud{ mIndex, "GUI", "read subtitles aloud" };
         SettingValue<bool> mHitFader{ mIndex, "GUI", "hit fader" };
         SettingValue<bool> mWerewolfOverlay{ mIndex, "GUI", "werewolf overlay" };
         SettingValue<MyGUI::Colour> mColorBackgroundOwned{ mIndex, "GUI", "color background owned" };

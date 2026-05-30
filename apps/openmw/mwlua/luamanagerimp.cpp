@@ -349,6 +349,9 @@ namespace MWLua
         for (const auto& [message, mode] : mUIMessages)
             windowManager->messageBox(message, mode);
         mUIMessages.clear();
+        for (const auto& message : mSubtitleMessages)
+            windowManager->subtitleBox(message);
+        mSubtitleMessages.clear();
         for (auto& [msg, color] : mInGameConsoleMessages)
             windowManager->printToConsole(msg, "#" + color.toHex());
         mInGameConsoleMessages.clear();

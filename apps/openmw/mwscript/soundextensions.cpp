@@ -9,6 +9,7 @@
 #include <components/settings/values.hpp>
 
 #include "../mwbase/environment.hpp"
+#include "../mwbase/windowmanager.hpp"
 #include "../mwbase/soundmanager.hpp"
 #include "../mwbase/world.hpp"
 
@@ -42,7 +43,7 @@ namespace MWScript
                 MWBase::Environment::get().getSoundManager()->say(ptr, Misc::ResourceHelpers::correctSoundPath(file));
 
                 if (Settings::gui().mSubtitles)
-                    context.messageBox(text);
+                    MWBase::Environment::get().getWindowManager()->subtitleBox(text);
             }
         };
 

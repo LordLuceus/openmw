@@ -1,6 +1,7 @@
 #include "settingswindow.hpp"
 
 #include <array>
+#include <cstdio>
 
 #include <unicode/locid.h>
 
@@ -15,6 +16,13 @@
 
 #include <SDL_video.h>
 
+#include <MyGUI_Button.h>
+#include <MyGUI_EditBox.h>
+#include <MyGUI_InputManager.h>
+#include <MyGUI_ListBox.h>
+#include <MyGUI_TextBox.h>
+
+#include <components/accessibility/accessibilitymanager.hpp>
 #include <components/debug/debuglog.hpp>
 #include <components/files/configurationmanager.hpp>
 #include <components/l10n/manager.hpp>
@@ -134,6 +142,59 @@ namespace
             box->setIndexSelected(MyGUI::ITEM_NONE);
     }
 
+    // Render a slider's current value as it would be displayed in its
+    // formatted label, for screen-reader announcement. Mirrors the
+    // value math in SettingsWindow::onSliderChangePosition.
+    std::string formatSliderValueForA11y(MyGUI::ScrollBar* scroll)
+    {
+        if (!scroll)
+            return {};
+        std::string_view valueType = getSettingValueType(scroll);
+        char buf[32]{};
+        if (valueType == "Float" || valueType == "Cell")
+        {
+            float min, max;
+            getSettingMinMax(scroll, min, max);
+            const size_t range = scroll->getScrollRange();
+            float value = range > 1 ? scroll->getScrollPosition() / float(range - 1) : 0.f;
+            value = min + (max - min) * value;
+            if (valueType == "Cell")
+                std::snprintf(buf, sizeof(buf), "%.2f cells", value / Constants::CellSizeInUnits);
+            else
+                std::snprintf(buf, sizeof(buf), "%.2f", value);
+            return buf;
+        }
+        if (valueType == "Integer")
+        {
+            float min, max;
+            getSettingMinMax(scroll, min, max);
+            const size_t range = scroll->getScrollRange();
+            float value = range > 1 ? scroll->getScrollPosition() / float(range - 1) : 0.f;
+            int intVal = static_cast<int>(min + (max - min) * value);
+            std::snprintf(buf, sizeof(buf), "%d", intVal);
+            return buf;
+        }
+        // Default: the scroll position itself is the integer value
+        // (e.g. difficulty in [-100..100] mapped 0..200).
+        std::snprintf(buf, sizeof(buf), "%d", static_cast<int>(scroll->getScrollPosition()));
+        return buf;
+    }
+
+    // Push a string to the screen reader, resolving any MyGUI #{...}
+    // L10n tags first and queuing rather than interrupting so successive
+    // focus / value events don't clobber each other.
+    void speakA11y(const std::string& text)
+    {
+        if (text.empty())
+            return;
+        auto resolved
+            = MyGUI::LanguageManager::getInstance().replaceTags(MyGUI::UString(text));
+        std::string utf8 = resolved.asUTF8();
+        if (utf8.empty())
+            return;
+        Accessibility::AccessibilityManager::instance().speak(utf8, /*interrupt=*/false);
+    }
+
     void updateSliderLabel(MyGUI::ScrollBar* scroller, MyGUI::TextBox* textBox,
         const std::vector<icu::UnicodeString>& argNames, const std::vector<icu::Formattable>& args)
     {
@@ -242,6 +303,279 @@ namespace MWGui
             return textBox;
         }
         return nullptr;
+    }
+
+    std::string SettingsWindow::resolveAccessibilityLabel(MyGUI::Widget* widget) const
+    {
+        if (!widget)
+            return {};
+
+        // Sliders: their captioned counterpart lives in the
+        // SettingLabelWidget UserString. When set, prefer the
+        // formatted label text (e.g. "Difficulty: 0").
+        if (auto* scroll = widget->castType<MyGUI::ScrollBar>(false))
+        {
+            if (auto* lbl = getSliderLabel(scroll))
+            {
+                std::string cap = lbl->getCaption();
+                if (!cap.empty())
+                    return cap;
+            }
+        }
+
+        // Checkbox toggles have their own caption set to the
+        // On / Off state, so the descriptive label is a sibling
+        // TextBox in the same parent layout. Sliders/combos usually
+        // sit *after* their heading; checkboxes usually sit *before*
+        // their text. Search both directions and return the first
+        // non-empty, non-state sibling caption.
+        const std::string onText = MWBase::Environment::get()
+                                       .getL10nManager()
+                                       ->getMessage("Interface", "On");
+        const std::string offText = MWBase::Environment::get()
+                                        .getL10nManager()
+                                        ->getMessage("Interface", "Off");
+        auto siblingCaption = [&](MyGUI::Widget* w) -> std::string {
+            auto* tb = w->castType<MyGUI::TextBox>(false);
+            if (!tb)
+                return {};
+            std::string cap = tb->getCaption();
+            if (cap.empty() || cap == onText || cap == offText)
+                return {};
+            return cap;
+        };
+
+        if (auto* parent = widget->getParent())
+        {
+            size_t count = parent->getChildCount();
+            size_t selfIndex = count;
+            for (size_t i = 0; i < count; ++i)
+            {
+                if (parent->getChildAt(i) == widget)
+                {
+                    selfIndex = i;
+                    break;
+                }
+            }
+            // Walk backwards first (sliders, combos): the heading
+            // TextBox is usually the closest preceding sibling.
+            for (size_t i = selfIndex; i > 0; --i)
+            {
+                std::string cap = siblingCaption(parent->getChildAt(i - 1));
+                if (!cap.empty())
+                    return cap;
+            }
+            // Then forwards (checkbox toggles inside an HBox).
+            for (size_t i = selfIndex + 1; i < count; ++i)
+            {
+                std::string cap = siblingCaption(parent->getChildAt(i));
+                if (!cap.empty())
+                    return cap;
+            }
+        }
+
+        // Fallback: the widget's own caption (works for plain buttons
+        // like OK / Reset / Keyboard / Controller, plus tab items).
+        if (auto* tb = widget->castType<MyGUI::TextBox>(false))
+            return tb->getCaption();
+        return {};
+    }
+
+    void SettingsWindow::onWidgetKeyFocus(MyGUI::Widget* sender, MyGUI::Widget* /*oldFocus*/)
+    {
+        if (!sender || !mMainWidget->getVisible())
+            return;
+
+        std::string label = resolveAccessibilityLabel(sender);
+        speakA11y(label);
+
+        // For a CheckButton, also speak the current On/Off state so the
+        // user knows whether toggling will turn it on or off.
+        if (getSettingType(sender) == checkButtonType)
+        {
+            if (auto* btn = sender->castType<MyGUI::Button>(false))
+                speakA11y(btn->getCaption());
+        }
+
+        // For a slider, announce the current value. Sliders with a
+        // SettingLabelWidget already bake the value into their label
+        // text (e.g. "Difficulty: 0") which was just spoken; for the
+        // rest (master volume, tooltip delay, FOV...) speak it
+        // explicitly so the user knows what they're starting from.
+        if (getSettingType(sender) == sliderType)
+        {
+            auto* scroll = sender->castType<MyGUI::ScrollBar>(false);
+            if (scroll && getSliderLabel(scroll) == nullptr)
+                speakA11y(formatSliderValueForA11y(scroll));
+        }
+    }
+
+    void SettingsWindow::onComboValueAnnounce(MyGUI::ComboBox* sender, size_t pos)
+    {
+        if (!sender || !mMainWidget->getVisible())
+            return;
+        if (pos == MyGUI::ITEM_NONE || pos >= sender->getItemCount())
+            return;
+        speakA11y(sender->getItemNameAt(pos));
+    }
+
+    void SettingsWindow::onListValueAnnounce(MyGUI::ListBox* sender, size_t pos)
+    {
+        if (!sender || !mMainWidget->getVisible())
+            return;
+        if (pos == MyGUI::ITEM_NONE || pos >= sender->getItemCount())
+            return;
+        speakA11y(sender->getItemNameAt(pos));
+    }
+
+    void SettingsWindow::onTabAnnounce(MyGUI::TabControl* sender, size_t index)
+    {
+        if (!sender || !mMainWidget->getVisible())
+            return;
+        if (index >= sender->getItemCount())
+            return;
+        speakA11y(sender->getItemNameAt(index));
+    }
+
+    void SettingsWindow::hookAccessibilityEvents(MyGUI::Widget* root)
+    {
+        if (!root)
+            return;
+        MyGUI::EnumeratorWidgetPtr it = root->getEnumerator();
+        while (it.next())
+        {
+            MyGUI::Widget* current = it.current();
+
+            // Sliders (ScrollBar with SettingType=Slider) default to
+            // not-focusable in the layout, so they're skipped by Tab
+            // navigation. Force them focusable here and intercept
+            // arrow / Home / End / PgUp / PgDn to step the value.
+            if (getSettingType(current) == sliderType)
+            {
+                current->setNeedKeyFocus(true);
+                current->eventKeyButtonPressed
+                    += MyGUI::newDelegate(this, &SettingsWindow::onSliderKeyPressed);
+            }
+
+            if (current->getNeedKeyFocus())
+            {
+                current->eventKeySetFocus
+                    += MyGUI::newDelegate(this, &SettingsWindow::onWidgetKeyFocus);
+                // Catch tab-navigation shortcuts (Ctrl+Tab,
+                // Ctrl+PgUp/PgDn) regardless of which widget is
+                // currently focused.
+                current->eventKeyButtonPressed
+                    += MyGUI::newDelegate(this, &SettingsWindow::onAccessibilityKeyPressed);
+            }
+
+            // Combo boxes: announce the newly-selected item.
+            if (auto* combo = current->castType<MyGUI::ComboBox>(false))
+                combo->eventComboChangePosition
+                    += MyGUI::newDelegate(this, &SettingsWindow::onComboValueAnnounce);
+            // List boxes: same.
+            else if (auto* list = current->castType<MyGUI::ListBox>(false))
+                list->eventListChangePosition
+                    += MyGUI::newDelegate(this, &SettingsWindow::onListValueAnnounce);
+
+            hookAccessibilityEvents(current);
+        }
+    }
+
+    void SettingsWindow::onAccessibilityKeyPressed(
+        MyGUI::Widget* sender, MyGUI::KeyCode key, MyGUI::Char /*ch*/)
+    {
+        if (!mMainWidget->getVisible() || !mSettingsTab)
+            return;
+
+        // Skip if the user is typing in an edit box.
+        if (sender && sender->castType<MyGUI::EditBox>(false) != nullptr)
+            return;
+
+        const bool ctrl = MyGUI::InputManager::getInstance().isControlPressed();
+
+        // Ctrl+Left / Ctrl+Right cycles between settings tabs (Audio,
+        // Video, Controls, Prefs, ...). Plain Left/Right is reserved
+        // for adjusting slider values.
+        if (ctrl
+            && (key == MyGUI::KeyCode::ArrowLeft || key == MyGUI::KeyCode::ArrowRight))
+        {
+            const size_t count = mSettingsTab->getItemCount();
+            if (count == 0)
+                return;
+            int delta = key == MyGUI::KeyCode::ArrowRight ? 1 : -1;
+            size_t current = mSettingsTab->getIndexSelected();
+            size_t next = (current + count + delta) % count;
+            if (next == current)
+                return;
+            mSettingsTab->setIndexSelected(next);
+            // setIndexSelected doesn't fire eventTabChangeSelect, so
+            // run our hooks manually -- announcement + onTabChanged
+            // plumbing.
+            onTabChanged(mSettingsTab, next);
+            onTabAnnounce(mSettingsTab, next);
+            return;
+        }
+
+        // Up / Down moves focus between options on the current tab.
+        // OpenMW's built-in KeyboardNavigation only does spatial
+        // arrow-nav between buttons, so for sliders / combos we have
+        // to translate to Tab / Shift+Tab which it handles for all
+        // focusable widgets.
+        if (key == MyGUI::KeyCode::ArrowDown)
+        {
+            MWBase::Environment::get().getWindowManager()->injectKeyPress(
+                MyGUI::KeyCode::Tab, 0, false);
+        }
+        else if (key == MyGUI::KeyCode::ArrowUp)
+        {
+            MyGUI::InputManager::getInstance().injectKeyPress(
+                MyGUI::KeyCode::LeftShift, 0);
+            MWBase::Environment::get().getWindowManager()->injectKeyPress(
+                MyGUI::KeyCode::Tab, 0, false);
+            MyGUI::InputManager::getInstance().injectKeyRelease(
+                MyGUI::KeyCode::LeftShift);
+        }
+    }
+
+    void SettingsWindow::onSliderKeyPressed(
+        MyGUI::Widget* sender, MyGUI::KeyCode key, MyGUI::Char /*ch*/)
+    {
+        auto* scroll = sender->castType<MyGUI::ScrollBar>(false);
+        if (!scroll)
+            return;
+        // ScrollRange is exclusive upper bound. Compute step sizes from
+        // the bar's configured Page so coarse / fine controls roughly
+        // mirror how a mouse drag feels.
+        const size_t range = scroll->getScrollRange();
+        if (range == 0)
+            return;
+        const size_t maxIndex = range - 1;
+        const size_t page = std::max<size_t>(1, scroll->getScrollPage());
+        const size_t fine = std::max<size_t>(1, page / 10);
+
+        size_t pos = scroll->getScrollPosition();
+        size_t newPos = pos;
+        if (key == MyGUI::KeyCode::ArrowLeft)
+            newPos = pos > fine ? pos - fine : 0;
+        else if (key == MyGUI::KeyCode::ArrowRight)
+            newPos = std::min(maxIndex, pos + fine);
+        else if (key == MyGUI::KeyCode::PageDown)
+            newPos = pos > page ? pos - page : 0;
+        else if (key == MyGUI::KeyCode::PageUp)
+            newPos = std::min(maxIndex, pos + page);
+        else if (key == MyGUI::KeyCode::Home)
+            newPos = 0;
+        else if (key == MyGUI::KeyCode::End)
+            newPos = maxIndex;
+        else
+            return;
+        if (newPos == pos)
+            return;
+        scroll->setScrollPosition(newPos);
+        // setScrollPosition does NOT fire eventScrollChangePosition, so
+        // run the existing handler manually so settings are persisted
+        // and the value is spoken.
+        onSliderChangePosition(scroll, newPos);
     }
 
     SettingsWindow::SettingsWindow(Files::ConfigurationManager& cfgMgr)
@@ -461,6 +795,11 @@ namespace MWGui
         mControllerButtons.mA = "#{Interface:Select}";
         mControllerButtons.mB = "#{Interface:OK}";
         mControllerButtons.mLStick = "#{Interface:Mouse}";
+
+        // Wire up screen-reader focus announcements last so every widget
+        // we created above is hooked in a single recursive pass.
+        hookAccessibilityEvents(mMainWidget);
+        mSettingsTab->eventTabChangeSelect += MyGUI::newDelegate(this, &SettingsWindow::onTabAnnounce);
     }
 
     void SettingsWindow::onTabChanged(MyGUI::TabControl* /*sender*/, size_t /*index*/)
@@ -688,6 +1027,11 @@ namespace MWGui
         if (getSettingType(sender) == checkButtonType)
         {
             Settings::get<bool>(getSettingCategory(sender), getSettingName(sender)).set(newState);
+            // Announce the new toggle state ("On" / "Off") so the
+            // screen-reader user knows what they just selected. Use
+            // the displayed caption since it's already localized.
+            if (mMainWidget->getVisible())
+                speakA11y(sender->castType<MyGUI::Button>()->getCaption());
             apply();
             return;
         }
@@ -764,7 +1108,21 @@ namespace MWGui
                 argNames.emplace_back("value");
                 args.emplace_back(intValue);
             }
-            updateSliderLabel(scroller, getSliderLabel(scroller), argNames, args);
+            MyGUI::TextBox* sliderLabel = getSliderLabel(scroller);
+            updateSliderLabel(scroller, sliderLabel, argNames, args);
+
+            // Announce the new value. For sliders that bake the value
+            // into a tagged label TextBox (e.g. "Difficulty: -25") we
+            // speak the whole formatted caption; otherwise we just
+            // speak the bare number so adjusting master volume etc.
+            // reads as "0.75", "0.80", etc.
+            if (mMainWidget->getVisible())
+            {
+                if (sliderLabel != nullptr)
+                    speakA11y(sliderLabel->getCaption());
+                else
+                    speakA11y(formatSliderValueForA11y(scroller));
+            }
 
             apply();
         }

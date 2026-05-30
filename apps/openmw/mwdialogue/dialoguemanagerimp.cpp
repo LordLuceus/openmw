@@ -653,7 +653,7 @@ namespace MWDialogue
         {
             MWBase::WindowManager* winMgr = MWBase::Environment::get().getWindowManager();
             if (Settings::gui().mSubtitles)
-                winMgr->messageBox(info->mResponse);
+                winMgr->subtitleBox(info->mResponse);
             if (!info->mSound.empty())
                 sndMgr->say(actor, Misc::ResourceHelpers::correctSoundPath(VFS::Path::Normalized(info->mSound)));
             if (!info->mResultScript.empty())

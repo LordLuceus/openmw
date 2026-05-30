@@ -130,6 +130,16 @@
                 </Widget>
                 <Widget type="HBox" position="4 340 340 28">
                     <Widget type="AutoSizedButton" skin="MW_Button" position="0 0 24 24" align="Left Top">
+                        <UserString key="SettingCategory" value="GUI"/>
+                        <UserString key="SettingName" value="read subtitles aloud"/>
+                        <UserString key="SettingType" value="CheckButton"/>
+                    </Widget>
+                    <Widget type="AutoSizedTextBox" skin="SandText" position="28 4 160 16" align="Left Top">
+                        <Property key="Caption" value="#{OMWEngine:ReadSubtitlesAloud}"/>
+                    </Widget>
+                </Widget>
+                <Widget type="HBox" position="4 370 340 28">
+                    <Widget type="AutoSizedButton" skin="MW_Button" position="0 0 24 24" align="Left Top">
                         <UserString key="SettingCategory" value="HUD"/>
                         <UserString key="SettingName" value="crosshair"/>
                         <UserString key="SettingType" value="CheckButton"/>

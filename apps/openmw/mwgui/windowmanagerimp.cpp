@@ -837,6 +837,14 @@ namespace MWGui
         mScheduledMessageBoxes.lock()->emplace_back(std::move(message), showInDialogueMode);
     }
 
+    void WindowManager::subtitleBox(std::string_view message)
+    {
+        // Subtitles always show on screen (visual). createMessageBox
+        // will skip the screen-reader announcement if "read subtitles
+        // aloud" is off.
+        mMessageBoxManager->createMessageBox(message, /*stat=*/false, /*isSubtitle=*/true);
+    }
+
     void WindowManager::staticMessageBox(std::string_view message)
     {
         mMessageBoxManager->createMessageBox(message, true);

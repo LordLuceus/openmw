@@ -23,7 +23,12 @@ namespace MWGui
         MessageBoxManager(float timePerChar);
         ~MessageBoxManager();
         void onFrame(float frameDuration);
-        void createMessageBox(std::string_view message, bool stat = false);
+        // isSubtitle: this message originated from the dialogue /
+        // sound-subtitles system. When true, screen-reader speech is
+        // gated on the Settings::gui().mReadSubtitlesAloud flag so
+        // sighted players who only want the visual subtitles do not
+        // get them narrated as well.
+        void createMessageBox(std::string_view message, bool stat = false, bool isSubtitle = false);
         void removeStaticMessageBox();
         bool createInteractiveMessageBox(std::string_view message, const std::vector<std::string>& buttons,
             bool immediate = false, int defaultFocus = -1);

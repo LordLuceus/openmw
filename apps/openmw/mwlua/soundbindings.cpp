@@ -187,7 +187,7 @@ namespace MWLua
             = [luaManager = context.mLuaManager](std::string_view fileName, sol::optional<std::string_view> text) {
                   MWBase::Environment::get().getSoundManager()->say(VFS::Path::Normalized(fileName));
                   if (text && Settings::gui().mSubtitles)
-                      luaManager->addUIMessage(*text);
+                      luaManager->addSubtitleMessage(*text);
               };
 
         api["stopSay"] = []() { MWBase::Environment::get().getSoundManager()->stopSay(MWWorld::ConstPtr()); };
@@ -261,7 +261,7 @@ namespace MWLua
             MWWorld::Ptr ptr = getMutablePtrOrThrow(ObjectVariant(object));
             MWBase::Environment::get().getSoundManager()->say(ptr, VFS::Path::Normalized(fileName));
             if (text && Settings::gui().mSubtitles)
-                luaManager->addUIMessage(*text);
+                luaManager->addSubtitleMessage(*text);
         };
         api["stopSay"] = [](const sol::object& object) {
             MWWorld::Ptr ptr = getMutablePtrOrThrow(ObjectVariant(object));

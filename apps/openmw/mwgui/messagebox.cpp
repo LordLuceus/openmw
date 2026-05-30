@@ -95,7 +95,7 @@ namespace MWGui
         }
     }
 
-    void MessageBoxManager::createMessageBox(std::string_view message, bool stat)
+    void MessageBoxManager::createMessageBox(std::string_view message, bool stat, bool isSubtitle)
     {
         auto box = std::make_unique<MessageBox>(*this, message);
         box->mCurrentTime = 0;
@@ -104,7 +104,12 @@ namespace MWGui
 
         // Speak the (resolved) message text via the active screen-reader backend.
         // realMessage is a MyGUI::UString -- convert to std::string for Prism.
-        Accessibility::AccessibilityManager::instance().speak(realMessage.asUTF8(), /*interrupt=*/false);
+        // Subtitles are gated on a separate "read subtitles aloud" toggle so
+        // they don't surprise sighted users who enabled subtitles for the
+        // visual element only.
+        const bool announce = !isSubtitle || Settings::gui().mReadSubtitlesAloud;
+        if (announce)
+            Accessibility::AccessibilityManager::instance().speak(realMessage.asUTF8(), /*interrupt=*/false);
 
         if (stat)
             mStaticMessageBox = box.get();

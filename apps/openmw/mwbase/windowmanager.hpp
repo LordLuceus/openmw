@@ -252,6 +252,10 @@ namespace MWBase
         virtual void messageBox(std::string_view message,
             enum MWGui::ShowInDialogueMode showInDialogueMode = MWGui::ShowInDialogueMode_IfPossible)
             = 0;
+        /// Display a subtitle for spoken dialogue or a sound effect. Behaves
+        /// like messageBox visually, but screen-reader announcement is gated
+        /// on the Settings::gui().mReadSubtitlesAloud accessibility flag.
+        virtual void subtitleBox(std::string_view message) = 0;
         /// Puts message into a queue to show on the next update. Thread safe alternative for messageBox.
         virtual void scheduleMessageBox(std::string message,
             enum MWGui::ShowInDialogueMode showInDialogueMode = MWGui::ShowInDialogueMode_IfPossible)

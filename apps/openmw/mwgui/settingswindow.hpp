@@ -1,6 +1,9 @@
 #ifndef MWGUI_SETTINGS_H
 #define MWGUI_SETTINGS_H
 
+#include <MyGUI_KeyCode.h>
+#include <MyGUI_Types.h>
+
 #include <components/files/configurationmanager.hpp>
 #include <components/lua_ui/adapter.hpp>
 
@@ -112,6 +115,18 @@ namespace MWGui
 
         void onScriptFilterChange(MyGUI::EditBox*);
         void onScriptListSelection(MyGUI::ListBox*, size_t index);
+
+        // Screen-reader hooks. Announces the focused widget's label on
+        // focus change, and just the new value on slider/combo/toggle
+        // adjustments.
+        void onWidgetKeyFocus(MyGUI::Widget* sender, MyGUI::Widget* oldFocus);
+        void onComboValueAnnounce(MyGUI::ComboBox* sender, size_t pos);
+        void onListValueAnnounce(MyGUI::ListBox* sender, size_t pos);
+        void onTabAnnounce(MyGUI::TabControl* sender, size_t index);
+        void hookAccessibilityEvents(MyGUI::Widget* root);
+        std::string resolveAccessibilityLabel(MyGUI::Widget* widget) const;
+        void onSliderKeyPressed(MyGUI::Widget* sender, MyGUI::KeyCode key, MyGUI::Char ch);
+        void onAccessibilityKeyPressed(MyGUI::Widget* sender, MyGUI::KeyCode key, MyGUI::Char ch);
 
         void apply();
 

@@ -126,6 +126,13 @@ namespace MWLua
         {
             mUIMessages.emplace_back(message, mode);
         }
+        // Queued subtitles. Drained on the next sync; routed through
+        // WindowManager::subtitleBox so screen-reader announcement is
+        // gated on the "read subtitles aloud" accessibility flag.
+        void addSubtitleMessage(std::string_view message)
+        {
+            mSubtitleMessages.emplace_back(message);
+        }
         void addInGameConsoleMessage(const std::string& msg, const Misc::Color& color)
         {
             mInGameConsoleMessages.push_back({ msg, color });
@@ -247,6 +254,7 @@ namespace MWLua
         std::vector<DelayedAction> mActionQueue;
         std::optional<DelayedAction> mTeleportPlayerAction;
         std::vector<std::pair<std::string, MWGui::ShowInDialogueMode>> mUIMessages;
+        std::vector<std::string> mSubtitleMessages;
         std::vector<std::pair<std::string, Misc::Color>> mInGameConsoleMessages;
         std::optional<ObjectId> mDelayedUiModeChangedArg;
 

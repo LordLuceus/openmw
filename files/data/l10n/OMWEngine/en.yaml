@@ -194,6 +194,7 @@ SecondaryLanguageTooltip: "Localization files for this language may be used if t
 SensitivityHigh: "High"
 SensitivityLow: "Low"
 SettingsWindow: "Options"
+ReadSubtitlesAloud: "Read subtitles aloud"
 Subtitles: "Subtitles"
 SunlightScattering: "Sunlight Scattering"
 TestingExteriorCells: "Testing Exterior Cells"
