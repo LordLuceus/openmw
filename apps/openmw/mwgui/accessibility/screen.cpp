@@ -1,7 +1,5 @@
 #include "screen.hpp"
 
-#include <algorithm>
-
 #include <MyGUI_InputManager.h>
 #include <MyGUI_Widget.h>
 
@@ -28,15 +26,39 @@ namespace MWGui::A11y
         return UiManager::instance().isActive(this);
     }
 
+    void Screen::setVirtualFocus(MyGUI::Widget* anchor)
+    {
+        mVirtual = true;
+        mAnchor = anchor;
+        // Tell the engine's keyboard navigation not to consume Tab when our
+        // anchor holds focus, so Tab reaches our own key handler (used for tab
+        // cycling). In virtual mode we deliberately leave engine navigation
+        // *enabled* -- it is inert for our keys (the anchor is not a Button, so
+        // arrows/Enter/Tab all fall through to us) but must stay on so native
+        // modal dialogs (confirmation / message boxes) keep working.
+        if (anchor)
+            anchor->setUserString("AcceptTab", "true");
+    }
+
     void Screen::add(Element element)
     {
         if (!element.widget)
             return;
 
         MyGUI::Widget* widget = element.widget;
-        widget->setNeedKeyFocus(true);
-        widget->eventKeySetFocus += MyGUI::newDelegate(this, &Screen::onKeyFocus);
-        widget->eventKeyButtonPressed += MyGUI::newDelegate(this, &Screen::onKey);
+        if (mVirtual)
+        {
+            // The option widgets must never grab key focus themselves -- the
+            // anchor owns it -- otherwise native controls (ListBox, ComboBox,
+            // ScrollBar) would consume the arrow keys we use for navigation.
+            widget->setNeedKeyFocus(false);
+        }
+        else
+        {
+            widget->setNeedKeyFocus(true);
+            widget->eventKeySetFocus += MyGUI::newDelegate(this, &Screen::onKeyFocus);
+            widget->eventKeyButtonPressed += MyGUI::newDelegate(this, &Screen::onKey);
+        }
 
         mElements.push_back(std::move(element));
     }
@@ -44,144 +66,237 @@ namespace MWGui::A11y
     void Screen::clear()
     {
         mElements.clear();
-        mTooltipWidget = nullptr;
+        mCurrent = npos;
+        mTooltipElement = npos;
         mTooltipLines.clear();
-        mHintWidget = nullptr;
+        mHintElement = npos;
     }
 
     const Element* Screen::find(MyGUI::Widget* widget) const
     {
-        auto it = std::find_if(mElements.begin(), mElements.end(),
-            [widget](const Element& e) { return e.widget == widget; });
-        return it == mElements.end() ? nullptr : &*it;
+        const size_t index = indexOf(widget);
+        return index == npos ? nullptr : &mElements[index];
     }
 
-    const Element* Screen::focusedElement() const
+    size_t Screen::indexOf(MyGUI::Widget* widget) const
     {
-        return find(MyGUI::InputManager::getInstance().getKeyFocusWidget());
+        for (size_t i = 0; i < mElements.size(); ++i)
+            if (mElements[i].widget == widget)
+                return i;
+        return npos;
+    }
+
+    const Element* Screen::current() const
+    {
+        return mCurrent < mElements.size() ? &mElements[mCurrent] : nullptr;
+    }
+
+    bool Screen::isUsable(size_t index) const
+    {
+        if (index >= mElements.size())
+            return false;
+        MyGUI::Widget* widget = mElements[index].widget;
+        return widget && widget->getInheritedVisible() && widget->getInheritedEnabled();
     }
 
     void Screen::activate(MyGUI::Widget* initialFocus)
     {
         UiManager::instance().setActive(this);
 
-        if (mDisableEngineNav)
+        // Only real-focus screens turn engine navigation off (so its spatial nav
+        // can't fight ours). Virtual-focus screens leave it ON: it's inert for
+        // our keys -- the non-Button anchor lets arrows/Enter/Tab fall through
+        // to us -- but must stay enabled so native modal dialogs keep working.
+        if (mDisableEngineNav && !mVirtual)
             MWBase::Environment::get().getWindowManager()->setKeyboardNavigationEnabled(false);
 
-        MyGUI::Widget* target = initialFocus;
-        if (!target && !mElements.empty())
-            target = mElements.front().widget;
-        if (!target)
-            return;
+        // In virtual mode, pin real key focus to the anchor and keep it there.
+        if (mVirtual && mAnchor)
+        {
+            // Remember who had focus so we can hand it back on close.
+            mPreFocus = MyGUI::InputManager::getInstance().getKeyFocusWidget();
+            mAnchor->setNeedKeyFocus(true);
+            // Re-bind the key delegate fresh each activation. MyGUI throws
+            // "Trying to add same delegate twice" if we += an identical
+            // delegate, so always remove any prior binding first (deactivate
+            // also clears it, but this is belt-and-suspenders for safety).
+            mAnchor->eventKeyButtonPressed -= MyGUI::newDelegate(this, &Screen::onKey);
+            mAnchor->eventKeyButtonPressed += MyGUI::newDelegate(this, &Screen::onKey);
+            MWBase::Environment::get().getWindowManager()->setKeyFocusWidget(mAnchor);
+        }
 
-        setFocus(target);
+        const size_t index = initialFocus ? indexOf(initialFocus) : npos;
+        if (index != npos && isUsable(index))
+            select(index, /*announce=*/true);
+        else
+            focusFirst();
     }
 
     void Screen::deactivate()
     {
         UiManager::instance().clear(this);
-        if (mDisableEngineNav)
+        if (mDisableEngineNav && !mVirtual)
             MWBase::Environment::get().getWindowManager()->setKeyboardNavigationEnabled(true);
-        mHintWidget = nullptr;
+        if (mVirtual && mAnchor)
+        {
+            // Unhook the anchor key delegate so the next activate() can re-add
+            // it without MyGUI throwing "Trying to add same delegate twice".
+            mAnchor->eventKeyButtonPressed -= MyGUI::newDelegate(this, &Screen::onKey);
+
+            // Hand key focus back to whoever held it before we opened (e.g. the
+            // main-menu Options button), so the opener regains keyboard control
+            // and the screen reader announces it. We do this only if the anchor
+            // still holds focus -- if a modal or something else grabbed it in
+            // the meantime, leave that alone.
+            // Hand key focus back to whoever held it before we opened (e.g. the
+            // main-menu Options button), so the opener regains keyboard control
+            // and the screen reader announces it. Restore when focus currently
+            // rests on our anchor OR has been cleared to null -- which is what
+            // happens here: hiding the settings window makes the anchor
+            // invisible, so MyGUI drops key focus to null right before this
+            // runs. Only skip if some *other* widget deliberately took focus.
+            MyGUI::Widget* curFocus = MyGUI::InputManager::getInstance().getKeyFocusWidget();
+            const bool focusFree = (curFocus == nullptr || curFocus == mAnchor);
+            if (mPreFocus && mPreFocus->getInheritedVisible() && mPreFocus->getInheritedEnabled() && focusFree)
+                MWBase::Environment::get().getWindowManager()->setKeyFocusWidget(mPreFocus);
+        }
+        mPreFocus = nullptr;
+        // Tear down all per-session state so reopening the screen starts fresh
+        // (selection reset, hint cleared) and re-announces the first option.
+        clear();
+        mYieldedToModal = false;
     }
 
-    void Screen::announce(const Element& element, bool withValue)
+    void Screen::announce(const Element& element)
     {
+        // A dynamic describe() callback fully replaces the label + value
+        // announcement (used by screens whose names are computed at runtime).
+        if (element.describe)
+        {
+            say(element.describe());
+            return;
+        }
         if (!element.label.empty())
             say(element.label);
-        if (withValue && element.value)
+        if (element.value)
             say(element.value());
     }
 
-    void Screen::announceFocused()
+    void Screen::announceCurrent()
     {
-        if (const Element* element = focusedElement())
-            announce(*element, /*withValue=*/true);
+        if (const Element* element = current())
+            announce(*element);
     }
 
-    void Screen::setFocus(MyGUI::Widget* widget)
+    MyGUI::Widget* Screen::currentWidget() const
     {
-        const Element* element = find(widget);
-        if (!element)
-            return;
-        // Suppress the focus-event announcement we're about to trigger, then
-        // announce exactly once here. This keeps a single, predictable
-        // announcement whether or not setKeyFocusWidget actually fires
-        // eventKeySetFocus (it won't if the widget is already focused).
-        mSuppressFocusAnnounce = true;
-        MWBase::Environment::get().getWindowManager()->setKeyFocusWidget(widget);
-        mSuppressFocusAnnounce = false;
-
-        announce(*element, /*withValue=*/true);
-        resetHint(widget);
+        const Element* element = current();
+        return element ? element->widget : nullptr;
     }
 
-    void Screen::onKeyFocus(MyGUI::Widget* sender, MyGUI::Widget* /*oldFocus*/)
+    void Screen::select(size_t index, bool doAnnounce)
     {
-        if (!isActive() || !sender || mSuppressFocusAnnounce)
+        if (index >= mElements.size())
             return;
-        if (const Element* element = find(sender))
+        mCurrent = index;
+
+        if (!mVirtual)
         {
-            announce(*element, /*withValue=*/true);
-            resetHint(sender);
+            // Drive real MyGUI focus, suppressing the focus-event announcement
+            // so we announce exactly once below.
+            mSuppressFocusAnnounce = true;
+            MWBase::Environment::get().getWindowManager()->setKeyFocusWidget(mElements[index].widget);
+            mSuppressFocusAnnounce = false;
         }
+
+        if (doAnnounce)
+            announce(mElements[index]);
+        resetHint();
     }
 
     void Screen::focus(MyGUI::Widget* widget)
     {
-        setFocus(widget);
+        const size_t index = indexOf(widget);
+        if (index != npos)
+            select(index, /*announce=*/true);
     }
 
-    void Screen::moveFocus(int delta)
+    void Screen::focusFirst(bool doAnnounce)
     {
-        if (mElements.empty())
-            return;
-        MyGUI::Widget* current = MyGUI::InputManager::getInstance().getKeyFocusWidget();
-        auto it = std::find_if(mElements.begin(), mElements.end(),
-            [current](const Element& e) { return e.widget == current; });
-
-        size_t index = 0;
-        if (it != mElements.end())
+        for (size_t i = 0; i < mElements.size(); ++i)
         {
-            const size_t count = mElements.size();
-            const size_t cur = static_cast<size_t>(it - mElements.begin());
-            index = (cur + count + delta) % count;
+            if (isUsable(i))
+            {
+                select(i, doAnnounce);
+                return;
+            }
         }
-        focus(mElements[index].widget);
+        // Nothing focusable right now (e.g. an empty tab).
+        mCurrent = npos;
+    }
+
+    void Screen::onKeyFocus(MyGUI::Widget* sender, MyGUI::Widget* /*oldFocus*/)
+    {
+        if (!isActive() || !sender || mSuppressFocusAnnounce || mVirtual)
+            return;
+        const size_t index = indexOf(sender);
+        if (index != npos)
+            select(index, /*announce=*/true);
+    }
+
+    void Screen::moveSelection(int delta)
+    {
+        const std::ptrdiff_t count = static_cast<std::ptrdiff_t>(mElements.size());
+        if (count == 0)
+            return;
+
+        const std::ptrdiff_t start = (mCurrent == npos) ? -1 : static_cast<std::ptrdiff_t>(mCurrent);
+
+        // Step in the requested direction, skipping hidden/disabled options
+        // (e.g. options on a non-active tab). At most one full loop so we never
+        // spin on an all-hidden screen.
+        for (std::ptrdiff_t step = 1; step <= count; ++step)
+        {
+            std::ptrdiff_t index = start + delta * step;
+            index = ((index % count) + count) % count;
+            if (isUsable(static_cast<size_t>(index)))
+            {
+                select(static_cast<size_t>(index), /*announce=*/true);
+                return;
+            }
+        }
     }
 
     void Screen::changeValue(bool next)
     {
-        const Element* element = focusedElement();
+        const Element* element = current();
         if (!element || !element->change)
             return;
 
         element->change(next);
 
         // The value changed, so any cached tooltip list is stale.
-        mTooltipWidget = nullptr;
+        mTooltipElement = npos;
 
         if (element->value)
             say(element->value());
     }
 
-    void Screen::activateFocused()
+    void Screen::activateCurrent()
     {
-        const Element* element = focusedElement();
+        const Element* element = current();
         if (element && element->activate)
             element->activate();
     }
 
     void Screen::cycleTooltip(bool forward)
     {
-        MyGUI::Widget* focusWidget = MyGUI::InputManager::getInstance().getKeyFocusWidget();
-        const Element* element = find(focusWidget);
-
-        const bool rebuild = (focusWidget != mTooltipWidget || mTooltipLines.empty());
+        const bool rebuild = (mCurrent != mTooltipElement || mTooltipLines.empty());
         if (rebuild)
         {
+            const Element* element = current();
             mTooltipLines = (element && element->tooltips) ? element->tooltips() : std::vector<std::string>{};
-            mTooltipWidget = focusWidget;
+            mTooltipElement = mCurrent;
             if (!mTooltipLines.empty())
                 mTooltipIndex = forward ? 0 : mTooltipLines.size() - 1;
         }
@@ -205,31 +320,72 @@ namespace MWGui::A11y
         say(line);
     }
 
-    void Screen::resetHint(MyGUI::Widget* widget)
+    void Screen::resetHint()
     {
-        mHintWidget = widget;
+        mHintElement = mCurrent;
         mHintTimer = 0.f;
         mHintSpoken = false;
     }
 
     void Screen::onFrame(float dt)
     {
-        if (!isActive() || mHintSpoken || !mHintWidget)
+        if (!isActive())
             return;
 
-        MyGUI::Widget* focusWidget = MyGUI::InputManager::getInstance().getKeyFocusWidget();
-        if (focusWidget != mHintWidget)
+        // If a native modal dialog (confirmation / interactive message box) is
+        // up, get out of its way entirely: don't re-pin anchor focus (the
+        // dialog's button needs focus) and don't run our hint logic. Engine
+        // keyboard navigation stays enabled in virtual mode, so the dialog's
+        // own Enter/arrow handling works. We reclaim focus when it closes.
+        if (MyGUI::InputManager::getInstance().isModalAny())
         {
-            mHintWidget = nullptr; // focus moved without an event; cancel
+            mYieldedToModal = true;
             return;
         }
+        if (mYieldedToModal)
+        {
+            // Modal just closed: reclaim anchor focus and re-announce so the
+            // user knows where they are.
+            mYieldedToModal = false;
+            if (mVirtual && mAnchor)
+                MWBase::Environment::get().getWindowManager()->setKeyFocusWidget(mAnchor);
+            announceCurrent();
+        }
+
+        // Virtual mode: keep real key focus pinned to the anchor so native
+        // controls or a stray mouse click can't take over the arrow keys.
+        if (mVirtual && mAnchor)
+        {
+            if (MyGUI::InputManager::getInstance().getKeyFocusWidget() != mAnchor)
+                MWBase::Environment::get().getWindowManager()->setKeyFocusWidget(mAnchor);
+        }
+
+        // Self-heal the initial selection: when the window first opens, child
+        // widgets may not yet report getInheritedVisible()==true, so focusFirst
+        // during onOpen can select nothing (mCurrent==npos) and stay silent
+        // until the user switches tabs. Once visibility settles, pick + announce
+        // the first usable option exactly once.
+        if (mCurrent == npos && !mElements.empty())
+        {
+            for (size_t i = 0; i < mElements.size(); ++i)
+            {
+                if (isUsable(i))
+                {
+                    select(i, /*announce=*/true);
+                    break;
+                }
+            }
+        }
+
+        if (mHintSpoken || mHintElement == npos || mHintElement != mCurrent)
+            return;
 
         mHintTimer += dt;
         if (mHintTimer < sHintDelay)
             return;
 
         mHintSpoken = true;
-        const Element* element = find(mHintWidget);
+        const Element* element = current();
         if (!element || !element->tooltips)
             return;
         const size_t count = element->tooltips().size();
@@ -240,7 +396,17 @@ namespace MWGui::A11y
 
     void Screen::onKey(MyGUI::Widget* /*sender*/, MyGUI::KeyCode key, MyGUI::Char /*ch*/)
     {
+        onKeyValue(key);
+    }
+
+    void Screen::onKeyValue(MyGUI::KeyCode key)
+    {
         if (!isActive())
+            return;
+
+        // A native modal owns the keyboard right now; let the engine route
+        // keys to it (handled in onFrame by re-enabling engine navigation).
+        if (MyGUI::InputManager::getInstance().isModalAny())
             return;
 
         // Let the screen's bespoke handler have first refusal.
@@ -250,10 +416,10 @@ namespace MWGui::A11y
         switch (key.getValue())
         {
             case MyGUI::KeyCode::ArrowDown:
-                moveFocus(1);
+                moveSelection(1);
                 break;
             case MyGUI::KeyCode::ArrowUp:
-                moveFocus(-1);
+                moveSelection(-1);
                 break;
             case MyGUI::KeyCode::ArrowRight:
                 changeValue(/*next=*/true);
@@ -267,7 +433,7 @@ namespace MWGui::A11y
             case MyGUI::KeyCode::Return:
             case MyGUI::KeyCode::NumpadEnter:
             case MyGUI::KeyCode::Space:
-                activateFocused();
+                activateCurrent();
                 break;
             default:
                 break;

@@ -7,6 +7,7 @@
 #include <components/files/configurationmanager.hpp>
 #include <components/lua_ui/adapter.hpp>
 
+#include "accessibility/screen.hpp"
 #include "windowbase.hpp"
 
 namespace MWGui
@@ -116,17 +117,39 @@ namespace MWGui
         void onScriptFilterChange(MyGUI::EditBox*);
         void onScriptListSelection(MyGUI::ListBox*, size_t index);
 
-        // Screen-reader hooks. Announces the focused widget's label on
-        // focus change, and just the new value on slider/combo/toggle
-        // adjustments.
-        void onWidgetKeyFocus(MyGUI::Widget* sender, MyGUI::Widget* oldFocus);
-        void onComboValueAnnounce(MyGUI::ComboBox* sender, size_t pos);
-        void onListValueAnnounce(MyGUI::ListBox* sender, size_t pos);
-        void onTabAnnounce(MyGUI::TabControl* sender, size_t index);
-        void hookAccessibilityEvents(MyGUI::Widget* root);
+        // Screen-reader framework. The window is navigated entirely through
+        // the shared A11y::Screen in virtual-focus mode: a single hidden anchor
+        // widget keeps MyGUI key focus, while the controller tracks the current
+        // option internally so native ListBox / ComboBox / ScrollBar widgets
+        // never receive focus or eat our arrow keys.
+        A11y::Screen mA11y;
+        MyGUI::Widget* mA11yAnchor = nullptr;
+        // When true, the existing combo/slider/toggle change handlers skip
+        // their own speech: the A11y framework speaks the new value once
+        // instead, avoiding double-announcements during keyboard navigation.
+        bool mSuppressSettingSpeech = false;
+
+        // (Re)build the option list for the currently selected tab and focus
+        // its first option. \p announceSelection controls whether that first
+        // option is spoken (false right after the tab name was just announced).
+        void buildAccessibilityElements(bool announceSelection);
+        // Register one settings widget (slider / combo / list / checkbox /
+        // button) as an A11y option, deriving its label, value and change
+        // behaviour from its type and UserStrings.
+        void registerSettingWidget(MyGUI::Widget* widget);
+        // Recursively walk \p root registering every settings widget found.
+        void collectSettingWidgets(MyGUI::Widget* root);
+        // Register the dynamic key-binding list as description/binding pairs.
+        void registerControlsBox();
+        // Switch the visible settings tab by \p delta (Tab / Shift+Tab) and
+        // rebuild the option list.
+        void cycleTab(int delta);
         std::string resolveAccessibilityLabel(MyGUI::Widget* widget) const;
-        void onSliderKeyPressed(MyGUI::Widget* sender, MyGUI::KeyCode key, MyGUI::Char ch);
-        void onAccessibilityKeyPressed(MyGUI::Widget* sender, MyGUI::KeyCode key, MyGUI::Char ch);
+        // Speak / compute the current value text for a slider / combo / list.
+        std::string settingValueText(MyGUI::Widget* widget) const;
+        // Adjust a slider / combo / list value by one step in \p next direction,
+        // reusing the existing change handlers.
+        void changeSettingValue(MyGUI::Widget* widget, bool next);
 
         void apply();
 

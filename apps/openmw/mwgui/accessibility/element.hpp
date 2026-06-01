@@ -31,8 +31,15 @@ namespace MWGui::A11y
         /// Spoken name of the option. May contain MyGUI \c #{tags}.
         std::string label;
 
-        /// Returns the current value text, spoken on focus and after a change.
-        /// Leave empty for options with no value (e.g. buttons).
+        /// Optional override for the *focus* announcement. When set, this is
+        /// spoken when the element gains focus instead of \c label + \c value.
+        /// Use for options whose name is computed dynamically (e.g. settings
+        /// whose label is resolved by walking sibling widgets at runtime).
+        std::function<std::string()> describe;
+
+        /// Returns the current value text, spoken on focus (after \c label,
+        /// unless \c describe is set) and after a change. Leave empty for
+        /// options with no value (e.g. buttons).
         std::function<std::string()> value;
 
         /// Left/Right handler. \c next is true for Right (increment) and false

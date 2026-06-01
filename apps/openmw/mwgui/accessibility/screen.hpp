@@ -1,6 +1,7 @@
 #ifndef OPENMW_MWGUI_ACCESSIBILITY_SCREEN_H
 #define OPENMW_MWGUI_ACCESSIBILITY_SCREEN_H
 
+#include <cstddef>
 #include <functional>
 #include <string>
 #include <vector>
@@ -22,26 +23,45 @@ namespace MWGui::A11y
     /// onFrame to activate()/deactivate()/onFrame(). The Screen then implements
     /// the entire interaction model once:
     ///
-    ///  - Up/Down      move focus between registered elements (in add() order)
-    ///  - Left/Right   change the focused element's value
-    ///  - Enter/Space  activate the focused element
-    ///  - T / Shift+T  cycle the focused element's tooltips forward / backward
-    ///  - a 2s linger announces how many tooltips the focused element has
+    ///  - Up/Down      move between registered options (skipping hidden ones)
+    ///  - Left/Right   change the current option's value
+    ///  - Enter/Space  activate the current option
+    ///  - T / Shift+T  cycle the current option's tooltips forward / backward
+    ///  - a 2s linger announces how many tooltips the current option has
     ///
-    /// Navigation is driven directly (setKeyFocusWidget) and never by injecting
-    /// Tab into the engine's KeyboardNavigation, so focus can't escape to other
-    /// windows. While active, the Screen disables engine KeyboardNavigation.
+    /// The "current option" is tracked internally by index, never by querying
+    /// MyGUI's key-focus widget, so it is immune to focus being stolen by
+    /// hidden windows or native controls.
+    ///
+    /// Two focus modes:
+    ///  - Real focus (default): each option widget actually receives MyGUI key
+    ///    focus as you navigate. Good for screens whose widgets are passive
+    ///    focus proxies (e.g. text headings).
+    ///  - Virtual focus (setVirtualFocus): real key focus is pinned to a single
+    ///    anchor widget and never moves; option widgets are made non-focusable
+    ///    so native controls (ListBox/ComboBox/ScrollBar) can't grab the arrow
+    ///    keys. Navigation is purely internal. Good for screens built from
+    ///    native widgets.
+    ///
+    /// While active, the Screen disables engine KeyboardNavigation so its
+    /// spatial nav can't fight ours.
     class Screen
     {
     public:
         /// \param disableEngineNav when true (default), engine spatial keyboard
-        ///        navigation is turned off while this screen is active. Set
-        ///        false for screens that still want the engine's Tab handling.
+        ///        navigation is turned off while this screen is active.
         explicit Screen(bool disableEngineNav = true);
         ~Screen();
 
-        /// Register a navigable option. Forces the widget focusable and hooks
-        /// its focus / key events. Call once per option, in navigation order.
+        /// Switch this screen to virtual-focus mode using \p anchor as the
+        /// permanently-focused widget. Call before add()/activate(). In this
+        /// mode option widgets are not focused and are made non-focusable.
+        void setVirtualFocus(MyGUI::Widget* anchor);
+
+        /// Register a navigable option. In real-focus mode this forces the
+        /// widget focusable and hooks its focus / key events; in virtual-focus
+        /// mode it makes the widget non-focusable (the anchor handles keys).
+        /// Call once per option, in navigation order.
         void add(Element element);
 
         /// Remove all registered elements (e.g. before rebuilding a dynamic
@@ -49,8 +69,8 @@ namespace MWGui::A11y
         void clear();
 
         /// Become the sole active screen: claim input, optionally disable engine
-        /// nav, and focus \p initialFocus (or the first element if null),
-        /// announcing it. Call from the window's onOpen().
+        /// nav, and select \p initialFocus (or the first visible element if
+        /// null), announcing it. Call from the window's onOpen().
         void activate(MyGUI::Widget* initialFocus = nullptr);
 
         /// Relinquish active status and restore engine nav. Call from onClose().
@@ -59,14 +79,21 @@ namespace MWGui::A11y
         /// Drive the delayed tooltip hint. Call from the window's onFrame().
         void onFrame(float dt);
 
-        /// Move focus to \p widget (must be a registered element) and announce
-        /// it. Useful after the screen changes its own contents (e.g. a tab
-        /// switch) and wants to place focus explicitly.
+        /// Select \p widget (must be a registered element) and announce it.
         void focus(MyGUI::Widget* widget);
 
-        /// Re-announce the currently focused element's label + value. Handy
-        /// after a programmatic change that the framework didn't drive.
-        void announceFocused();
+        /// Select the first visible/enabled element. Announces it unless
+        /// \p announce is false. Useful after the screen swaps its own
+        /// contents (e.g. a tab change); pass false when the new selection was
+        /// already spoken (e.g. by a value change that triggered the rebuild).
+        void focusFirst(bool announce = true);
+
+        /// Re-announce the current option's label + value.
+        void announceCurrent();
+
+        /// The widget backing the current option, or null if none selected.
+        /// Lets an owner implement option-type-specific extra keys.
+        MyGUI::Widget* currentWidget() const;
 
         /// Install a handler for keys the framework doesn't consume (return
         /// true if handled). Lets a screen add bespoke shortcuts, e.g. settings'
@@ -76,36 +103,65 @@ namespace MWGui::A11y
             mExtraKeyHandler = std::move(handler);
         }
 
+        /// Feed a key to the controller directly. Screens in virtual-focus mode
+        /// whose anchor doesn't reliably deliver key events can call this from
+        /// their own key hook. Safe to call only while active.
+        void handleKey(MyGUI::KeyCode key) { onKeyValue(key); }
+
         bool isActive() const;
 
     private:
+        static constexpr size_t npos = static_cast<size_t>(-1);
+
         const Element* find(MyGUI::Widget* widget) const;
-        const Element* focusedElement() const;
-        void announce(const Element& element, bool withValue);
-        void setFocus(MyGUI::Widget* widget);
-        void moveFocus(int delta);
+        size_t indexOf(MyGUI::Widget* widget) const;
+        const Element* current() const;
+        bool isUsable(size_t index) const;
+        void select(size_t index, bool announce);
+        void announce(const Element& element);
+        void moveSelection(int delta);
         void changeValue(bool next);
-        void activateFocused();
+        void activateCurrent();
         void cycleTooltip(bool forward);
-        void resetHint(MyGUI::Widget* widget);
+        void resetHint();
 
         // MyGUI event delegates.
         void onKeyFocus(MyGUI::Widget* sender, MyGUI::Widget* oldFocus);
         void onKey(MyGUI::Widget* sender, MyGUI::KeyCode key, MyGUI::Char ch);
+        void onKeyValue(MyGUI::KeyCode key);
 
         std::vector<Element> mElements;
         bool mDisableEngineNav;
-        // Guards against double-announcing when setFocus() triggers
-        // eventKeySetFocus: setFocus announces explicitly instead.
+
+        size_t mCurrent = npos;
+
+        bool mVirtual = false;
+        MyGUI::Widget* mAnchor = nullptr;
+
+        // In virtual mode, the widget that held key focus *before* we pinned
+        // the anchor (e.g. the main-menu Options button). Restored on
+        // deactivate() so focus -- and the screen-reader announcement -- return
+        // to the opener. This also repairs the engine's saved-focus memory,
+        // which a blocking modal dialog (language/resolution confirm) corrupts
+        // by overwriting it with our anchor.
+        MyGUI::Widget* mPreFocus = nullptr;
+
+        // True while we've handed control to a native modal dialog
+        // (confirmation / interactive message box). We re-enable engine
+        // keyboard navigation and stop pinning anchor focus until it closes.
+        bool mYieldedToModal = false;
+
+        // Guards against double-announcing when we set real key focus and the
+        // resulting eventKeySetFocus would announce again.
         bool mSuppressFocusAnnounce = false;
 
-        // Tooltip cycling state for the currently focused element.
+        // Tooltip cycling state for the current option.
         std::vector<std::string> mTooltipLines;
-        MyGUI::Widget* mTooltipWidget = nullptr;
+        size_t mTooltipElement = npos;
         size_t mTooltipIndex = 0;
 
-        // Delayed "has N tooltips" hint.
-        MyGUI::Widget* mHintWidget = nullptr;
+        // Delayed "has N tooltips" hint, keyed by element index.
+        size_t mHintElement = npos;
         float mHintTimer = 0.f;
         bool mHintSpoken = false;
         static constexpr float sHintDelay = 2.f;
