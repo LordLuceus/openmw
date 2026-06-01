@@ -332,12 +332,18 @@ namespace MWGui::A11y
         if (!isActive())
             return;
 
-        // If a native modal dialog (confirmation / interactive message box) is
-        // up, get out of its way entirely: don't re-pin anchor focus (the
-        // dialog's button needs focus) and don't run our hint logic. Engine
-        // keyboard navigation stays enabled in virtual mode, so the dialog's
-        // own Enter/arrow handling works. We reclaim focus when it closes.
-        if (MyGUI::InputManager::getInstance().isModalAny())
+        // Virtual-focus screens are non-modal windows (e.g. Settings). When a
+        // native modal dialog (confirmation / interactive message box) pops up
+        // *over* such a screen, get out of its way entirely: don't re-pin anchor
+        // focus (the dialog's button needs focus) and don't run our hint logic.
+        // Engine keyboard navigation stays enabled in virtual mode, so the
+        // dialog's own Enter/arrow handling works. We reclaim focus on close.
+        //
+        // Real-focus screens (e.g. the Race dialog) are themselves WindowModal,
+        // so isModalAny() is always true for them -- they must NOT yield, or
+        // every key would be swallowed. Only virtual screens treat a modal as
+        // "someone else's dialog".
+        if (mVirtual && MyGUI::InputManager::getInstance().isModalAny())
         {
             mYieldedToModal = true;
             return;
@@ -404,9 +410,11 @@ namespace MWGui::A11y
         if (!isActive())
             return;
 
-        // A native modal owns the keyboard right now; let the engine route
-        // keys to it (handled in onFrame by re-enabling engine navigation).
-        if (MyGUI::InputManager::getInstance().isModalAny())
+        // For a virtual-focus (non-modal) screen, a live modal dialog owns the
+        // keyboard -- let the engine route keys to it. Real-focus screens are
+        // themselves modal, so this guard must not apply to them (it would
+        // swallow every key). See the matching note in onFrame().
+        if (mVirtual && MyGUI::InputManager::getInstance().isModalAny())
             return;
 
         // Let the screen's bespoke handler have first refusal.
