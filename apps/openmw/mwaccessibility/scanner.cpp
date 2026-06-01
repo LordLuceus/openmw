@@ -194,9 +194,12 @@ namespace MWAccessibility
         bool ctrl = (modState & KMOD_CTRL) != 0;
         bool shift = (modState & KMOD_SHIFT) != 0;
 
-        // Pressing any movement key while auto-walk is active should
-        // cancel it cleanly. We don't consume the key; the player still
-        // wants to move.
+        // Pressing a movement key while auto-walk is active should cancel it
+        // cleanly. We don't consume the key; the player still wants to move.
+        // NOTE: Space is deliberately excluded -- it's the default Activate
+        // binding, so the player auto-walks to an object and presses Space to
+        // interact with it on arrival. Cancelling on Space would make that
+        // impossible (and Space wouldn't reach the activate handler).
         if (mAutoWalker.isActive())
         {
             switch (scancode)
@@ -205,7 +208,6 @@ namespace MWAccessibility
                 case SDL_SCANCODE_A:
                 case SDL_SCANCODE_S:
                 case SDL_SCANCODE_D:
-                case SDL_SCANCODE_SPACE:
                     speak("Auto-walk cancelled.");
                     mAutoWalker.cancel();
                     break;
