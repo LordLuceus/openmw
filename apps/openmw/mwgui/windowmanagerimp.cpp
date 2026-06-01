@@ -2550,6 +2550,12 @@ namespace MWGui
         return mTextColours;
     }
 
+    void WindowManager::setKeyboardNavigationEnabled(bool enabled)
+    {
+        if (mKeyboardNavigation)
+            mKeyboardNavigation->setEnabled(enabled);
+    }
+
     bool WindowManager::injectKeyPress(MyGUI::KeyCode key, unsigned int text, bool repeat)
     {
         if (!mKeyboardNavigation->injectKeyPress(key, text, repeat))

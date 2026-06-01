@@ -368,6 +368,12 @@ namespace MWBase
         virtual bool injectKeyPress(MyGUI::KeyCode key, unsigned int text, bool repeat) = 0;
         virtual bool injectKeyRelease(MyGUI::KeyCode key) = 0;
 
+        /// Enable/disable the built-in spatial keyboard navigation. Windows
+        /// that implement their own bespoke keyboard handling (e.g. the
+        /// accessibility-driven character-creation dialogs) disable it while
+        /// open so arrow keys aren't consumed by the default navigation.
+        virtual void setKeyboardNavigationEnabled(bool enabled) = 0;
+
         void windowVisibilityChange(bool visible) override = 0;
         void windowResized(int x, int y) override = 0;
         void windowClosed() override = 0;
