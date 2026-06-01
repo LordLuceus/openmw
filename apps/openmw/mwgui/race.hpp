@@ -8,8 +8,9 @@
 #include <MyGUI_KeyCode.h>
 #include <MyGUI_Types.h>
 #include <string>
-#include <unordered_map>
 #include <vector>
+
+#include "accessibility/screen.hpp"
 
 namespace MWRender
 {
@@ -97,20 +98,15 @@ namespace MWGui
         void updatePreview();
         void recountParts();
 
-        // Screen-reader plumbing.
-        void hookA11yFocus(MyGUI::Widget* widget, std::string_view label);
-        void onA11yFocus(MyGUI::Widget* sender, MyGUI::Widget* oldFocus);
-        void onA11yKey(MyGUI::Widget* sender, MyGUI::KeyCode key, MyGUI::Char ch);
-        void moveA11yFocus(int delta);
-        void changeFocusedValue(bool next);
-        void activateFocused();
-        void cycleTooltip(bool forward);
-        std::vector<std::string> buildTooltipLines(MyGUI::Widget* widget);
-        void rebuildTooltips(MyGUI::Widget* widget);
-        size_t tooltipCountFor(MyGUI::Widget* widget);
-        void announceWidget(MyGUI::Widget* widget, bool withValue);
-        void announceCurrentRace();
-        void announceHeadAngle();
+        // Screen-reader support: register options with the shared A11y
+        // framework and supply the race-specific value / tooltip text.
+        void setupAccessibility();
+        std::string raceValue() const;
+        std::vector<std::string> raceTooltips() const;
+        void changeRace(bool next);
+        std::vector<std::string> skillTooltips() const;
+        std::string headRotateValue() const;
+        void changeHeadRotate(bool next);
         std::string genderLabel() const;
         std::string faceLabel() const;
         std::string hairLabel() const;
@@ -158,31 +154,9 @@ namespace MWGui
 
         bool mPreviewDirty;
 
-        // Resolved accessibility labels per focusable widget. Looked
-        // up from onA11yFocus to drive screen-reader announcements.
-        std::unordered_map<MyGUI::Widget*, std::string> mA11yLabels;
-        // Explicit Up/Down focus order. We drive navigation manually
-        // (and disable the built-in spatial nav while open) because the
-        // race ListBox natively consumes the arrow keys and the default
-        // navigation can't reliably reach the +/- row headings.
-        std::vector<MyGUI::Widget*> mA11yFocusOrder;
-        // Tooltip lines for the currently focused option. Pressing T
-        // cycles through these one at a time (e.g. for a race: the
-        // description, each skill bonus, each special with its full
-        // effect breakdown). Rebuilt whenever T is pressed on a
-        // different widget or the option's value changes.
-        std::vector<std::string> mTooltipLines;
-        MyGUI::Widget* mTooltipWidget = nullptr;
-        size_t mTooltipIndex = 0;
-
-        // Delayed "has X tooltips" hint. When focus rests on a widget
-        // for longer than mTooltipHintDelay, we announce how many
-        // tooltips it has so the user knows T is worth pressing. Reset
-        // whenever focus changes; fires once per focus.
-        MyGUI::Widget* mTooltipHintWidget = nullptr;
-        float mTooltipHintTimer = 0.f;
-        bool mTooltipHintSpoken = false;
-        static constexpr float sTooltipHintDelay = 2.f;
+        // Shared screen-reader controller: owns navigation, announcements,
+        // tooltip cycling and the delayed hint for this dialog.
+        A11y::Screen mA11y;
 
         bool onControllerButtonEvent(const SDL_ControllerButtonEvent& arg) override;
         bool onControllerThumbstickEvent(const SDL_ControllerAxisEvent& arg) override;

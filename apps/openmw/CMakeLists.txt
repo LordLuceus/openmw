@@ -47,6 +47,10 @@ add_openmw_dir (mwgui
     postprocessorhud settings worlditemmodel itemtransfer controllerbuttonsoverlay inventorytabsoverlay
     )
 
+add_openmw_dir (mwgui/accessibility
+    speech element screen uimanager
+    )
+
 add_openmw_dir (mwdialogue
     dialoguemanagerimp journalimp journalentry quest topic filter selectwrapper keywordsearch scripttest
     )

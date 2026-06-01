@@ -17,7 +17,6 @@
 
 #include <osg/Texture2D>
 
-#include <components/accessibility/accessibilitymanager.hpp>
 #include <components/debug/debuglog.hpp>
 #include <components/esm/defs.hpp>
 #include <components/esm3/effectlist.hpp>
@@ -35,6 +34,7 @@
 #include "../mwrender/characterpreview.hpp"
 #include "../mwworld/esmstore.hpp"
 
+#include "accessibility/speech.hpp"
 #include "tooltips.hpp"
 
 namespace
@@ -42,21 +42,6 @@ namespace
     bool sortRaces(const std::pair<ESM::RefId, std::string>& left, const std::pair<ESM::RefId, std::string>& right)
     {
         return left.second.compare(right.second) < 0;
-    }
-
-    // Push a string to the screen-reader backend, resolving any MyGUI
-    // #{Group:Key} L10n tags first. Speech is queued, not interrupting,
-    // so successive focus / value events don't clobber each other.
-    void speakA11y(std::string_view text)
-    {
-        if (text.empty())
-            return;
-        auto resolved = MyGUI::LanguageManager::getInstance().replaceTags(
-            MyGUI::UString(std::string(text)));
-        std::string utf8 = resolved.asUTF8();
-        if (utf8.empty())
-            return;
-        Accessibility::AccessibilityManager::instance().speak(utf8, /*interrupt=*/false);
     }
 
     // Build a human-readable description of a single spell effect,
@@ -242,349 +227,69 @@ namespace MWGui
         updateSkills();
         updateSpellPowers();
 
-        // --- Screen-reader wiring ---
-        // Resolve the localized header captions once and attach them
-        // to the focusable widgets in this dialog so screen-reader
-        // users can keyboard-navigate the whole screen. The +/- rows
-        // are merged into a single focusable target each (the heading
-        // textbox) so Left/Right can cycle the value naturally.
+        setupAccessibility();
+    }
+
+    void RaceDialog::setupAccessibility()
+    {
+        // Register every navigable option with the shared A11y framework.
+        // The race ListBox and the +/- selector rows are represented by
+        // their header TextBox (a focus proxy) so the list / buttons don't
+        // eat the arrow keys we use for navigation and value changes.
         MWBase::WindowManager* winMgr = MWBase::Environment::get().getWindowManager();
         getWidget(mGenderChoice, "GenderChoiceT");
         getWidget(mFaceChoice, "FaceChoiceT");
         getWidget(mHairChoice, "HairChoiceT");
 
-        hookA11yFocus(mRaceFocusProxy, winMgr->getGameSettingString("sRaceMenu5", "Race"));
-        hookA11yFocus(mGenderChoice, winMgr->getGameSettingString("sRaceMenu2", "Change Sex"));
-        hookA11yFocus(mFaceChoice, winMgr->getGameSettingString("sRaceMenu3", "Change Face"));
-        hookA11yFocus(mHairChoice, winMgr->getGameSettingString("sRaceMenu4", "Change Hair"));
-        hookA11yFocus(mHeadRotate, "Head rotation");
-        hookA11yFocus(mBackButton, winMgr->getGameSettingString("sBack", "Back"));
-        hookA11yFocus(mOkButton, winMgr->getGameSettingString("sOK", "OK"));
-
-        // Up/Down cycle through the options in this exact order.
-        mA11yFocusOrder = { mRaceFocusProxy, mGenderChoice, mFaceChoice, mHairChoice, mHeadRotate,
-            mBackButton, mOkButton };
-    }
-
-    void RaceDialog::hookA11yFocus(MyGUI::Widget* widget, std::string_view label)
-    {
-        if (!widget)
-            return;
-        mA11yLabels[widget] = std::string(label);
-        widget->setNeedKeyFocus(true);
-        widget->eventKeySetFocus += MyGUI::newDelegate(this, &RaceDialog::onA11yFocus);
-        widget->eventKeyButtonPressed += MyGUI::newDelegate(this, &RaceDialog::onA11yKey);
-    }
-
-    void RaceDialog::announceWidget(MyGUI::Widget* widget, bool withValue)
-    {
-        if (!widget)
-            return;
-        auto it = mA11yLabels.find(widget);
-        if (it != mA11yLabels.end())
-            speakA11y(it->second);
-
-        if (!withValue)
-            return;
-
-        if (widget == mRaceFocusProxy)
-            announceCurrentRace();
-        else if (widget == mHeadRotate)
-            announceHeadAngle();
-        else if (widget == mGenderChoice)
-            speakA11y(genderLabel());
-        else if (widget == mFaceChoice)
-            speakA11y(faceLabel());
-        else if (widget == mHairChoice)
-            speakA11y(hairLabel());
-    }
-
-    void RaceDialog::onA11yFocus(MyGUI::Widget* sender, MyGUI::Widget* /*oldFocus*/)
-    {
-        if (!sender || !mMainWidget->getVisible())
-            return;
-        // Speak label + current value when a widget gains focus.
-        announceWidget(sender, /*withValue=*/true);
-
-        // (Re)start the delayed "has X tooltips" hint for this widget.
-        mTooltipHintWidget = sender;
-        mTooltipHintTimer = 0.f;
-        mTooltipHintSpoken = false;
+        mA11y.add({ .widget = mRaceFocusProxy,
+            .label = std::string(winMgr->getGameSettingString("sRaceMenu5", "Race")),
+            .value = [this] { return raceValue(); },
+            .change = [this](bool next) { changeRace(next); },
+            .tooltips = [this] { return raceTooltips(); } });
+        mA11y.add({ .widget = mGenderChoice,
+            .label = std::string(winMgr->getGameSettingString("sRaceMenu2", "Change Sex")),
+            .value = [this] { return genderLabel(); },
+            .change = [this](bool next) { if (next) onSelectNextGender(mGenderChoice); else onSelectPreviousGender(mGenderChoice); } });
+        mA11y.add({ .widget = mFaceChoice,
+            .label = std::string(winMgr->getGameSettingString("sRaceMenu3", "Change Face")),
+            .value = [this] { return faceLabel(); },
+            .change = [this](bool next) { if (next) onSelectNextFace(mFaceChoice); else onSelectPreviousFace(mFaceChoice); } });
+        mA11y.add({ .widget = mHairChoice,
+            .label = std::string(winMgr->getGameSettingString("sRaceMenu4", "Change Hair")),
+            .value = [this] { return hairLabel(); },
+            .change = [this](bool next) { if (next) onSelectNextHair(mHairChoice); else onSelectPreviousHair(mHairChoice); } });
+        mA11y.add({ .widget = mHeadRotate,
+            .label = "Head rotation",
+            .value = [this] { return headRotateValue(); },
+            .change = [this](bool next) { changeHeadRotate(next); } });
+        mA11y.add({ .widget = mBackButton,
+            .label = std::string(winMgr->getGameSettingString("sBack", "Back")),
+            .tooltips = [] { return std::vector<std::string>{ "Return to the previous screen." }; },
+            .activate = [this] { onBackClicked(mBackButton); } });
+        mA11y.add({ .widget = mOkButton,
+            .label = std::string(winMgr->getGameSettingString("sOK", "OK")),
+            .tooltips = [] { return std::vector<std::string>{ "Confirm your selection and continue." }; },
+            .activate = [this] { onOkClicked(mOkButton); } });
     }
 
     void RaceDialog::onFrame(float duration)
     {
-        // Announce how many tooltips the focused option has once the
-        // user has lingered on it, so they know pressing T is useful.
-        if (mTooltipHintSpoken || !mTooltipHintWidget)
-            return;
-
-        MyGUI::Widget* focus = MyGUI::InputManager::getInstance().getKeyFocusWidget();
-        if (focus != mTooltipHintWidget)
-        {
-            // Focus moved without an event firing; cancel the pending hint.
-            mTooltipHintWidget = nullptr;
-            return;
-        }
-
-        mTooltipHintTimer += duration;
-        if (mTooltipHintTimer < sTooltipHintDelay)
-            return;
-
-        mTooltipHintSpoken = true;
-        const size_t count = tooltipCountFor(mTooltipHintWidget);
-        if (count == 0)
-            return;
-        speakA11y("Has " + std::to_string(count) + (count == 1 ? " tooltip" : " tooltips")
-            + ". Press T to read.");
+        mA11y.onFrame(duration);
     }
 
-    void RaceDialog::moveA11yFocus(int delta)
-    {
-        if (mA11yFocusOrder.empty())
-            return;
-        MyGUI::Widget* focus = MyGUI::InputManager::getInstance().getKeyFocusWidget();
-        auto found = std::find(mA11yFocusOrder.begin(), mA11yFocusOrder.end(), focus);
-        std::ptrdiff_t index = (found == mA11yFocusOrder.end())
-            ? 0
-            : (found - mA11yFocusOrder.begin()) + delta;
-        const std::ptrdiff_t count = static_cast<std::ptrdiff_t>(mA11yFocusOrder.size());
-        index = (index % count + count) % count;
-        MWBase::Environment::get().getWindowManager()->setKeyFocusWidget(mA11yFocusOrder[index]);
-    }
-
-    void RaceDialog::changeFocusedValue(bool next)
-    {
-        MyGUI::Widget* focus = MyGUI::InputManager::getInstance().getKeyFocusWidget();
-        if (!focus)
-            return;
-
-        // Any value change invalidates the cached tooltip list so the
-        // next T press rebuilds it for the new value.
-        mTooltipWidget = nullptr;
-
-        if (focus == mRaceFocusProxy)
-        {
-            const size_t count = mRaceList->getItemCount();
-            if (count == 0)
-                return;
-            size_t cur = mRaceList->getIndexSelected();
-            if (cur == MyGUI::ITEM_NONE)
-                cur = 0;
-            size_t nextIdx = next ? (cur + 1) % count : (cur + count - 1) % count;
-            mRaceList->setIndexSelected(nextIdx);
-            mRaceList->beginToItemAt(nextIdx); // keep selection visible
-            // setIndexSelected doesn't fire eventListChangePosition.
-            onSelectRace(mRaceList, nextIdx);
-        }
-        else if (focus == mGenderChoice)
-        {
-            if (next) onSelectNextGender(focus);
-            else onSelectPreviousGender(focus);
-            speakA11y(genderLabel());
-        }
-        else if (focus == mFaceChoice)
-        {
-            if (next) onSelectNextFace(focus);
-            else onSelectPreviousFace(focus);
-            speakA11y(faceLabel());
-        }
-        else if (focus == mHairChoice)
-        {
-            if (next) onSelectNextHair(focus);
-            else onSelectPreviousHair(focus);
-            speakA11y(hairLabel());
-        }
-        else if (focus == mHeadRotate)
-        {
-            const size_t range = mHeadRotate->getScrollRange();
-            if (range < 2)
-                return;
-            const size_t step = std::max<size_t>(1, range / 20);
-            size_t pos = mHeadRotate->getScrollPosition();
-            size_t newPos = next
-                ? std::min<size_t>(range - 1, pos + step)
-                : (pos > step ? pos - step : 0);
-            if (newPos == pos)
-                return;
-            mHeadRotate->setScrollPosition(newPos);
-            onHeadRotate(mHeadRotate, newPos);
-            announceHeadAngle();
-        }
-    }
-
-    void RaceDialog::onA11yKey(
-        MyGUI::Widget* sender, MyGUI::KeyCode key, MyGUI::Char /*ch*/)
-    {
-        if (!sender || !mMainWidget->getVisible())
-            return;
-
-        switch (key.getValue())
-        {
-            case MyGUI::KeyCode::ArrowDown:
-                moveA11yFocus(1);
-                break;
-            case MyGUI::KeyCode::ArrowUp:
-                moveA11yFocus(-1);
-                break;
-            case MyGUI::KeyCode::ArrowRight:
-                changeFocusedValue(/*next=*/true);
-                break;
-            case MyGUI::KeyCode::ArrowLeft:
-                changeFocusedValue(/*next=*/false);
-                break;
-            case MyGUI::KeyCode::T:
-                // Shift+T steps backwards through the tooltip list.
-                cycleTooltip(/*forward=*/!MyGUI::InputManager::getInstance().isShiftPressed());
-                break;
-            case MyGUI::KeyCode::Return:
-            case MyGUI::KeyCode::NumpadEnter:
-            case MyGUI::KeyCode::Space:
-                activateFocused();
-                break;
-            default:
-                break;
-        }
-    }
-
-    void RaceDialog::activateFocused()
-    {
-        // We disable the built-in keyboard navigation while this dialog
-        // is open, which also disables its Enter/Space "accept" handling.
-        // Re-implement activation for the focusable buttons here.
-        MyGUI::Widget* focus = MyGUI::InputManager::getInstance().getKeyFocusWidget();
-        if (focus == mBackButton)
-            onBackClicked(mBackButton);
-        else if (focus == mOkButton)
-            onOkClicked(mOkButton);
-    }
-
-    std::vector<std::string> RaceDialog::buildTooltipLines(MyGUI::Widget* widget)
-    {
-        std::vector<std::string> lines;
-
-        if (widget == mRaceFocusProxy)
-        {
-            const MWWorld::ESMStore& store = *MWBase::Environment::get().getESMStore();
-            const ESM::Race* race = store.get<ESM::Race>().search(mCurrentRaceId);
-            if (!race)
-                return lines;
-
-            // Race name + flavour description.
-            std::string intro = race->mName;
-            if (!race->mDescription.empty())
-                intro += ". " + race->mDescription;
-            lines.push_back(intro);
-
-            // One entry per skill bonus: name, bonus amount, and the
-            // skill's own description.
-            for (const auto& bonus : race->mData.mBonus)
-            {
-                ESM::RefId skillId = ESM::Skill::indexToRefId(bonus.mSkill);
-                if (skillId.empty())
-                    continue;
-                const ESM::Skill* skill = store.get<ESM::Skill>().search(skillId);
-                if (!skill)
-                    continue;
-                std::string line = skill->mName + " plus " + std::to_string(bonus.mBonus);
-                if (!skill->mDescription.empty())
-                    line += ". " + skill->mDescription;
-                lines.push_back(line);
-            }
-
-            // One entry per special (racial power) with its full effect
-            // breakdown, matching the on-screen tooltip.
-            for (const ESM::RefId& spellId : race->mPowers.mList)
-            {
-                const ESM::Spell* spell = store.get<ESM::Spell>().search(spellId);
-                if (!spell)
-                    continue;
-                std::string line = spell->mName;
-                for (const ESM::IndexedENAMstruct& effect : spell->mEffects.mList)
-                {
-                    std::string effLine = formatSpellEffectLine(effect);
-                    if (!effLine.empty())
-                        line += ". " + effLine;
-                }
-                lines.push_back(line);
-            }
-        }
-        else if (widget == mGenderChoice)
-            lines.push_back("Choose your character's sex. Male or Female.");
-        else if (widget == mFaceChoice)
-            lines.push_back("Choose your character's face.");
-        else if (widget == mHairChoice)
-            lines.push_back("Choose your character's hair.");
-        else if (widget == mHeadRotate)
-            lines.push_back("Rotate the character preview. Left and right to turn the head.");
-        else if (widget == mBackButton)
-            lines.push_back("Return to the previous screen.");
-        else if (widget == mOkButton)
-            lines.push_back("Confirm your selection and continue.");
-
-        return lines;
-    }
-
-    void RaceDialog::rebuildTooltips(MyGUI::Widget* widget)
-    {
-        mTooltipLines = buildTooltipLines(widget);
-        mTooltipWidget = widget;
-        mTooltipIndex = 0;
-    }
-
-    size_t RaceDialog::tooltipCountFor(MyGUI::Widget* widget)
-    {
-        return buildTooltipLines(widget).size();
-    }
-
-    void RaceDialog::cycleTooltip(bool forward)
-    {
-        MyGUI::Widget* focus = MyGUI::InputManager::getInstance().getKeyFocusWidget();
-
-        // Rebuild when focus moved to a different option (or nothing has
-        // been built yet). On a fresh build, start at the first line for
-        // a forward press, or the last line for a backward press.
-        const bool rebuilt = (focus != mTooltipWidget || mTooltipLines.empty());
-        if (rebuilt)
-        {
-            rebuildTooltips(focus);
-            if (!mTooltipLines.empty())
-                mTooltipIndex = forward ? 0 : mTooltipLines.size() - 1;
-        }
-
-        if (mTooltipLines.empty())
-        {
-            speakA11y("No description available.");
-            return;
-        }
-
-        if (!rebuilt)
-        {
-            const size_t count = mTooltipLines.size();
-            mTooltipIndex = forward ? (mTooltipIndex + 1) % count : (mTooltipIndex + count - 1) % count;
-        }
-
-        // Append a position indicator at the end when there's more than
-        // one tooltip line so the user knows there's more to cycle.
-        std::string line = mTooltipLines[mTooltipIndex];
-        if (mTooltipLines.size() > 1)
-            line += ". " + std::to_string(mTooltipIndex + 1) + " of " + std::to_string(mTooltipLines.size());
-        speakA11y(line);
-    }
-
-    void RaceDialog::announceCurrentRace()
+    std::string RaceDialog::raceValue() const
     {
         const size_t idx = mRaceList->getIndexSelected();
         if (idx == MyGUI::ITEM_NONE)
-            return;
-        speakA11y(mRaceList->getItemNameAt(idx).asUTF8());
+            return {};
+        std::string out = mRaceList->getItemNameAt(idx).asUTF8();
 
         const MWWorld::ESMStore& store = *MWBase::Environment::get().getESMStore();
         const ESM::Race* race = store.get<ESM::Race>().search(mCurrentRaceId);
         if (!race)
-            return;
+            return out;
 
-        // Skill bonuses
+        // Skill bonuses (concise summary; full descriptions are in tooltips).
         std::string skills;
         for (const auto& bonus : race->mData.mBonus)
         {
@@ -599,9 +304,9 @@ namespace MWGui
             skills += skill->mName + " " + std::to_string(bonus.mBonus);
         }
         if (!skills.empty())
-            speakA11y("Skill bonuses: " + skills);
+            out += ". Skill bonuses: " + skills;
 
-        // Spell powers / specials
+        // Specials (racial powers) summary.
         std::string powers;
         for (const ESM::RefId& spellId : race->mPowers.mList)
         {
@@ -613,18 +318,98 @@ namespace MWGui
             powers += spell->mName;
         }
         if (!powers.empty())
-            speakA11y("Specials: " + powers);
+            out += ". Specials: " + powers;
+
+        return out;
     }
 
-    void RaceDialog::announceHeadAngle()
+    std::vector<std::string> RaceDialog::raceTooltips() const
+    {
+        std::vector<std::string> lines;
+        const MWWorld::ESMStore& store = *MWBase::Environment::get().getESMStore();
+        const ESM::Race* race = store.get<ESM::Race>().search(mCurrentRaceId);
+        if (!race)
+            return lines;
+
+        // Race name + flavour description.
+        std::string intro = race->mName;
+        if (!race->mDescription.empty())
+            intro += ". " + race->mDescription;
+        lines.push_back(intro);
+
+        // One entry per skill bonus: name, bonus amount, and the skill's
+        // own description.
+        for (const auto& bonus : race->mData.mBonus)
+        {
+            ESM::RefId skillId = ESM::Skill::indexToRefId(bonus.mSkill);
+            if (skillId.empty())
+                continue;
+            const ESM::Skill* skill = store.get<ESM::Skill>().search(skillId);
+            if (!skill)
+                continue;
+            std::string line = skill->mName + " plus " + std::to_string(bonus.mBonus);
+            if (!skill->mDescription.empty())
+                line += ". " + skill->mDescription;
+            lines.push_back(line);
+        }
+
+        // One entry per special (racial power) with its full effect
+        // breakdown, matching the on-screen tooltip.
+        for (const ESM::RefId& spellId : race->mPowers.mList)
+        {
+            const ESM::Spell* spell = store.get<ESM::Spell>().search(spellId);
+            if (!spell)
+                continue;
+            std::string line = spell->mName;
+            for (const ESM::IndexedENAMstruct& effect : spell->mEffects.mList)
+            {
+                std::string effLine = formatSpellEffectLine(effect);
+                if (!effLine.empty())
+                    line += ". " + effLine;
+            }
+            lines.push_back(line);
+        }
+        return lines;
+    }
+
+    void RaceDialog::changeRace(bool next)
+    {
+        const size_t count = mRaceList->getItemCount();
+        if (count == 0)
+            return;
+        size_t cur = mRaceList->getIndexSelected();
+        if (cur == MyGUI::ITEM_NONE)
+            cur = 0;
+        size_t nextIdx = next ? (cur + 1) % count : (cur + count - 1) % count;
+        mRaceList->setIndexSelected(nextIdx);
+        mRaceList->beginToItemAt(nextIdx); // keep selection visible
+        // setIndexSelected doesn't fire eventListChangePosition.
+        onSelectRace(mRaceList, nextIdx);
+    }
+
+    std::string RaceDialog::headRotateValue() const
     {
         // Report the angle in degrees, with 0 facing forward.
         const size_t range = mHeadRotate->getScrollRange();
         if (range < 2)
-            return;
+            return {};
         const float t = mHeadRotate->getScrollPosition() / float(range - 1);
         const int degrees = static_cast<int>(std::round((t - 0.5f) * 360.f));
-        speakA11y(std::to_string(degrees) + " degrees");
+        return std::to_string(degrees) + " degrees";
+    }
+
+    void RaceDialog::changeHeadRotate(bool next)
+    {
+        const size_t range = mHeadRotate->getScrollRange();
+        if (range < 2)
+            return;
+        const size_t step = std::max<size_t>(1, range / 20);
+        size_t pos = mHeadRotate->getScrollPosition();
+        size_t newPos = next ? std::min<size_t>(range - 1, pos + step) : (pos > step ? pos - step : 0);
+        if (newPos == pos)
+            return;
+        mHeadRotate->setScrollPosition(newPos);
+        onHeadRotate(mHeadRotate, newPos);
     }
 
     std::string RaceDialog::genderLabel() const
@@ -716,21 +501,11 @@ namespace MWGui
         mHeadRotate->setScrollPosition(initialPos);
         onHeadRotate(mHeadRotate, initialPos);
 
-        // Take over keyboard navigation: this dialog implements its own
-        // arrow-key scheme (Up/Down between options, Left/Right to
-        // change a value, T for the tooltip), which would otherwise
-        // collide with the default spatial navigation and the race
-        // list's built-in arrow handling.
-        MWBase::Environment::get().getWindowManager()->setKeyboardNavigationEnabled(false);
-        MWBase::Environment::get().getWindowManager()->setKeyFocusWidget(mRaceFocusProxy);
-        // Announce the starting option (label + value) so the user
-        // knows where focus landed.
-        announceWidget(mRaceFocusProxy, /*withValue=*/true);
-
-        // Arm the delayed tooltip hint for the initial focus.
-        mTooltipHintWidget = mRaceFocusProxy;
-        mTooltipHintTimer = 0.f;
-        mTooltipHintSpoken = false;
+        // Hand input to the shared A11y controller: it disables engine
+        // spatial navigation (which collides with our arrow-key scheme and
+        // the race list's built-in arrow handling), focuses the first
+        // option and announces it.
+        mA11y.activate(mRaceFocusProxy);
     }
 
     void RaceDialog::setRaceId(const ESM::RefId& raceId)
@@ -755,8 +530,8 @@ namespace MWGui
     {
         WindowModal::onClose();
 
-        // Restore the default keyboard navigation for the rest of the UI.
-        MWBase::Environment::get().getWindowManager()->setKeyboardNavigationEnabled(true);
+        // Relinquish input and restore default keyboard navigation.
+        mA11y.deactivate();
 
         mPreviewImage->setRenderItemTexture(nullptr);
 
@@ -855,9 +630,10 @@ namespace MWGui
         updatePreview();
         updateSkills();
         updateSpellPowers();
-
-        if (mMainWidget->getVisible())
-            announceCurrentRace();
+        // Note: the spoken announcement of the new race is driven by the
+        // A11y framework (Screen::changeValue speaks raceValue() after the
+        // change), so we deliberately don't announce here to avoid speaking
+        // the race twice on keyboard navigation.
     }
 
     void RaceDialog::onAccept(MyGUI::ListBox* sender, size_t index)
