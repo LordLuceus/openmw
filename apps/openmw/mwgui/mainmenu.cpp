@@ -43,22 +43,6 @@ namespace MWGui
             if (id == "exitgame") return "Exit Game";
             return id;
         }
-
-        // Short description spoken when the user presses T on a focused button.
-        // Mirrors the screen-reader tooltip convention used by the migrated
-        // menus (Race/Settings) so the main menu feels consistent even though
-        // it doesn't (yet) run on the shared A11y::Screen framework.
-        std::string_view mainMenuButtonTooltip(std::string_view id)
-        {
-            if (id == "return") return "Return to the game.";
-            if (id == "newgame") return "Start a new game.";
-            if (id == "savegame") return "Save your current game.";
-            if (id == "loadgame") return "Load a previously saved game.";
-            if (id == "options") return "Adjust game settings and controls.";
-            if (id == "credits") return "View the credits.";
-            if (id == "exitgame") return "Quit to desktop.";
-            return {};
-        }
     }
 
     void MenuVideo::run()
@@ -290,18 +274,6 @@ namespace MWGui
             mAccessibilityHasBeenCovered = true;
     }
 
-    void MainMenu::onButtonKeyButtonPressed(MyGUI::Widget* sender, MyGUI::KeyCode key, MyGUI::Char /*ch*/)
-    {
-        if (!sender)
-            return;
-        if (key != MyGUI::KeyCode::T)
-            return;
-        const std::string& name = *sender->getUserData<std::string>();
-        const std::string_view tip = mainMenuButtonTooltip(name);
-        if (!tip.empty())
-            Accessibility::AccessibilityManager::instance().speak(tip);
-    }
-
     bool MainMenu::onControllerButtonEvent(const SDL_ControllerButtonEvent& arg)
     {
         if (arg.button == SDL_CONTROLLER_BUTTON_A)
@@ -430,7 +402,6 @@ namespace MWGui
                 button->eventKeySetFocus += MyGUI::newDelegate(this, &MainMenu::onButtonKeyFocus);
                 button->eventMouseSetFocus += MyGUI::newDelegate(this, &MainMenu::onButtonMouseFocus);
                 button->eventKeyLostFocus += MyGUI::newDelegate(this, &MainMenu::onButtonKeyLostFocus);
-                button->eventKeyButtonPressed += MyGUI::newDelegate(this, &MainMenu::onButtonKeyButtonPressed);
                 button->setUserData(buttonId);
             }
         }

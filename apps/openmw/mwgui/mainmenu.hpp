@@ -5,9 +5,6 @@
 #include <optional>
 #include <thread>
 
-#include <MyGUI_KeyCode.h>
-#include <MyGUI_Types.h>
-
 #include "savegamedialog.hpp"
 #include "windowbase.hpp"
 
@@ -86,9 +83,6 @@ namespace MWGui
         // covered (e.g. by the intro video widget grabbing key focus) and
         // is now becoming interactive again.
         void onButtonKeyLostFocus(MyGUI::Widget* sender, MyGUI::Widget* newFocus);
-        // Speak the focused button's description when the user presses T
-        // (Shift+T does the same -- there's only ever one line per button).
-        void onButtonKeyButtonPressed(MyGUI::Widget* sender, MyGUI::KeyCode key, MyGUI::Char ch);
         void onNewGameConfirmed();
         void onExitConfirmed();
 
