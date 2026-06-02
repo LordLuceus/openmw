@@ -25,9 +25,19 @@ namespace MWGui::A11y
     ///
     ///  - Up/Down      move between registered options (skipping hidden ones)
     ///  - Left/Right   change the current option's value
-    ///  - Enter/Space  activate the current option
+    ///  - Enter/Space  activate the current option, or expand it if it is an
+    ///                 expandable submenu (Element::children)
     ///  - T / Shift+T  cycle the current option's tooltips forward / backward
-    ///  - a 2s linger announces how many tooltips the current option has
+    ///  - Escape       collapse an open submenu back to the main screen
+    ///  - a 2s linger announces how many tooltips the current option has, or
+    ///                 "Press Enter to expand" for an expandable submenu
+    ///
+    /// Expandable submenus: an option whose Element::children is set becomes a
+    /// nested list. Enter opens it; Up/Down then move between child items (the
+    /// section name is spoken when focus crosses into a new section, e.g.
+    /// "Major Skills: Alteration"); Ctrl+Up/Down jump between sections; Home/End
+    /// jump to the first/last item; T cycles a child's tooltips; Escape returns
+    /// to the main screen on the option you expanded.
     ///
     /// The "current option" is tracked internally by index, never by querying
     /// MyGUI's key-focus widget, so it is immune to focus being stolen by
@@ -125,6 +135,18 @@ namespace MWGui::A11y
         void cycleTooltip(bool forward);
         void resetHint();
 
+        // Expandable-submenu helpers.
+        bool inSubmenu() const { return mSubOpen; }
+        void openSubmenu();          // expand current option (if it has children)
+        void closeSubmenu(bool announceParent = true); // collapse back to main
+        void moveSubSelection(int delta);
+        // Jump to the first item of the previous/next section (Ctrl+Up/Down).
+        void jumpSubSection(int delta);
+        // Jump to the first / last item in the submenu (Home / End).
+        void jumpSubEdge(bool last);
+        void announceSubItem(size_t index, bool withSection);
+        void cycleSubTooltip(bool forward);
+
         // MyGUI event delegates.
         void onKeyFocus(MyGUI::Widget* sender, MyGUI::Widget* oldFocus);
         void onKey(MyGUI::Widget* sender, MyGUI::KeyCode key, MyGUI::Char ch);
@@ -160,11 +182,27 @@ namespace MWGui::A11y
         size_t mTooltipElement = npos;
         size_t mTooltipIndex = 0;
 
-        // Delayed "has N tooltips" hint, keyed by element index.
+        // Delayed hint, keyed by element index (and sub-item index while a
+        // submenu is open). Announces "Press Enter to expand" for an expandable
+        // option, otherwise "Has N tooltips" for an option / sub-item that has
+        // tooltips.
         size_t mHintElement = npos;
+        size_t mHintSubItem = npos;
         float mHintTimer = 0.f;
         bool mHintSpoken = false;
         static constexpr float sHintDelay = 2.f;
+
+        // Expandable-submenu state. While mSubOpen, navigation operates on
+        // mSubItems (a snapshot of the parent option's children, taken when the
+        // submenu was opened) instead of the top-level element list.
+        bool mSubOpen = false;
+        std::vector<SubItem> mSubItems;
+        size_t mSubCurrent = npos;
+        // Tooltip cycling state for the focused sub-item (mirrors the top-level
+        // tooltip state but keyed by sub-item index).
+        std::vector<std::string> mSubTooltipLines;
+        size_t mSubTooltipItem = npos;
+        size_t mSubTooltipIndex = 0;
 
         std::function<bool(MyGUI::KeyCode)> mExtraKeyHandler;
     };

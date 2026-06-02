@@ -12,6 +12,25 @@ namespace MyGUI
 
 namespace MWGui::A11y
 {
+    /// One item inside an expandable Element's submenu. Produced on demand by
+    /// \c Element::children so it always reflects current data.
+    struct SubItem
+    {
+        /// Spoken text for this item (e.g. "Alteration 5").
+        std::string label;
+
+        /// Optional section/group this item belongs to (e.g. "Major Skills").
+        /// When focus crosses into a different section, the section name is
+        /// announced before the item, e.g. "Major Skills: Alteration 5".
+        /// Items sharing a section are announced without the prefix. Leave
+        /// empty for a flat list with no sections.
+        std::string section;
+
+        /// Optional tooltip lines for this item, cycled with T / Shift+T while
+        /// the submenu is open. Recomputed on demand.
+        std::function<std::vector<std::string>()> tooltips;
+    };
+
     /// Declarative description of one navigable option on an accessible screen.
     ///
     /// Behaviour is supplied as optional callbacks so the framework never needs
@@ -53,6 +72,16 @@ namespace MWGui::A11y
 
         /// Enter / Space activation handler (e.g. for buttons). Optional.
         std::function<void()> activate;
+
+        /// Makes this option an *expandable submenu*. When set (and non-empty),
+        /// pressing Enter on the option enters a child list: Up/Down move
+        /// between children, T cycles a child's tooltips, and Escape returns to
+        /// the main screen. A delayed hint announces "Press Enter to expand".
+        /// Recomputed each time the submenu is opened so it reflects live data.
+        ///
+        /// Takes precedence over \c activate when both are set. Children may be
+        /// grouped into sections via \c SubItem::section.
+        std::function<std::vector<SubItem>()> children;
     };
 }
 

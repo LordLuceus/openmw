@@ -9,6 +9,22 @@
 #include "speech.hpp"
 #include "uimanager.hpp"
 
+namespace
+{
+    // Append a "N of M" position indicator to a tooltip line, avoiding a double
+    // period when the text already ends in sentence punctuation.
+    std::string withPosition(std::string line, size_t index, size_t count)
+    {
+        if (count > 1)
+        {
+            const char last = line.empty() ? '\0' : line.back();
+            const bool endsWithPunct = (last == '.' || last == '!' || last == '?');
+            line += (endsWithPunct ? " " : ". ") + std::to_string(index + 1) + " of " + std::to_string(count);
+        }
+        return line;
+    }
+}
+
 namespace MWGui::A11y
 {
     Screen::Screen(bool disableEngineNav)
@@ -70,6 +86,12 @@ namespace MWGui::A11y
         mTooltipElement = npos;
         mTooltipLines.clear();
         mHintElement = npos;
+        mHintSubItem = npos;
+        mSubOpen = false;
+        mSubItems.clear();
+        mSubCurrent = npos;
+        mSubTooltipItem = npos;
+        mSubTooltipLines.clear();
     }
 
     const Element* Screen::find(MyGUI::Widget* widget) const
@@ -202,6 +224,17 @@ namespace MWGui::A11y
     {
         if (index >= mElements.size())
             return;
+        // Selecting a (possibly different) top-level option collapses any open
+        // submenu without re-announcing the parent (we're about to announce the
+        // new selection ourselves).
+        if (mSubOpen)
+        {
+            mSubOpen = false;
+            mSubItems.clear();
+            mSubCurrent = npos;
+            mSubTooltipItem = npos;
+            mSubTooltipLines.clear();
+        }
         mCurrent = index;
 
         if (!mVirtual)
@@ -294,7 +327,15 @@ namespace MWGui::A11y
     void Screen::activateCurrent()
     {
         const Element* element = current();
-        if (element && element->activate)
+        if (!element)
+            return;
+        // An expandable submenu takes precedence over a plain activate handler.
+        if (element->children)
+        {
+            openSubmenu();
+            return;
+        }
+        if (element->activate)
             element->activate();
     }
 
@@ -322,23 +363,176 @@ namespace MWGui::A11y
             mTooltipIndex = forward ? (mTooltipIndex + 1) % count : (mTooltipIndex + count - 1) % count;
         }
 
-        // Position indicator goes at the END (project convention). Avoid a
-        // double period when the tooltip text already ends in sentence
-        // punctuation: just append a space before the indicator in that case.
-        std::string line = mTooltipLines[mTooltipIndex];
-        if (mTooltipLines.size() > 1)
+        // Position indicator goes at the END (project convention).
+        say(withPosition(mTooltipLines[mTooltipIndex], mTooltipIndex, mTooltipLines.size()));
+    }
+
+    void Screen::openSubmenu()
+    {
+        const Element* element = current();
+        if (!element || !element->children)
+            return;
+
+        mSubItems = element->children();
+        if (mSubItems.empty())
         {
-            const char last = line.empty() ? '\0' : line.back();
-            const bool endsWithPunct = (last == '.' || last == '!' || last == '?');
-            line += (endsWithPunct ? " " : ". ") + std::to_string(mTooltipIndex + 1) + " of "
-                + std::to_string(mTooltipLines.size());
+            say("Empty.");
+            return;
         }
-        say(line);
+
+        mSubOpen = true;
+        mSubTooltipItem = npos;
+        mSubTooltipLines.clear();
+        // Announce the first item with its section prefix.
+        announceSubItem(0, /*withSection=*/true);
+    }
+
+    void Screen::closeSubmenu(bool announceParent)
+    {
+        if (!mSubOpen)
+            return;
+        mSubOpen = false;
+        mSubItems.clear();
+        mSubCurrent = npos;
+        mSubTooltipItem = npos;
+        mSubTooltipLines.clear();
+        // Re-arm the parent option's hint so the "Press Enter to expand"
+        // affordance is offered again after the linger.
+        resetHint();
+        if (announceParent)
+            announceCurrent();
+    }
+
+    void Screen::announceSubItem(size_t index, bool withSection)
+    {
+        if (index >= mSubItems.size())
+            return;
+        // Remember where we came from so we can tell whether we've crossed into
+        // a new section. Compare against the *previously focused* item, not the
+        // item physically above -- otherwise moving back up within a section
+        // would wrongly re-announce it, and moving up across a boundary would
+        // fail to announce the section we just entered.
+        const size_t previous = mSubCurrent;
+        mSubCurrent = index;
+        // Tooltip state is per-item; invalidate so the next T rebuilds it.
+        mSubTooltipItem = npos;
+
+        const SubItem& item = mSubItems[index];
+        // Speak the section name when the submenu first opens (withSection), or
+        // whenever the new item's section differs from the one we just left.
+        const bool sectionChanged
+            = withSection || previous >= mSubItems.size() || mSubItems[previous].section != item.section;
+
+        if (sectionChanged && !item.section.empty())
+            say(item.section + ": " + item.label);
+        else
+            say(item.label);
+
+        // Arm the delayed "has N tooltips" hint for this sub-item.
+        resetHint();
+    }
+
+    void Screen::moveSubSelection(int delta)
+    {
+        const std::ptrdiff_t count = static_cast<std::ptrdiff_t>(mSubItems.size());
+        if (count == 0)
+            return;
+        const std::ptrdiff_t start = (mSubCurrent == npos) ? -1 : static_cast<std::ptrdiff_t>(mSubCurrent);
+        std::ptrdiff_t index = start + delta;
+        // Clamp at the ends rather than wrapping: a flat read-only list reads
+        // more naturally when Up at the top / Down at the bottom does nothing.
+        if (index < 0 || index >= count)
+            return;
+        announceSubItem(static_cast<size_t>(index), /*withSection=*/false);
+    }
+
+    void Screen::jumpSubSection(int delta)
+    {
+        const size_t count = mSubItems.size();
+        if (count == 0 || mSubCurrent >= count)
+            return;
+
+        const std::string& cur = mSubItems[mSubCurrent].section;
+        if (delta > 0)
+        {
+            // Find the first item whose section differs from the current one,
+            // scanning forward. That's the start of the next section.
+            for (size_t i = mSubCurrent + 1; i < count; ++i)
+            {
+                if (mSubItems[i].section != cur)
+                {
+                    announceSubItem(i, /*withSection=*/true);
+                    return;
+                }
+            }
+        }
+        else
+        {
+            // Walk back to the first item of the current section. If we're
+            // already there, keep going to the first item of the previous one.
+            size_t start = mSubCurrent;
+            while (start > 0 && mSubItems[start - 1].section == cur)
+                --start;
+            if (start > 0)
+            {
+                const std::string& prevSection = mSubItems[start - 1].section;
+                size_t target = start - 1;
+                while (target > 0 && mSubItems[target - 1].section == prevSection)
+                    --target;
+                announceSubItem(target, /*withSection=*/true);
+                return;
+            }
+            // Already in the first section: jump to its first item if we're not
+            // there yet.
+            if (start != mSubCurrent)
+            {
+                announceSubItem(start, /*withSection=*/true);
+                return;
+            }
+        }
+    }
+
+    void Screen::jumpSubEdge(bool last)
+    {
+        if (mSubItems.empty())
+            return;
+        const size_t index = last ? mSubItems.size() - 1 : 0;
+        announceSubItem(index, /*withSection=*/true);
+    }
+
+    void Screen::cycleSubTooltip(bool forward)
+    {
+        if (mSubCurrent >= mSubItems.size())
+            return;
+        const bool rebuild = (mSubCurrent != mSubTooltipItem || mSubTooltipLines.empty());
+        if (rebuild)
+        {
+            const SubItem& item = mSubItems[mSubCurrent];
+            mSubTooltipLines = item.tooltips ? item.tooltips() : std::vector<std::string>{};
+            mSubTooltipItem = mSubCurrent;
+            if (!mSubTooltipLines.empty())
+                mSubTooltipIndex = forward ? 0 : mSubTooltipLines.size() - 1;
+        }
+
+        if (mSubTooltipLines.empty())
+        {
+            say("No description available.");
+            return;
+        }
+
+        if (!rebuild)
+        {
+            const size_t count = mSubTooltipLines.size();
+            mSubTooltipIndex = forward ? (mSubTooltipIndex + 1) % count : (mSubTooltipIndex + count - 1) % count;
+        }
+
+        say(withPosition(mSubTooltipLines[mSubTooltipIndex], mSubTooltipIndex, mSubTooltipLines.size()));
     }
 
     void Screen::resetHint()
     {
         mHintElement = mCurrent;
+        mHintSubItem = mSubCurrent;
         mHintTimer = 0.f;
         mHintSpoken = false;
     }
@@ -399,7 +593,9 @@ namespace MWGui::A11y
             }
         }
 
-        if (mHintSpoken || mHintElement == npos || mHintElement != mCurrent)
+        // The hint is valid only while focus hasn't moved since it was armed --
+        // both at the top level (mCurrent) and, in a submenu, the sub-item.
+        if (mHintSpoken || mHintElement == npos || mHintElement != mCurrent || mHintSubItem != mSubCurrent)
             return;
 
         mHintTimer += dt;
@@ -407,8 +603,31 @@ namespace MWGui::A11y
             return;
 
         mHintSpoken = true;
+
+        if (mSubOpen)
+        {
+            // Hint the focused sub-item's tooltip count.
+            if (mSubCurrent >= mSubItems.size())
+                return;
+            const SubItem& item = mSubItems[mSubCurrent];
+            const size_t count = item.tooltips ? item.tooltips().size() : 0;
+            if (count == 0)
+                return;
+            say("Has " + std::to_string(count) + (count == 1 ? " tooltip" : " tooltips") + ". Press T to read.");
+            return;
+        }
+
         const Element* element = current();
-        if (!element || !element->tooltips)
+        if (!element)
+            return;
+        // An expandable option advertises how to open it; otherwise hint the
+        // tooltip count.
+        if (element->children)
+        {
+            say("Press Enter to expand.");
+            return;
+        }
+        if (!element->tooltips)
             return;
         const size_t count = element->tooltips().size();
         if (count == 0)
@@ -436,6 +655,46 @@ namespace MWGui::A11y
         // Let the screen's bespoke handler have first refusal.
         if (mExtraKeyHandler && mExtraKeyHandler(key))
             return;
+
+        // While an expandable submenu is open, navigation operates on its child
+        // items. Up/Down move between children, T cycles a child's tooltips, and
+        // Escape collapses back to the parent option on the main screen.
+        if (mSubOpen)
+        {
+            const bool ctrl = MyGUI::InputManager::getInstance().isControlPressed();
+            switch (key.getValue())
+            {
+                case MyGUI::KeyCode::ArrowDown:
+                    // Ctrl+Down jumps to the next section; Down moves one item.
+                    if (ctrl)
+                        jumpSubSection(1);
+                    else
+                        moveSubSelection(1);
+                    break;
+                case MyGUI::KeyCode::ArrowUp:
+                    if (ctrl)
+                        jumpSubSection(-1);
+                    else
+                        moveSubSelection(-1);
+                    break;
+                case MyGUI::KeyCode::Home:
+                    jumpSubEdge(/*last=*/false);
+                    break;
+                case MyGUI::KeyCode::End:
+                    jumpSubEdge(/*last=*/true);
+                    break;
+                case MyGUI::KeyCode::T:
+                    cycleSubTooltip(/*forward=*/!MyGUI::InputManager::getInstance().isShiftPressed());
+                    break;
+                case MyGUI::KeyCode::Escape:
+                case MyGUI::KeyCode::ArrowLeft:
+                    closeSubmenu();
+                    break;
+                default:
+                    break;
+            }
+            return;
+        }
 
         switch (key.getValue())
         {
