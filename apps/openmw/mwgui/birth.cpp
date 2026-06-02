@@ -19,6 +19,7 @@
 #include "../mwworld/esmstore.hpp"
 #include "../mwworld/player.hpp"
 
+#include "accessibility/spelltext.hpp"
 #include "widgets.hpp"
 
 namespace
@@ -67,6 +68,33 @@ namespace MWGui
 
         updateBirths();
         updateSpells();
+
+        setupAccessibility();
+    }
+
+    void BirthDialog::setupAccessibility()
+    {
+        MWBase::WindowManager* winMgr = MWBase::Environment::get().getWindowManager();
+
+        // Navigate the birthsign ListBox through an invisible focus proxy
+        // (real-focus mode), as on the Race / Pick-class screens: Up/Down move
+        // between the Birthsign option and the Back/OK buttons, Left/Right
+        // cycle birthsigns, and T cycles the selected sign's effect tooltips.
+        mBirthListProxy
+            = mMainWidget->createWidget<MyGUI::Widget>({}, MyGUI::IntCoord(0, 0, 1, 1), MyGUI::Align::Default);
+
+        mA11y.add({ .widget = mBirthListProxy,
+            .label = std::string(winMgr->getGameSettingString("sBirthSign", "Birthsign")),
+            .value = [this] { return birthValue(); },
+            .change = [this](bool next) { changeBirth(next); },
+            .tooltips = [this] { return birthTooltips(); } });
+        mA11y.add({ .widget = mBackButton,
+            .label = std::string(winMgr->getGameSettingString("sBack", "Back")),
+            .activate = [this] { onBackClicked(mBackButton); } });
+        // The OK button caption changes (OK / Next / Done), so read it live.
+        mA11y.add({ .widget = mOkButton,
+            .describe = [this] { return mOkButton->getCaption().asUTF8(); },
+            .activate = [this] { onOkClicked(mOkButton); } });
     }
 
     void BirthDialog::setNextButtonShow(bool shown)
@@ -96,13 +124,27 @@ namespace MWGui
         WindowModal::onOpen();
         updateBirths();
         updateSpells();
-        MWBase::Environment::get().getWindowManager()->setKeyFocusWidget(mBirthList);
 
         // Show the current birthsign by default
         const auto& signId = MWBase::Environment::get().getWorld()->getPlayer().getBirthSign();
 
         if (!signId.empty())
             setBirthId(signId);
+
+        // Hand input to the screen-reader controller, focusing the birthsign
+        // list option (the proxy) so the current sign is announced immediately.
+        mA11y.activate(mBirthListProxy);
+    }
+
+    void BirthDialog::onClose()
+    {
+        mA11y.deactivate();
+        WindowModal::onClose();
+    }
+
+    void BirthDialog::onFrame(float dt)
+    {
+        mA11y.onFrame(dt);
     }
 
     void BirthDialog::setBirthId(const ESM::RefId& birthId)
@@ -284,6 +326,138 @@ namespace MWGui
         mSpellArea->setCanvasSize(MyGUI::IntSize(mSpellArea->getWidth(), std::max(mSpellArea->getHeight(), coord.top)));
         mSpellArea->setVisibleVScroll(true);
         mSpellArea->setViewOffset(MyGUI::IntPoint(0, 0));
+    }
+
+    void BirthDialog::changeBirth(bool next)
+    {
+        const size_t count = mBirthList->getItemCount();
+        if (count == 0)
+            return;
+        size_t cur = mBirthList->getIndexSelected();
+        if (cur == MyGUI::ITEM_NONE)
+            cur = 0;
+        const size_t nextIdx = next ? (cur + 1) % count : (cur + count - 1) % count;
+        mBirthList->setIndexSelected(nextIdx);
+        mBirthList->beginToItemAt(nextIdx); // keep selection visible
+        // setIndexSelected doesn't fire eventListChangePosition.
+        onSelectBirth(mBirthList, nextIdx);
+    }
+
+    namespace
+    {
+        // Split a birthsign's spell list into abilities (constant), powers
+        // (timed, once-per-day) and ordinary spells, skipping anything that
+        // isn't one of those three types -- mirroring updateSpells().
+        void categorizeBirthSpells(const ESM::BirthSign* birth, std::vector<ESM::RefId>& abilities,
+            std::vector<ESM::RefId>& powers, std::vector<ESM::RefId>& spells)
+        {
+            const MWWorld::ESMStore& store = *MWBase::Environment::get().getESMStore();
+            for (const ESM::RefId& spellId : birth->mPowers.mList)
+            {
+                const ESM::Spell* spell = store.get<ESM::Spell>().search(spellId);
+                if (!spell)
+                    continue;
+                switch (static_cast<ESM::Spell::SpellType>(spell->mData.mType))
+                {
+                    case ESM::Spell::ST_Ability:
+                        abilities.push_back(spellId);
+                        break;
+                    case ESM::Spell::ST_Power:
+                        powers.push_back(spellId);
+                        break;
+                    case ESM::Spell::ST_Spell:
+                        spells.push_back(spellId);
+                        break;
+                    default:
+                        break;
+                }
+            }
+        }
+    }
+
+    std::string BirthDialog::birthValue() const
+    {
+        const size_t idx = mBirthList->getIndexSelected();
+        if (idx == MyGUI::ITEM_NONE)
+            return {};
+        std::string out = mBirthList->getItemNameAt(idx).asUTF8();
+
+        const MWWorld::ESMStore& store = *MWBase::Environment::get().getESMStore();
+        const ESM::BirthSign* birth = store.get<ESM::BirthSign>().search(mCurrentBirthId);
+        if (!birth)
+            return out;
+
+        std::vector<ESM::RefId> abilities, powers, spells;
+        categorizeBirthSpells(birth, abilities, powers, spells);
+
+        MWBase::WindowManager* winMgr = MWBase::Environment::get().getWindowManager();
+        struct
+        {
+            const std::vector<ESM::RefId>& list;
+            std::string_view label;
+        } categories[3] = { { abilities, "sBirthsignmenu1" }, { powers, "sPowers" }, { spells, "sBirthsignmenu2" } };
+
+        for (const auto& category : categories)
+        {
+            if (category.list.empty())
+                continue;
+            std::string names;
+            for (const ESM::RefId& spellId : category.list)
+            {
+                const ESM::Spell* spell = store.get<ESM::Spell>().search(spellId);
+                if (!spell)
+                    continue;
+                if (!names.empty())
+                    names += ", ";
+                names += spell->mName;
+            }
+            if (!names.empty())
+                out += ". " + std::string(winMgr->getGameSettingString(category.label, {})) + ": " + names;
+        }
+
+        return out;
+    }
+
+    std::vector<std::string> BirthDialog::birthTooltips() const
+    {
+        std::vector<std::string> lines;
+        const MWWorld::ESMStore& store = *MWBase::Environment::get().getESMStore();
+        const ESM::BirthSign* birth = store.get<ESM::BirthSign>().search(mCurrentBirthId);
+        if (!birth)
+            return lines;
+
+        // Birthsign name + flavour description.
+        std::string intro = birth->mName;
+        if (!birth->mDescription.empty())
+            intro += ". " + birth->mDescription;
+        lines.push_back(intro);
+
+        std::vector<ESM::RefId> abilities, powers, spells;
+        categorizeBirthSpells(birth, abilities, powers, spells);
+
+        // One tooltip line per spell, with its full effect breakdown. Abilities
+        // are constant (no duration / range); powers and spells are timed.
+        auto addSpells = [&](const std::vector<ESM::RefId>& list, bool isConstant) {
+            for (const ESM::RefId& spellId : list)
+            {
+                const ESM::Spell* spell = store.get<ESM::Spell>().search(spellId);
+                if (!spell)
+                    continue;
+                std::string line = spell->mName;
+                for (const ESM::IndexedENAMstruct& effect : spell->mEffects.mList)
+                {
+                    std::string effLine = A11y::formatSpellEffectLine(effect, isConstant);
+                    if (!effLine.empty())
+                        line += ". " + effLine;
+                }
+                lines.push_back(line);
+            }
+        };
+        addSpells(abilities, /*isConstant=*/true);
+        addSpells(powers, /*isConstant=*/false);
+        addSpells(spells, /*isConstant=*/false);
+
+        return lines;
     }
 
     bool BirthDialog::onControllerButtonEvent(const SDL_ControllerButtonEvent& arg)

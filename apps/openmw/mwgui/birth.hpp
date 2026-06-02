@@ -1,6 +1,7 @@
 #ifndef MWGUI_BIRTH_H
 #define MWGUI_BIRTH_H
 
+#include "accessibility/screen.hpp"
 #include "windowbase.hpp"
 #include <components/esm/refid.hpp>
 
@@ -22,6 +23,8 @@ namespace MWGui
 
         void setNextButtonShow(bool shown);
         void onOpen() override;
+        void onClose() override;
+        void onFrame(float dt) override;
 
         bool exit() override { return false; }
 
@@ -49,6 +52,17 @@ namespace MWGui
         void updateBirths();
         void updateSpells();
 
+        void setupAccessibility();
+        // Spoken summary of the selected birthsign (name + its abilities,
+        // powers and spells), announced as the list option's value.
+        std::string birthValue() const;
+        // Detailed native-data tooltip lines: the birthsign description plus
+        // each ability / power / spell with its full effect breakdown.
+        std::vector<std::string> birthTooltips() const;
+        // Move the list selection by keyboard (the ListBox is a focus proxy
+        // and never receives the arrow keys).
+        void changeBirth(bool next);
+
         MyGUI::ListBox* mBirthList;
         MyGUI::ScrollView* mSpellArea;
         MyGUI::ImageBox* mBirthImage;
@@ -57,6 +71,11 @@ namespace MWGui
         MyGUI::Button* mOkButton;
 
         ESM::RefId mCurrentBirthId;
+
+        A11y::Screen mA11y;
+        // Invisible widget that holds key focus for the birthsign list option,
+        // so the native ListBox never receives our navigation arrow keys.
+        MyGUI::Widget* mBirthListProxy = nullptr;
 
         bool onControllerButtonEvent(const SDL_ControllerButtonEvent& arg) override;
     };
