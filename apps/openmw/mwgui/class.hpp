@@ -10,6 +10,7 @@
 #include <components/esm/refid.hpp>
 #include <components/esm3/loadclas.hpp>
 
+#include "accessibility/screen.hpp"
 #include "widgets.hpp"
 #include "windowbase.hpp"
 
@@ -29,6 +30,8 @@ namespace MWGui
         void setButtons(ButtonList& buttons);
 
         void onOpen() override;
+        void onClose() override;
+        void onFrame(float dt) override;
 
         bool exit() override { return false; }
 
@@ -52,6 +55,14 @@ namespace MWGui
         MyGUI::Widget* mButtonBar;
         std::vector<MyGUI::Button*> mButtons;
         size_t mControllerFocus = 0;
+
+        // Screen-reader controller. Because InfoBoxDialog is the engine's
+        // generic "prompt + button list" dialog (the class chooser, the 10
+        // class-quiz questions, ...), wiring accessibility here makes every
+        // such screen speak for free. Buttons are registered as activatable
+        // options in setButtons(); the prompt text is announced on open.
+        A11y::Screen mA11y;
+        std::string mA11yPrompt;
     };
 
     // Lets the player choose between 3 ways of creating a class
@@ -75,6 +86,10 @@ namespace MWGui
         GenerateClassResultDialog();
 
         void setClassId(const ESM::RefId& classId);
+
+        void onOpen() override;
+        void onClose() override;
+        void onFrame(float dt) override;
 
         bool exit() override { return false; }
 
@@ -104,6 +119,8 @@ namespace MWGui
         MyGUI::Button* mOkButton;
 
         ESM::RefId mCurrentClassId;
+
+        A11y::Screen mA11y;
     };
 
     class PickClassDialog : public WindowModal

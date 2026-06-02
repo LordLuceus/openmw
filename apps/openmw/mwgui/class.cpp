@@ -14,6 +14,8 @@
 
 #include "../mwworld/esmstore.hpp"
 
+#include "accessibility/speech.hpp"
+
 #include <components/debug/debuglog.hpp>
 #include <components/esm3/loadnpc.hpp>
 #include <components/misc/resourcehelpers.hpp>
@@ -103,6 +105,49 @@ namespace MWGui
     }
 
     // widget controls
+
+    void GenerateClassResultDialog::onOpen()
+    {
+        WindowModal::onOpen();
+
+        // Register the two buttons as navigable, activatable options.
+        mA11y.clear();
+        mA11y.add({ .widget = mBackButton,
+            .label = mBackButton->getCaption().asUTF8(),
+            .activate = [this] { onBackClicked(mBackButton); } });
+        mA11y.add({ .widget = mOkButton,
+            .label = mOkButton->getCaption().asUTF8(),
+            .activate = [this] { onOkClicked(mOkButton); } });
+
+        // Announce the quiz outcome: the reflective flavour line plus the
+        // resulting class name. Marked rereadable so R repeats the result
+        // (the buttons are re-read by arrowing onto them). Default focus is
+        // OK, matching the controller default.
+        MyGUI::TextBox* reflect;
+        getWidget(reflect, "ReflectT");
+        std::string result = reflect->getCaption().asUTF8();
+        const std::string className = mClassName->getCaption().asUTF8();
+        if (!className.empty())
+        {
+            if (!result.empty())
+                result += ". ";
+            result += className;
+        }
+        A11y::sayRereadable(result);
+
+        mA11y.activate(mOkButton);
+    }
+
+    void GenerateClassResultDialog::onClose()
+    {
+        mA11y.deactivate();
+        WindowModal::onClose();
+    }
+
+    void GenerateClassResultDialog::onFrame(float dt)
+    {
+        mA11y.onFrame(dt);
+    }
 
     void GenerateClassResultDialog::onOkClicked(MyGUI::Widget* /*sender*/)
     {
@@ -400,6 +445,8 @@ namespace MWGui
         mText->setCaption(str);
         mTextBox->setVisible(!str.empty());
         fitToText(mText);
+        // Remember the prompt so we can speak it when the dialog opens.
+        mA11yPrompt = str;
     }
 
     std::string InfoBoxDialog::getText() const
@@ -436,6 +483,17 @@ namespace MWGui
 
             this->mButtons.push_back(button);
         }
+
+        // Register each button with the screen-reader controller so it is
+        // announced on focus and activatable with Enter/Space. Rebuild the
+        // element list from scratch since setButtons() may be called again.
+        mA11y.clear();
+        for (MyGUI::Button* button : this->mButtons)
+        {
+            mA11y.add({ .widget = button,
+                .label = button->getCaption().asUTF8(),
+                .activate = [this, button] { onButtonClicked(button); } });
+        }
     }
 
     void InfoBoxDialog::onOpen()
@@ -447,6 +505,25 @@ namespace MWGui
         layoutVertically(mMainWidget, 4 + 6);
 
         center();
+
+        // Speak the prompt (e.g. a class-quiz question), then hand input to the
+        // screen-reader controller, which focuses + announces the first button.
+        // The prompt is marked rereadable so R repeats the question (the answers
+        // are re-read by arrowing onto them).
+        if (!mA11yPrompt.empty())
+            A11y::sayRereadable(mA11yPrompt);
+        mA11y.activate();
+    }
+
+    void InfoBoxDialog::onClose()
+    {
+        mA11y.deactivate();
+        WindowModal::onClose();
+    }
+
+    void InfoBoxDialog::onFrame(float dt)
+    {
+        mA11y.onFrame(dt);
     }
 
     void InfoBoxDialog::onButtonClicked(MyGUI::Widget* sender)
