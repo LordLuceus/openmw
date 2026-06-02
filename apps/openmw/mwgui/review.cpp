@@ -19,6 +19,7 @@
 #include "../mwmechanics/autocalcspell.hpp"
 #include "../mwworld/esmstore.hpp"
 
+#include "accessibility/spelltext.hpp"
 #include "tooltips.hpp"
 
 namespace
@@ -129,21 +130,99 @@ namespace MWGui
             okButton->setCaption(
                 MyGUI::UString(MWBase::Environment::get().getWindowManager()->getGameSettingString("sDone", {})));
         }
+
+        setupAccessibility();
+    }
+
+    void ReviewDialog::setupAccessibility()
+    {
+        MWBase::WindowManager* winMgr = MWBase::Environment::get().getWindowManager();
+
+        // Header items are real buttons: announce label + chosen value, and
+        // activate them to jump back and edit that creation step.
+        mA11y.add({ .widget = mButtons[0],
+            .describe = [this, winMgr] {
+                return std::string(winMgr->getGameSettingString("sName", "Name")) + ": " + mNameWidget->getCaption().asUTF8();
+            },
+            .activate = [this] { onNameClicked(mButtons[0]); } });
+        mA11y.add({ .widget = mButtons[1],
+            .describe = [this, winMgr] {
+                return std::string(winMgr->getGameSettingString("sRace", "Race")) + ": " + mRaceWidget->getCaption().asUTF8();
+            },
+            .activate = [this] { onRaceClicked(mButtons[1]); } });
+        mA11y.add({ .widget = mButtons[2],
+            .describe = [this, winMgr] {
+                return std::string(winMgr->getGameSettingString("sClass", "Class")) + ": " + mClassWidget->getCaption().asUTF8();
+            },
+            .activate = [this] { onClassClicked(mButtons[2]); } });
+        mA11y.add({ .widget = mButtons[3],
+            .describe = [this, winMgr] {
+                return std::string(winMgr->getGameSettingString("sBirthSign", "Birthsign")) + ": "
+                    + mBirthSignWidget->getCaption().asUTF8();
+            },
+            .activate = [this] { onBirthSignClicked(mButtons[3]); } });
+
+        // Read-only derived stats: navigate via invisible proxies that read the
+        // live value (current / maximum). The proxies live on mMainWidget.
+        auto makeProxy = [this] {
+            return mMainWidget->createWidget<MyGUI::Widget>({}, MyGUI::IntCoord(0, 0, 1, 1), MyGUI::Align::Default);
+        };
+        mHealthProxy = makeProxy();
+        mMagickaProxy = makeProxy();
+        mFatigueProxy = makeProxy();
+        mAttributesProxy = makeProxy();
+        mSkillsProxy = makeProxy();
+
+        mA11y.add({ .widget = mHealthProxy,
+            .label = std::string(winMgr->getGameSettingString("sHealth", "Health")),
+            .value = [this] { return dynamicStatValue(mHealth); } });
+        mA11y.add({ .widget = mMagickaProxy,
+            .label = std::string(winMgr->getGameSettingString("sMagic", "Magicka")),
+            .value = [this] { return dynamicStatValue(mMagicka); } });
+        mA11y.add({ .widget = mFatigueProxy,
+            .label = std::string(winMgr->getGameSettingString("sFatigue", "Fatigue")),
+            .value = [this] { return dynamicStatValue(mFatigue); } });
+
+        // Attributes and skills are expandable submenus: Enter opens them,
+        // Up/Down read each entry, T reads its native tooltip, Escape returns.
+        mA11y.add({ .widget = mAttributesProxy,
+            .label = std::string(winMgr->getGameSettingString("sAttributes", "Attributes")),
+            .children = [this] { return attributeItems(); } });
+
+        mA11y.add({ .widget = mSkillsProxy,
+            .label = std::string(winMgr->getGameSettingString("sSkills", "Skills")),
+            .children = [this] { return skillItems(); } });
+
+        // Trailing navigation buttons.
+        mA11y.add({ .widget = mButtons[4],
+            .label = std::string(winMgr->getGameSettingString("sBack", "Back")),
+            .activate = [this] { onBackClicked(mButtons[4]); } });
+        mA11y.add({ .widget = mButtons[5],
+            .describe = [this] { return mButtons[5]->getCaption().asUTF8(); },
+            .activate = [this] { onOkClicked(mButtons[5]); } });
     }
 
     void ReviewDialog::onOpen()
     {
         WindowModal::onOpen();
         mUpdateSkillArea = true;
+        mA11y.activate(mButtons[0]);
     }
 
-    void ReviewDialog::onFrame(float /*duration*/)
+    void ReviewDialog::onClose()
+    {
+        mA11y.deactivate();
+        WindowModal::onClose();
+    }
+
+    void ReviewDialog::onFrame(float duration)
     {
         if (mUpdateSkillArea)
         {
             updateSkillArea();
             mUpdateSkillArea = false;
         }
+        mA11y.onFrame(duration);
     }
 
     void ReviewDialog::setPlayerName(const std::string& name)
@@ -401,6 +480,176 @@ namespace MWGui
         }
     }
 
+    std::string ReviewDialog::dynamicStatValue(Widgets::MWDynamicStatPtr stat) const
+    {
+        return MyGUI::utility::toString(stat->getValue()) + " / " + MyGUI::utility::toString(stat->getMax());
+    }
+
+    std::vector<A11y::SubItem> ReviewDialog::attributeItems() const
+    {
+        std::vector<A11y::SubItem> items;
+        // Iterate in the game's canonical attribute order. Each item reads the
+        // live modified value; its tooltip is the attribute name + description.
+        const auto& store = MWBase::Environment::get().getWorld()->getStore().get<ESM::Attribute>();
+        for (const ESM::Attribute& attribute : store)
+        {
+            auto it = mAttributeWidgets.find(attribute.mId);
+            if (it == mAttributeWidgets.end())
+                continue;
+            const std::string name = attribute.mName;
+            const std::string description = attribute.mDescription;
+            const int value = it->second->getAttributeValue().getModified();
+            A11y::SubItem item;
+            item.label = name + " " + MyGUI::utility::toString(value);
+            item.tooltips = [name, description, value] {
+                std::string line = name + " " + MyGUI::utility::toString(value);
+                if (!description.empty())
+                    line += ". " + description;
+                return std::vector<std::string>{ line };
+            };
+            items.push_back(std::move(item));
+        }
+        return items;
+    }
+
+    void ReviewDialog::appendSkillItems(
+        std::vector<A11y::SubItem>& out, const std::vector<ESM::RefId>& skills, const std::string& section) const
+    {
+        const MWWorld::ESMStore& store = *MWBase::Environment::get().getESMStore();
+        for (const ESM::RefId& skillId : skills)
+        {
+            const ESM::Skill* skill = store.get<ESM::Skill>().search(skillId);
+            if (!skill)
+                continue;
+            auto valueIt = mSkillValues.find(skillId);
+            const int modified = (valueIt != mSkillValues.end()) ? static_cast<int>(valueIt->second.getModified()) : 0;
+
+            const std::string name = skill->mName;
+            const std::string description = skill->mDescription;
+            const ESM::RefId governingId = ESM::Attribute::indexToRefId(skill->mData.mAttribute);
+
+            A11y::SubItem item;
+            item.label = name + " " + MyGUI::utility::toString(modified);
+            item.section = section;
+            item.tooltips = [name, description, governingId, modified] {
+                MWBase::WindowManager* winMgr = MWBase::Environment::get().getWindowManager();
+                std::string line = name + " " + MyGUI::utility::toString(modified);
+                const ESM::Attribute* governing
+                    = MWBase::Environment::get().getESMStore()->get<ESM::Attribute>().search(governingId);
+                if (governing)
+                    line += ". " + std::string(winMgr->getGameSettingString("sGoverningAttribute", "Governing Attribute"))
+                        + ": " + governing->mName;
+                if (!description.empty())
+                    line += ". " + description;
+                return std::vector<std::string>{ line };
+            };
+            out.push_back(std::move(item));
+        }
+    }
+
+    std::vector<ESM::RefId> ReviewDialog::computeStartingSpells() const
+    {
+        std::vector<ESM::RefId> spells;
+        const MWWorld::ESMStore& store = *MWBase::Environment::get().getESMStore();
+
+        const ESM::Race* race = nullptr;
+        if (!mRaceId.empty())
+            race = store.get<ESM::Race>().find(mRaceId);
+
+        std::map<ESM::RefId, MWMechanics::AttributeValue> attributes;
+        for (const auto& [key, value] : mAttributeWidgets)
+            attributes[key] = value->getAttributeValue();
+
+        // Level-1 auto-calculated spells from skills / attributes / race.
+        for (ESM::RefId& spellId : MWMechanics::autoCalcPlayerSpells(mSkillValues, attributes, race))
+        {
+            if (std::find(spells.begin(), spells.end(), spellId) == spells.end())
+                spells.push_back(spellId);
+        }
+
+        // Racial powers.
+        if (race)
+        {
+            for (const ESM::RefId& spellId : race->mPowers.mList)
+            {
+                if (std::find(spells.begin(), spells.end(), spellId) == spells.end())
+                    spells.push_back(spellId);
+            }
+        }
+
+        // Birthsign powers.
+        if (!mBirthSignId.empty())
+        {
+            const ESM::BirthSign* sign = store.get<ESM::BirthSign>().find(mBirthSignId);
+            for (const ESM::RefId& spellId : sign->mPowers.mList)
+            {
+                if (std::find(spells.begin(), spells.end(), spellId) == spells.end())
+                    spells.push_back(spellId);
+            }
+        }
+
+        return spells;
+    }
+
+    void ReviewDialog::appendSpellItems(std::vector<A11y::SubItem>& out, const std::vector<ESM::RefId>& spells,
+        int spellType, const std::string& section) const
+    {
+        const MWWorld::ESMStore& store = *MWBase::Environment::get().getESMStore();
+        // Abilities are constant effects (no duration / range); powers and
+        // spells are timed.
+        const bool isConstant = (spellType == ESM::Spell::ST_Ability);
+        for (const ESM::RefId& spellId : spells)
+        {
+            const ESM::Spell* spell = store.get<ESM::Spell>().search(spellId);
+            if (!spell || spell->mData.mType != spellType)
+                continue;
+            const ESM::RefId id = spellId;
+            const std::string name = spell->mName;
+            A11y::SubItem item;
+            item.label = name;
+            item.section = section;
+            item.tooltips = [id, name, isConstant] {
+                const ESM::Spell* sp = MWBase::Environment::get().getESMStore()->get<ESM::Spell>().search(id);
+                std::string line = name;
+                if (sp)
+                {
+                    for (const ESM::IndexedENAMstruct& effect : sp->mEffects.mList)
+                    {
+                        std::string effLine = A11y::formatSpellEffectLine(effect, isConstant);
+                        if (!effLine.empty())
+                            line += ". " + effLine;
+                    }
+                }
+                return std::vector<std::string>{ line };
+            };
+            out.push_back(std::move(item));
+        }
+    }
+
+    std::vector<A11y::SubItem> ReviewDialog::skillItems() const
+    {
+        MWBase::WindowManager* winMgr = MWBase::Environment::get().getWindowManager();
+        std::vector<A11y::SubItem> items;
+        appendSkillItems(
+            items, mMajorSkills, std::string(winMgr->getGameSettingString("sSkillClassMajor", "Major Skills")));
+        appendSkillItems(
+            items, mMinorSkills, std::string(winMgr->getGameSettingString("sSkillClassMinor", "Minor Skills")));
+        appendSkillItems(
+            items, mMiscSkills, std::string(winMgr->getGameSettingString("sSkillClassMisc", "Misc Skills")));
+
+        // Auto-calculated starting abilities, powers and spells, mirroring the
+        // visual scroll area below the skills.
+        const std::vector<ESM::RefId> spells = computeStartingSpells();
+        appendSpellItems(items, spells, ESM::Spell::ST_Ability,
+            std::string(winMgr->getGameSettingString("sTypeAbility", "Abilities")));
+        appendSpellItems(
+            items, spells, ESM::Spell::ST_Power, std::string(winMgr->getGameSettingString("sTypePower", "Powers")));
+        appendSpellItems(
+            items, spells, ESM::Spell::ST_Spell, std::string(winMgr->getGameSettingString("sTypeSpell", "Spells")));
+
+        return items;
+    }
+
     void ReviewDialog::updateSkillArea()
     {
         for (MyGUI::Widget* skillWidget : mSkillWidgets)
@@ -423,42 +672,7 @@ namespace MWGui
             addSkills(mMiscSkills, "sSkillClassMisc", "Misc Skills", coord1, coord2);
 
         // starting spells
-        std::vector<ESM::RefId> spells;
-
-        const ESM::Race* race = nullptr;
-        if (!mRaceId.empty())
-            race = MWBase::Environment::get().getESMStore()->get<ESM::Race>().find(mRaceId);
-
-        std::map<ESM::RefId, MWMechanics::AttributeValue> attributes;
-        for (const auto& [key, value] : mAttributeWidgets)
-            attributes[key] = value->getAttributeValue();
-
-        std::vector<ESM::RefId> selectedSpells = MWMechanics::autoCalcPlayerSpells(mSkillValues, attributes, race);
-        for (ESM::RefId& spellId : selectedSpells)
-        {
-            if (std::find(spells.begin(), spells.end(), spellId) == spells.end())
-                spells.push_back(spellId);
-        }
-
-        if (race)
-        {
-            for (const ESM::RefId& spellId : race->mPowers.mList)
-            {
-                if (std::find(spells.begin(), spells.end(), spellId) == spells.end())
-                    spells.push_back(spellId);
-            }
-        }
-
-        if (!mBirthSignId.empty())
-        {
-            const ESM::BirthSign* sign
-                = MWBase::Environment::get().getESMStore()->get<ESM::BirthSign>().find(mBirthSignId);
-            for (const auto& spellId : sign->mPowers.mList)
-            {
-                if (std::find(spells.begin(), spells.end(), spellId) == spells.end())
-                    spells.push_back(spellId);
-            }
-        }
+        const std::vector<ESM::RefId> spells = computeStartingSpells();
 
         if (!mSkillWidgets.empty())
             addSeparator(coord1, coord2);

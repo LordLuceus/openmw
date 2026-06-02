@@ -1,6 +1,7 @@
 #ifndef MWGUI_REVIEW_H
 #define MWGUI_REVIEW_H
 
+#include "accessibility/screen.hpp"
 #include "widgets.hpp"
 #include "windowbase.hpp"
 #include <components/esm/refid.hpp>
@@ -43,6 +44,7 @@ namespace MWGui
         void setSkillValue(ESM::RefId id, const MWMechanics::SkillValue& value);
 
         void onOpen() override;
+        void onClose() override;
 
         void onFrame(float duration) override;
 
@@ -75,6 +77,25 @@ namespace MWGui
         bool onControllerButtonEvent(const SDL_ControllerButtonEvent& arg) override;
 
     private:
+        void setupAccessibility();
+        // Spoken "current / max" value for a derived stat (health etc.).
+        std::string dynamicStatValue(Widgets::MWDynamicStatPtr stat) const;
+        // Build the expandable submenu items (each a name + value, with native
+        // tooltips) for the attributes and the skills blocks, reading live data.
+        std::vector<A11y::SubItem> attributeItems() const;
+        std::vector<A11y::SubItem> skillItems() const;
+        // Append the skills in \p skills (with the given section name) to \p out.
+        void appendSkillItems(
+            std::vector<A11y::SubItem>& out, const std::vector<ESM::RefId>& skills, const std::string& section) const;
+        // Compute the character's auto-calculated starting spells (race +
+        // birthsign powers + level-1 spells), de-duplicated, mirroring the list
+        // built in updateSkillArea() for the visual scroll area.
+        std::vector<ESM::RefId> computeStartingSpells() const;
+        // Append the given spell type's entries (abilities / powers / spells)
+        // from \p spells to \p out under \p section, with effect tooltips.
+        void appendSpellItems(std::vector<A11y::SubItem>& out, const std::vector<ESM::RefId>& spells, int spellType,
+            const std::string& section) const;
+
         void addSkills(const std::vector<ESM::RefId>& skills, const std::string& titleId,
             const std::string& titleDefault, MyGUI::IntCoord& coord1, MyGUI::IntCoord& coord2);
         void addSeparator(MyGUI::IntCoord& coord1, MyGUI::IntCoord& coord2);
@@ -105,6 +126,17 @@ namespace MWGui
         // 0 = Name, 1 = Race, 2 = Class, 3 = BirthSign, 4 = Back, 5 = OK
         std::vector<MyGUI::Button*> mButtons;
         size_t mControllerFocus = 0;
+
+        A11y::Screen mA11y;
+        // Invisible focus proxies for the read-only stat blocks (the real
+        // widgets are composite MWDynamicStat / MWAttribute controls, and the
+        // skills area is rebuilt dynamically, so we navigate via stable
+        // proxies whose callbacks read live data).
+        MyGUI::Widget* mHealthProxy = nullptr;
+        MyGUI::Widget* mMagickaProxy = nullptr;
+        MyGUI::Widget* mFatigueProxy = nullptr;
+        MyGUI::Widget* mAttributesProxy = nullptr;
+        MyGUI::Widget* mSkillsProxy = nullptr;
     };
 }
 #endif
