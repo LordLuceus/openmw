@@ -317,10 +317,17 @@ namespace MWGui::A11y
             mTooltipIndex = forward ? (mTooltipIndex + 1) % count : (mTooltipIndex + count - 1) % count;
         }
 
-        // Position indicator goes at the END (project convention).
+        // Position indicator goes at the END (project convention). Avoid a
+        // double period when the tooltip text already ends in sentence
+        // punctuation: just append a space before the indicator in that case.
         std::string line = mTooltipLines[mTooltipIndex];
         if (mTooltipLines.size() > 1)
-            line += ". " + std::to_string(mTooltipIndex + 1) + " of " + std::to_string(mTooltipLines.size());
+        {
+            const char last = line.empty() ? '\0' : line.back();
+            const bool endsWithPunct = (last == '.' || last == '!' || last == '?');
+            line += (endsWithPunct ? " " : ". ") + std::to_string(mTooltipIndex + 1) + " of "
+                + std::to_string(mTooltipLines.size());
+        }
         say(line);
     }
 
