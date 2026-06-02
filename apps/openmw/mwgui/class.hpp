@@ -133,6 +133,8 @@ namespace MWGui
 
         void setNextButtonShow(bool shown);
         void onOpen() override;
+        void onClose() override;
+        void onFrame(float dt) override;
 
         bool exit() override { return false; }
 
@@ -160,6 +162,19 @@ namespace MWGui
         void updateClasses();
         void updateStats();
 
+        void setupAccessibility();
+        // Spoken summary of the selected class (name + specialization +
+        // favourite attributes + major/minor skills), announced as the list
+        // option's value on navigation.
+        std::string classValue() const;
+        // Detailed native-data tooltip lines for the selected class: the
+        // specialization, the two favourite attributes (with descriptions),
+        // and each major/minor skill (with description + governing attribute).
+        std::vector<std::string> classTooltips() const;
+        // Move the list selection by keyboard (the ListBox itself is a focus
+        // proxy and never receives the arrow keys).
+        void changeClass(bool next);
+
         MyGUI::ImageBox* mClassImage;
         MyGUI::ListBox* mClassList;
         MyGUI::TextBox* mSpecializationName;
@@ -170,6 +185,11 @@ namespace MWGui
         Widgets::MWSkillPtr mMinorSkill[5];
 
         ESM::RefId mCurrentClassId;
+
+        A11y::Screen mA11y;
+        // Invisible widget that holds key focus for the class list option, so
+        // the native ListBox never receives the arrow keys we use to navigate.
+        MyGUI::Widget* mClassListProxy = nullptr;
 
         bool onControllerButtonEvent(const SDL_ControllerButtonEvent& arg) override;
     };

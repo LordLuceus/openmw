@@ -201,6 +201,33 @@ namespace MWGui
 
         updateClasses();
         updateStats();
+
+        setupAccessibility();
+    }
+
+    void PickClassDialog::setupAccessibility()
+    {
+        MWBase::WindowManager* winMgr = MWBase::Environment::get().getWindowManager();
+
+        // The class ListBox handles arrow keys itself, so we navigate it through
+        // an invisible focus proxy (real-focus mode) just like the Race screen.
+        // Up/Down move the list selection, T cycles the class's stat tooltips.
+        mClassListProxy
+            = mMainWidget->createWidget<MyGUI::Widget>({}, MyGUI::IntCoord(0, 0, 1, 1), MyGUI::Align::Default);
+
+        mA11y.add({ .widget = mClassListProxy,
+            .label = std::string(winMgr->getGameSettingString("sClass", "Class")),
+            .value = [this] { return classValue(); },
+            .change = [this](bool next) { changeClass(next); },
+            .tooltips = [this] { return classTooltips(); } });
+        mA11y.add({ .widget = mBackButton,
+            .label = std::string(winMgr->getGameSettingString("sBack", "Back")),
+            .activate = [this] { onBackClicked(mBackButton); } });
+        // The OK button caption changes (OK / Next / Done) via
+        // setNextButtonShow(), so read it live rather than capturing it once.
+        mA11y.add({ .widget = mOkButton,
+            .describe = [this] { return mOkButton->getCaption().asUTF8(); },
+            .activate = [this] { onOkClicked(mOkButton); } });
     }
 
     void PickClassDialog::setNextButtonShow(bool shown)
@@ -230,7 +257,6 @@ namespace MWGui
         WindowModal::onOpen();
         updateClasses();
         updateStats();
-        MWBase::Environment::get().getWindowManager()->setKeyFocusWidget(mClassList);
 
         // Show the current class by default
         MWWorld::Ptr player = MWMechanics::getPlayer();
@@ -239,6 +265,21 @@ namespace MWGui
 
         if (!classId.empty())
             setClassId(classId);
+
+        // Hand input to the screen-reader controller, focusing the class list
+        // option (the proxy) so the current class is announced immediately.
+        mA11y.activate(mClassListProxy);
+    }
+
+    void PickClassDialog::onClose()
+    {
+        mA11y.deactivate();
+        WindowModal::onClose();
+    }
+
+    void PickClassDialog::onFrame(float dt)
+    {
+        mA11y.onFrame(dt);
     }
 
     void PickClassDialog::setClassId(const ESM::RefId& classId)
@@ -366,6 +407,132 @@ namespace MWGui
         }
 
         setClassImage(mClassImage, mCurrentClassId);
+    }
+
+    void PickClassDialog::changeClass(bool next)
+    {
+        const size_t count = mClassList->getItemCount();
+        if (count == 0)
+            return;
+        size_t cur = mClassList->getIndexSelected();
+        if (cur == MyGUI::ITEM_NONE)
+            cur = 0;
+        const size_t nextIdx = next ? (cur + 1) % count : (cur + count - 1) % count;
+        mClassList->setIndexSelected(nextIdx);
+        mClassList->beginToItemAt(nextIdx); // keep selection visible
+        // setIndexSelected doesn't fire eventListChangePosition.
+        onSelectClass(mClassList, nextIdx);
+    }
+
+    std::string PickClassDialog::classValue() const
+    {
+        const size_t idx = mClassList->getIndexSelected();
+        if (idx == MyGUI::ITEM_NONE)
+            return {};
+        std::string out = mClassList->getItemNameAt(idx).asUTF8();
+
+        const MWWorld::ESMStore& store = *MWBase::Environment::get().getESMStore();
+        const ESM::Class* currentClass = store.get<ESM::Class>().search(mCurrentClassId);
+        if (!currentClass)
+            return out;
+
+        MWBase::WindowManager* winMgr = MWBase::Environment::get().getWindowManager();
+
+        // Specialization.
+        const auto specialization = static_cast<ESM::Class::Specialization>(currentClass->mData.mSpecialization);
+        const std::string_view specName = winMgr->getGameSettingString(
+            ESM::Class::sGmstSpecializationIds[specialization], ESM::Class::sGmstSpecializationIds[specialization]);
+        out += ". " + std::string(winMgr->getGameSettingString("sChooseClassMenu1", "Specialization")) + ": "
+            + std::string(specName);
+
+        // Favourite attributes.
+        std::string attrs;
+        for (int attr : currentClass->mData.mAttribute)
+        {
+            const ESM::Attribute* attribute = store.get<ESM::Attribute>().search(ESM::Attribute::indexToRefId(attr));
+            if (!attribute)
+                continue;
+            if (!attrs.empty())
+                attrs += ", ";
+            attrs += attribute->mName;
+        }
+        if (!attrs.empty())
+            out += ". " + std::string(winMgr->getGameSettingString("sChooseClassMenu2", "Favorite Attributes"))
+                + " " + attrs;
+
+        // Major / minor skills. mSkills[i] is { minor, major }.
+        std::string major, minor;
+        for (const auto& pair : currentClass->mData.mSkills)
+        {
+            const ESM::Skill* minorSkill = store.get<ESM::Skill>().search(ESM::Skill::indexToRefId(pair[0]));
+            const ESM::Skill* majorSkill = store.get<ESM::Skill>().search(ESM::Skill::indexToRefId(pair[1]));
+            if (majorSkill)
+                major += (major.empty() ? "" : ", ") + majorSkill->mName;
+            if (minorSkill)
+                minor += (minor.empty() ? "" : ", ") + minorSkill->mName;
+        }
+        if (!major.empty())
+            out += ". " + std::string(winMgr->getGameSettingString("sChooseClassMenu3", "Major Skills")) + ": "
+                + major;
+        if (!minor.empty())
+            out += ". " + std::string(winMgr->getGameSettingString("sChooseClassMenu4", "Minor Skills")) + ": "
+                + minor;
+
+        return out;
+    }
+
+    std::vector<std::string> PickClassDialog::classTooltips() const
+    {
+        std::vector<std::string> lines;
+        const MWWorld::ESMStore& store = *MWBase::Environment::get().getESMStore();
+        const ESM::Class* currentClass = store.get<ESM::Class>().search(mCurrentClassId);
+        if (!currentClass)
+            return lines;
+
+        MWBase::WindowManager* winMgr = MWBase::Environment::get().getWindowManager();
+
+        // Class name + flavour description.
+        std::string intro = currentClass->mName;
+        if (!currentClass->mDescription.empty())
+            intro += ". " + currentClass->mDescription;
+        lines.push_back(intro);
+
+        // Favourite attributes with their descriptions.
+        for (int attr : currentClass->mData.mAttribute)
+        {
+            const ESM::Attribute* attribute = store.get<ESM::Attribute>().search(ESM::Attribute::indexToRefId(attr));
+            if (!attribute)
+                continue;
+            std::string line = attribute->mName;
+            if (!attribute->mDescription.empty())
+                line += ". " + attribute->mDescription;
+            lines.push_back(line);
+        }
+
+        // Each skill with its description and governing attribute, matching the
+        // on-screen skill tooltip. mSkills[i] is { minor, major }.
+        const std::string majorLabel(winMgr->getGameSettingString("sSkillClassMajor", "Major Skill"));
+        const std::string minorLabel(winMgr->getGameSettingString("sSkillClassMinor", "Minor Skill"));
+        auto addSkill = [&](int skillIndex, const std::string& kind) {
+            const ESM::Skill* skill = store.get<ESM::Skill>().search(ESM::Skill::indexToRefId(skillIndex));
+            if (!skill)
+                return;
+            std::string line = skill->mName + " (" + kind + ")";
+            const ESM::Attribute* governing
+                = store.get<ESM::Attribute>().search(ESM::Attribute::indexToRefId(skill->mData.mAttribute));
+            if (governing)
+                line += ". " + std::string(winMgr->getGameSettingString("sGoverningAttribute", "Governing Attribute"))
+                    + ": " + governing->mName;
+            if (!skill->mDescription.empty())
+                line += ". " + skill->mDescription;
+            lines.push_back(line);
+        };
+        for (const auto& pair : currentClass->mData.mSkills)
+            addSkill(pair[1], majorLabel);
+        for (const auto& pair : currentClass->mData.mSkills)
+            addSkill(pair[0], minorLabel);
+
+        return lines;
     }
 
     bool PickClassDialog::onControllerButtonEvent(const SDL_ControllerButtonEvent& arg)
