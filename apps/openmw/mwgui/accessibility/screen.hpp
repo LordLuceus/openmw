@@ -120,6 +120,24 @@ namespace MWGui::A11y
 
         bool isActive() const;
 
+        /// One-shot: returns true (and resets the latch) if the most recent
+        /// Escape was consumed to leave edit mode. A WindowModal whose exit()
+        /// defaults to closing on Escape should call this from exit() and return
+        /// false when it's true, so the Escape that ends text editing doesn't
+        /// also close the dialog. (The engine's Escape action runs *after* our
+        /// key handler within the same keystroke, so the latch is still set when
+        /// exit() is queried.)
+        bool consumeEditModeEscape();
+
+        /// True while the current option's text field is being edited.
+        bool inEditMode() const { return mEditMode; }
+
+        /// Begin editing the current option's text field immediately (if it is
+        /// editable). For dialogs whose sole purpose is text entry (e.g. the
+        /// class description), so the user can type the moment it opens instead
+        /// of having to press Enter first. Call after activate().
+        void beginEditing() { enterEditMode(); }
+
     private:
         static constexpr size_t npos = static_cast<size_t>(-1);
 
@@ -128,12 +146,17 @@ namespace MWGui::A11y
         const Element* current() const;
         bool isUsable(size_t index) const;
         void select(size_t index, bool announce);
-        void announce(const Element& element);
+        void announce(const Element& element, bool withSection = false);
         void moveSelection(int delta);
+        void jumpSection(int delta);  // Ctrl+Up/Down: jump between top-level sections
         void changeValue(bool next);
         void activateCurrent();
         void cycleTooltip(bool forward);
         void resetHint();
+
+        // Editable-text-field helpers.
+        void enterEditMode();  // begin editing the current option (if editable)
+        void exitEditMode();   // stop editing, return to form navigation
 
         // Expandable-submenu helpers.
         bool inSubmenu() const { return mSubOpen; }
@@ -198,6 +221,14 @@ namespace MWGui::A11y
         bool mSubOpen = false;
         std::vector<SubItem> mSubItems;
         size_t mSubCurrent = npos;
+
+        // Editable-text-field state. While mEditMode, all keys (except the
+        // Escape that exits) are left for the focused EditField to handle, so
+        // the framework's arrow/Enter navigation is suspended.
+        bool mEditMode = false;
+        // Latch set when an Escape was used to leave edit mode, read+cleared by
+        // consumeEditModeEscape() so the same Escape doesn't also close a modal.
+        bool mEscapeConsumed = false;
         // Tooltip cycling state for the focused sub-item (mirrors the top-level
         // tooltip state but keyed by sub-item index).
         std::vector<std::string> mSubTooltipLines;

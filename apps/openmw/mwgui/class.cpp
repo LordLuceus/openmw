@@ -852,9 +852,74 @@ namespace MWGui
 
         setSpecialization(0);
         update();
+
+        mNameField.attach(mEditName);
+        setupAccessibility();
     }
 
     CreateClassDialog::~CreateClassDialog() = default;
+
+    void CreateClassDialog::setupAccessibility()
+    {
+        MWBase::WindowManager* winMgr = MWBase::Environment::get().getWindowManager();
+
+        // Name: an editable text field. Enter toggles edit mode (all keys go to
+        // the field); navigation reads the current contents as the value.
+        mNameField.setActive(false);
+        mA11y.add({ .widget = mEditName,
+            .label = std::string(winMgr->getGameSettingString("sName", "Name")),
+            .value =
+                [this] {
+                    const std::string name = mEditName->getOnlyText().asUTF8();
+                    return name.empty() ? std::string("blank") : name;
+                },
+            .edit = &mNameField });
+
+        // Specialization (opens the specialization picker).
+        mA11y.add({ .widget = mSpecializationName,
+            .label = std::string(winMgr->getGameSettingString("sChooseClassMenu1", "Specialization")),
+            .value = [this] { return specializationValue(); },
+            .tooltips = [this] { return specializationTooltips(); },
+            .activate = [this] { onSpecializationClicked(mSpecializationName); } });
+
+        // Favourite attributes (each opens the attribute picker).
+        const std::string favLabel(winMgr->getGameSettingString("sChooseClassMenu2", "Favorite Attributes"));
+        for (Widgets::MWAttributePtr attr : { mFavoriteAttribute0, mFavoriteAttribute1 })
+        {
+            mA11y.add({ .widget = attr,
+                .label = favLabel,
+                .value = [this, attr] { return attributeValue(attr); },
+                .tooltips = [this, attr] { return attributeTooltips(attr); },
+                .activate = [this, attr] { onAttributeClicked(attr); } });
+        }
+
+        // Major / minor skills (each opens the skill picker), grouped into
+        // sections so crossing between them is announced.
+        const std::string majorLabel(winMgr->getGameSettingString("sSkillClassMajor", "Major Skill"));
+        const std::string minorLabel(winMgr->getGameSettingString("sSkillClassMinor", "Minor Skill"));
+        auto addSkill = [&](Widgets::MWSkillPtr skill, const std::string& section) {
+            mA11y.add({ .widget = skill,
+                .section = section,
+                .value = [this, skill] { return skillValue(skill); },
+                .tooltips = [this, skill] { return skillTooltips(skill); },
+                .activate = [this, skill] { onSkillClicked(skill); } });
+        };
+        for (Widgets::MWSkillPtr skill : mMajorSkill)
+            addSkill(skill, majorLabel);
+        for (Widgets::MWSkillPtr skill : mMinorSkill)
+            addSkill(skill, minorLabel);
+
+        // Dialog buttons.
+        mA11y.add({ .widget = mButtons[0], // Description
+            .label = std::string(winMgr->getGameSettingString("sCreateClassMenu1", "Class Description")),
+            .activate = [this] { onDescriptionClicked(mButtons[0]); } });
+        mA11y.add({ .widget = mButtons[1], // Back
+            .label = std::string(winMgr->getGameSettingString("sBack", "Back")),
+            .activate = [this] { onBackClicked(mButtons[1]); } });
+        mA11y.add({ .widget = mButtons[2], // OK / Next / Done (caption changes)
+            .describe = [this] { return mButtons[2]->getCaption().asUTF8(); },
+            .activate = [this] { onOkClicked(mButtons[2]); } });
+    }
 
     void CreateClassDialog::update()
     {
@@ -977,6 +1042,9 @@ namespace MWGui
         MWBase::Environment::get().getWindowManager()->removeDialog(std::move(mAttribDialog));
         MWBase::Environment::get().getWindowManager()->removeDialog(std::move(mSkillDialog));
         MWBase::Environment::get().getWindowManager()->removeDialog(std::move(mDescDialog));
+        // The picker stole active status when it opened; reclaim it, re-focusing
+        // (and re-announcing) the option the player came from.
+        mA11y.activate(mA11y.currentWidget());
     }
 
     void CreateClassDialog::onSpecializationClicked(MyGUI::Widget* /*sender*/)
@@ -993,6 +1061,8 @@ namespace MWGui
         setSpecialization(mSpecializationId);
 
         MWBase::Environment::get().getWindowManager()->removeDialog(std::move(mSpecDialog));
+        // Reclaim input and re-announce the option (now with its new value).
+        mA11y.activate(mA11y.currentWidget());
     }
 
     void CreateClassDialog::setSpecialization(int id)
@@ -1031,6 +1101,7 @@ namespace MWGui
         MWBase::Environment::get().getWindowManager()->removeDialog(std::move(mAttribDialog));
 
         update();
+        mA11y.activate(mA11y.currentWidget());
     }
 
     void CreateClassDialog::onSkillClicked(Widgets::MWSkillPtr sender)
@@ -1061,6 +1132,7 @@ namespace MWGui
         mAffectedSkill->setSkillId(mSkillDialog->getSkillId());
         MWBase::Environment::get().getWindowManager()->removeDialog(std::move(mSkillDialog));
         update();
+        mA11y.activate(mA11y.currentWidget());
     }
 
     void CreateClassDialog::onDescriptionClicked(MyGUI::Widget* /*sender*/)
@@ -1068,6 +1140,7 @@ namespace MWGui
         mDescDialog = std::make_unique<DescriptionDialog>();
         mDescDialog->setTextInput(mDescription);
         mDescDialog->eventDone += MyGUI::newDelegate(this, &CreateClassDialog::onDescriptionEntered);
+        mDescDialog->eventCancel += MyGUI::newDelegate(this, &CreateClassDialog::onDialogCancel);
         mDescDialog->setVisible(true);
     }
 
@@ -1075,6 +1148,7 @@ namespace MWGui
     {
         mDescription = mDescDialog->getTextInput();
         MWBase::Environment::get().getWindowManager()->removeDialog(std::move(mDescDialog));
+        mA11y.activate(mA11y.currentWidget());
     }
 
     void CreateClassDialog::onOkClicked(MyGUI::Widget* /*sender*/)
@@ -1087,6 +1161,105 @@ namespace MWGui
     void CreateClassDialog::onBackClicked(MyGUI::Widget* /*sender*/)
     {
         eventBack();
+    }
+
+    void CreateClassDialog::onOpen()
+    {
+        WindowModal::onOpen();
+        // Hand input to the screen-reader controller. Focus the name field so
+        // the player is told what to fill in first; it stays in navigation mode
+        // (Enter begins editing).
+        mA11y.activate(mEditName);
+    }
+
+    void CreateClassDialog::onClose()
+    {
+        mA11y.deactivate();
+        WindowModal::onClose();
+    }
+
+    void CreateClassDialog::onFrame(float dt)
+    {
+        // Drive the text-editing feedback (only speaks while in edit mode) and
+        // the screen-reader controller's delayed hint.
+        mNameField.onFrame();
+        mA11y.onFrame(dt);
+    }
+
+    std::string CreateClassDialog::specializationValue() const
+    {
+        return std::string(MWBase::Environment::get().getWindowManager()->getGameSettingString(
+            ESM::Class::sGmstSpecializationIds[mSpecializationId], {}));
+    }
+
+    std::string CreateClassDialog::attributeValue(Widgets::MWAttributePtr attr) const
+    {
+        const ESM::Attribute* attribute
+            = MWBase::Environment::get().getESMStore()->get<ESM::Attribute>().search(attr->getAttributeId());
+        return attribute ? attribute->mName : std::string();
+    }
+
+    std::string CreateClassDialog::skillValue(Widgets::MWSkillPtr skill) const
+    {
+        const ESM::Skill* s = MWBase::Environment::get().getESMStore()->get<ESM::Skill>().search(skill->getSkillId());
+        return s ? s->mName : std::string();
+    }
+
+    std::vector<std::string> CreateClassDialog::specializationTooltips() const
+    {
+        MWBase::WindowManager* winMgr = MWBase::Environment::get().getWindowManager();
+        std::vector<std::string> lines;
+        // Name + the skills this specialization governs (mirrors the on-screen
+        // SpecializationToolTip).
+        std::string line = specializationValue();
+        std::string skills;
+        for (const ESM::Skill& skill : MWBase::Environment::get().getESMStore()->get<ESM::Skill>())
+        {
+            if (skill.mData.mSpecialization != mSpecializationId)
+                continue;
+            if (!skills.empty())
+                skills += ", ";
+            skills += skill.mName;
+        }
+        if (!skills.empty())
+            line += ". " + skills;
+        lines.push_back(line);
+        return lines;
+    }
+
+    std::vector<std::string> CreateClassDialog::attributeTooltips(Widgets::MWAttributePtr attr) const
+    {
+        std::vector<std::string> lines;
+        const ESM::Attribute* attribute
+            = MWBase::Environment::get().getESMStore()->get<ESM::Attribute>().search(attr->getAttributeId());
+        if (attribute)
+        {
+            std::string line = attribute->mName;
+            if (!attribute->mDescription.empty())
+                line += ". " + attribute->mDescription;
+            lines.push_back(line);
+        }
+        return lines;
+    }
+
+    std::vector<std::string> CreateClassDialog::skillTooltips(Widgets::MWSkillPtr skill) const
+    {
+        MWBase::WindowManager* winMgr = MWBase::Environment::get().getWindowManager();
+        const MWWorld::ESMStore& store = *MWBase::Environment::get().getESMStore();
+        std::vector<std::string> lines;
+        const ESM::Skill* s = store.get<ESM::Skill>().search(skill->getSkillId());
+        if (!s)
+            return lines;
+        std::string line = s->mName;
+        const ESM::Attribute* governing
+            = store.get<ESM::Attribute>().search(ESM::Attribute::indexToRefId(s->mData.mAttribute));
+        if (governing)
+            line += ". " + std::string(winMgr->getGameSettingString("sGoverningAttribute", "Governing Attribute"))
+                + ": " + governing->mName;
+        if (!s->mDescription.empty())
+            line += ". " + s->mDescription;
+        lines.push_back(line);
+        return lines;
     }
 
     /* SelectSpecializationDialog */
@@ -1128,9 +1301,74 @@ namespace MWGui
 
         mControllerButtons.mA = "#{Interface:Select}";
         mControllerButtons.mB = "#{Interface:Cancel}";
+
+        setupAccessibility();
     }
 
     SelectSpecializationDialog::~SelectSpecializationDialog() {}
+
+    void SelectSpecializationDialog::setupAccessibility()
+    {
+        struct
+        {
+            MyGUI::TextBox* widget;
+            ESM::Class::Specialization spec;
+        } specs[] = {
+            { mSpecialization0, ESM::Class::Combat },
+            { mSpecialization1, ESM::Class::Magic },
+            { mSpecialization2, ESM::Class::Stealth },
+        };
+        for (const auto& s : specs)
+        {
+            mA11y.add({ .widget = s.widget,
+                .describe = [w = s.widget] { return w->getCaption().asUTF8(); },
+                .tooltips = [this, spec = s.spec] { return specializationTooltips(spec); },
+                .activate = [this, w = s.widget] { onSpecializationClicked(w); } });
+        }
+
+        MyGUI::Button* cancelButton;
+        getWidget(cancelButton, "CancelButton");
+        mA11y.add({ .widget = cancelButton,
+            .label = std::string(MWBase::Environment::get().getWindowManager()->getGameSettingString("sCancel", "Cancel")),
+            .activate = [this] { onCancelClicked(nullptr); } });
+    }
+
+    std::vector<std::string> SelectSpecializationDialog::specializationTooltips(ESM::Class::Specialization spec) const
+    {
+        MWBase::WindowManager* winMgr = MWBase::Environment::get().getWindowManager();
+        std::vector<std::string> lines;
+        std::string line(winMgr->getGameSettingString(ESM::Class::sGmstSpecializationIds[spec], {}));
+        std::string skills;
+        for (const ESM::Skill& skill : MWBase::Environment::get().getESMStore()->get<ESM::Skill>())
+        {
+            if (skill.mData.mSpecialization != spec)
+                continue;
+            if (!skills.empty())
+                skills += ", ";
+            skills += skill.mName;
+        }
+        if (!skills.empty())
+            line += ". " + skills;
+        lines.push_back(line);
+        return lines;
+    }
+
+    void SelectSpecializationDialog::onOpen()
+    {
+        WindowModal::onOpen();
+        mA11y.activate();
+    }
+
+    void SelectSpecializationDialog::onClose()
+    {
+        mA11y.deactivate();
+        WindowModal::onClose();
+    }
+
+    void SelectSpecializationDialog::onFrame(float dt)
+    {
+        mA11y.onFrame(dt);
+    }
 
     // widget controls
 
@@ -1210,6 +1448,48 @@ namespace MWGui
             mControllerButtons.mA = "#{Interface:Select}";
             mControllerButtons.mB = "#{Interface:Cancel}";
         }
+
+        // Register each attribute button + the cancel button with the screen
+        // reader. Each option reads the attribute name and cycles its native
+        // tooltip (name + description) with T.
+        const MWWorld::ESMStore& esmStore = *MWBase::Environment::get().getESMStore();
+        for (Widgets::MWAttribute* widget : mAttributeButtons)
+        {
+            const ESM::RefId id = widget->getAttributeId();
+            const ESM::Attribute* attribute = esmStore.get<ESM::Attribute>().search(id);
+            std::string name = attribute ? attribute->mName : std::string();
+            std::string description = attribute ? attribute->mDescription : std::string();
+            mA11y.add({ .widget = widget,
+                .label = name,
+                .tooltips =
+                    [name, description]() -> std::vector<std::string> {
+                        std::string line = name;
+                        if (!description.empty())
+                            line += ". " + description;
+                        return { line };
+                    },
+                .activate = [this, widget] { onAttributeClicked(widget); } });
+        }
+        mA11y.add({ .widget = cancelButton,
+            .label = std::string(MWBase::Environment::get().getWindowManager()->getGameSettingString("sCancel", "Cancel")),
+            .activate = [this] { onCancelClicked(nullptr); } });
+    }
+
+    void SelectAttributeDialog::onOpen()
+    {
+        WindowModal::onOpen();
+        mA11y.activate();
+    }
+
+    void SelectAttributeDialog::onClose()
+    {
+        mA11y.deactivate();
+        WindowModal::onClose();
+    }
+
+    void SelectAttributeDialog::onFrame(float dt)
+    {
+        mA11y.onFrame(dt);
     }
 
     // widget controls
@@ -1310,9 +1590,79 @@ namespace MWGui
             mControllerButtons.mA = "#{Interface:Select}";
             mControllerButtons.mB = "#{Interface:Cancel}";
         }
+
+        setupAccessibility();
     }
 
     SelectSkillDialog::~SelectSkillDialog() {}
+
+    void SelectSkillDialog::setupAccessibility()
+    {
+        MWBase::WindowManager* winMgr = MWBase::Environment::get().getWindowManager();
+        const MWWorld::ESMStore& store = *MWBase::Environment::get().getESMStore();
+
+        // The three specialization columns, each becoming a navigable section.
+        // We add skills grouped by specialization (so crossing a column edge
+        // announces the new section), reading the column's GMST header name.
+        const std::array<std::pair<ESM::Class::Specialization, const char*>, 3> columns = { {
+            { ESM::Class::Combat, "sSpecializationCombat" },
+            { ESM::Class::Magic, "sSpecializationMagic" },
+            { ESM::Class::Stealth, "sSpecializationStealth" },
+        } };
+
+        for (const auto& [spec, headerKey] : columns)
+        {
+            const std::string section(winMgr->getGameSettingString(headerKey, {}));
+            for (Widgets::MWSkill* widget : mSkillButtons)
+            {
+                const ESM::Skill* skill = store.get<ESM::Skill>().search(widget->getSkillId());
+                if (!skill || skill->mData.mSpecialization != spec)
+                    continue;
+                std::string name = skill->mName;
+                std::string description = skill->mDescription;
+                const ESM::Attribute* governing
+                    = store.get<ESM::Attribute>().search(ESM::Attribute::indexToRefId(skill->mData.mAttribute));
+                std::string governingName = governing ? governing->mName : std::string();
+                std::string governingLabel(winMgr->getGameSettingString("sGoverningAttribute", "Governing Attribute"));
+                mA11y.add({ .widget = widget,
+                    .label = name,
+                    .section = section,
+                    .tooltips =
+                        [name, description, governingLabel, governingName]() -> std::vector<std::string> {
+                            std::string line = name;
+                            if (!governingName.empty())
+                                line += ". " + governingLabel + ": " + governingName;
+                            if (!description.empty())
+                                line += ". " + description;
+                            return { line };
+                        },
+                    .activate = [this, widget] { onSkillClicked(widget); } });
+            }
+        }
+
+        MyGUI::Button* cancelButton;
+        getWidget(cancelButton, "CancelButton");
+        mA11y.add({ .widget = cancelButton,
+            .label = std::string(winMgr->getGameSettingString("sCancel", "Cancel")),
+            .activate = [this] { onCancelClicked(nullptr); } });
+    }
+
+    void SelectSkillDialog::onOpen()
+    {
+        WindowModal::onOpen();
+        mA11y.activate();
+    }
+
+    void SelectSkillDialog::onClose()
+    {
+        mA11y.deactivate();
+        WindowModal::onClose();
+    }
+
+    void SelectSkillDialog::onFrame(float dt)
+    {
+        mA11y.onFrame(dt);
+    }
 
     // widget controls
 
@@ -1422,6 +1772,24 @@ namespace MWGui
         MWBase::Environment::get().getWindowManager()->setKeyFocusWidget(mTextEdit);
 
         mControllerButtons.mA = "#{Interface:OK}";
+
+        // The multi-line description box is an editable text field; an OK option
+        // sits after it so the player can finish (Enter inserts a newline in the
+        // box, so it can't double as submit). Up/Down move between the two.
+        MWBase::WindowManager* winMgr = MWBase::Environment::get().getWindowManager();
+        mDescField.attach(mTextEdit);
+        mDescField.setActive(false);
+        mA11y.add({ .widget = mTextEdit,
+            .label = std::string(winMgr->getGameSettingString("sCreateClassMenu1", "Class Description")),
+            .value =
+                [this] {
+                    const std::string text = mTextEdit->getOnlyText().asUTF8();
+                    return text.empty() ? std::string("blank") : text;
+                },
+            .edit = &mDescField });
+        mA11y.add({ .widget = okButton,
+            .label = okButton->getCaption().asUTF8(),
+            .activate = [this, okButton] { onOkClicked(okButton); } });
     }
 
     DescriptionDialog::~DescriptionDialog() {}
@@ -1431,6 +1799,47 @@ namespace MWGui
     void DescriptionDialog::onOkClicked(MyGUI::Widget* /*sender*/)
     {
         eventDone(this);
+    }
+
+    void DescriptionDialog::onOpen()
+    {
+        WindowModal::onOpen();
+        mA11y.activate(mTextEdit);
+        // This dialog exists solely to type a description, so drop straight into
+        // text-edit mode: the user can type immediately. Escape leaves editing
+        // (back to navigating between the field and OK); a second Escape cancels.
+        mA11y.beginEditing();
+    }
+
+    void DescriptionDialog::onClose()
+    {
+        mA11y.deactivate();
+        WindowModal::onClose();
+    }
+
+    void DescriptionDialog::onFrame(float dt)
+    {
+        mDescField.onFrame();
+        mA11y.onFrame(dt);
+    }
+
+    bool DescriptionDialog::exit()
+    {
+        // The Escape that leaves text-edit mode must not also close the dialog
+        // (otherwise the description box couldn't be edited without dismissing
+        // the screen, and OK would be unreachable). Swallow exactly that Escape;
+        // an Escape pressed while merely navigating still cancels as usual.
+        // Guard both the case where our key handler saw the Escape (latch set)
+        // and the case where the EditBox swallowed it before we did but we're
+        // still flagged as editing.
+        if (mA11y.inEditMode() || mA11y.consumeEditModeEscape())
+            return false;
+        // Otherwise this is a genuine cancel. Notify the parent so it can remove
+        // this dialog and reclaim screen-reader input (mirrors the pickers'
+        // eventCancel -> onDialogCancel path); without this the parent screen is
+        // never reactivated and all navigation appears to break.
+        eventCancel();
+        return true;
     }
 
     void setClassImage(MyGUI::ImageBox* imageBox, const ESM::RefId& classId)

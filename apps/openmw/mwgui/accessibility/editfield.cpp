@@ -1,6 +1,9 @@
 #include "editfield.hpp"
 
+#include <algorithm>
+
 #include <MyGUI_EditBox.h>
+#include <MyGUI_UString.h>
 
 #include "speech.hpp"
 
@@ -41,6 +44,22 @@ namespace MWGui::A11y
             for (char32_t ch : str)
                 appendUtf8(out, ch);
             return out;
+        }
+
+        // Extract the line (run between newlines) of \p text containing the
+        // caret at \p caret. Used to read the current row in a multi-line box.
+        std::u32string lineAt(const std::u32string& text, size_t caret)
+        {
+            if (text.empty())
+                return {};
+            const size_t pos = std::min(caret, text.size());
+            size_t start = pos;
+            while (start > 0 && text[start - 1] != U'\n')
+                --start;
+            size_t end = pos;
+            while (end < text.size() && text[end] != U'\n')
+                ++end;
+            return text.substr(start, end - start);
         }
 
         // Spoken name for a single character, mapping whitespace / invisible
@@ -133,10 +152,22 @@ namespace MWGui::A11y
         sync();
     }
 
+    void EditField::setActive(bool active)
+    {
+        mActive = active;
+        // NB: we deliberately do *not* toggle setEditReadOnly here. A read-only
+        // MyGUI EditBox stops firing eventKeyButtonPressed, which would kill the
+        // Screen's own key handler hooked on this same widget (breaking all form
+        // navigation once focus rests on the field). Instead we leave the box
+        // editable and silently revert any stray edits while inactive (see
+        // onFrame). Re-baseline so the next edit diffs correctly.
+        sync();
+    }
+
     void EditField::onKey(MyGUI::Widget* /*sender*/, MyGUI::KeyCode key, MyGUI::Char /*ch*/)
     {
-        // Only record the key; the edit box hasn't necessarily applied it yet.
-        // We announce on the next onFrame() once the state has settled.
+        // Record the key even while inactive: onFrame uses it to know a stray
+        // native edit may have happened so it can revert it silently.
         mPendingKey = key;
         mHasPending = true;
     }
@@ -146,6 +177,19 @@ namespace MWGui::A11y
         if (!mEdit || !mHasPending)
             return;
         mHasPending = false;
+
+        // While inactive the field is only navigated past, not edited: undo any
+        // text the native EditBox may have inserted/removed (keeping the caret
+        // sane) and stay silent. Caret-only moves are harmless, so ignore them.
+        if (!mActive)
+        {
+            if (text() != mPrevText)
+            {
+                mEdit->setOnlyText(MyGUI::UString(toUtf8(mPrevText)));
+                mEdit->setTextCursor(std::min(mPrevCaret, mPrevText.size()));
+            }
+            return;
+        }
 
         const std::u32string now = text();
         const size_t caretNow = caret();
@@ -194,9 +238,22 @@ namespace MWGui::A11y
             case MyGUI::KeyCode::ArrowUp:
             case MyGUI::KeyCode::ArrowDown:
             {
-                // Single-line edit boxes have no rows; read the whole content.
                 if (now.empty())
+                {
                     say("blank", /*interrupt=*/true);
+                    return;
+                }
+                // A multi-line box has rows: Up/Down move the caret between
+                // them, so read the line the caret now sits on. A single-line
+                // box has no rows, so Up/Down just read the whole content.
+                if (mEdit->getEditMultiLine())
+                {
+                    const std::u32string line = lineAt(now, caretNow);
+                    if (line.empty())
+                        say("blank", /*interrupt=*/true);
+                    else
+                        say(toUtf8(line), /*interrupt=*/true);
+                }
                 else
                     say(toUtf8(now), /*interrupt=*/true);
                 return;

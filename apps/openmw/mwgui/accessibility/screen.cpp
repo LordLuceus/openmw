@@ -6,6 +6,7 @@
 #include "../../mwbase/environment.hpp"
 #include "../../mwbase/windowmanager.hpp"
 
+#include "editfield.hpp"
 #include "speech.hpp"
 #include "uimanager.hpp"
 
@@ -92,6 +93,7 @@ namespace MWGui::A11y
         mSubCurrent = npos;
         mSubTooltipItem = npos;
         mSubTooltipLines.clear();
+        mEditMode = false;
     }
 
     const Element* Screen::find(MyGUI::Widget* widget) const
@@ -193,8 +195,14 @@ namespace MWGui::A11y
         clearReread();
     }
 
-    void Screen::announce(const Element& element)
+    void Screen::announce(const Element& element, bool withSection)
     {
+        // Announce the section name when focus has crossed into a new one
+        // (computed by the caller). A dynamic describe() option is announced
+        // verbatim, so prefix the section separately.
+        if (withSection && !element.section.empty())
+            say(element.section + ":");
+
         // A dynamic describe() callback fully replaces the label + value
         // announcement (used by screens whose names are computed at runtime).
         if (element.describe)
@@ -235,6 +243,14 @@ namespace MWGui::A11y
             mSubTooltipItem = npos;
             mSubTooltipLines.clear();
         }
+        // Determine whether we've crossed into a new section, comparing against
+        // the previously focused option (so moving back up within a section
+        // doesn't re-announce it). Sections only matter when the new option
+        // actually has one.
+        const size_t previous = mCurrent;
+        const bool sectionChanged = !mElements[index].section.empty()
+            && (previous >= mElements.size() || mElements[previous].section != mElements[index].section);
+
         mCurrent = index;
 
         if (!mVirtual)
@@ -247,7 +263,7 @@ namespace MWGui::A11y
         }
 
         if (doAnnounce)
-            announce(mElements[index]);
+            announce(mElements[index], sectionChanged);
         resetHint();
     }
 
@@ -304,6 +320,54 @@ namespace MWGui::A11y
         }
     }
 
+    void Screen::jumpSection(int delta)
+    {
+        const size_t count = mElements.size();
+        if (count == 0 || mCurrent >= count)
+        {
+            // No current selection: fall back to a normal move.
+            moveSelection(delta);
+            return;
+        }
+
+        const std::string& cur = mElements[mCurrent].section;
+        if (delta > 0)
+        {
+            // First usable item, scanning forward, whose section differs from
+            // the current one -- the start of the next section.
+            for (size_t i = mCurrent + 1; i < count; ++i)
+            {
+                if (isUsable(i) && mElements[i].section != cur)
+                {
+                    select(i, /*announce=*/true);
+                    return;
+                }
+            }
+        }
+        else
+        {
+            // Walk back to the first item of the current section; if already
+            // there, continue to the first item of the previous section.
+            size_t start = mCurrent;
+            while (start > 0 && mElements[start - 1].section == cur)
+                --start;
+            if (start > 0)
+            {
+                const std::string& prevSection = mElements[start - 1].section;
+                size_t target = start - 1;
+                while (target > 0 && mElements[target - 1].section == prevSection)
+                    --target;
+                // Skip to the first usable item of that section.
+                while (target < start && !isUsable(target))
+                    ++target;
+                select(target, /*announce=*/true);
+                return;
+            }
+            if (start != mCurrent)
+                select(start, /*announce=*/true);
+        }
+    }
+
     void Screen::changeValue(bool next)
     {
         const Element* element = current();
@@ -329,6 +393,12 @@ namespace MWGui::A11y
         const Element* element = current();
         if (!element)
             return;
+        // An editable text field takes precedence: Enter begins editing.
+        if (element->edit)
+        {
+            enterEditMode();
+            return;
+        }
         // An expandable submenu takes precedence over a plain activate handler.
         if (element->children)
         {
@@ -401,6 +471,52 @@ namespace MWGui::A11y
         resetHint();
         if (announceParent)
             announceCurrent();
+    }
+
+    void Screen::enterEditMode()
+    {
+        const Element* element = current();
+        if (!element || !element->edit)
+            return;
+        mEditMode = true;
+        // Cancel the delayed hint -- it's irrelevant while editing.
+        mHintElement = npos;
+        // Activate spoken editing feedback and announce the current contents so
+        // the user knows what they're editing.
+        element->edit->setActive(true);
+        say("Editing. Press Escape when done.");
+        element->edit->announceContents();
+    }
+
+    void Screen::exitEditMode()
+    {
+        if (!mEditMode)
+            return;
+        mEditMode = false;
+        const Element* element = current();
+        if (element && element->edit)
+            element->edit->setActive(false);
+        // CRITICAL: a MyGUI EditBox releases key focus when it sees Escape (it
+        // treats it as cancel). In real-focus mode the Screen receives keys only
+        // via the focused widget, so with focus dropped to null all navigation
+        // would die. Re-pin focus to the current option's widget so arrows keep
+        // reaching us. (Virtual mode keeps focus on the anchor, so skip it.)
+        if (!mVirtual && element && element->widget)
+        {
+            mSuppressFocusAnnounce = true;
+            MWBase::Environment::get().getWindowManager()->setKeyFocusWidget(element->widget);
+            mSuppressFocusAnnounce = false;
+        }
+        // Re-announce the option (label + updated value) and re-arm its hint.
+        announceCurrent();
+        resetHint();
+    }
+
+    bool Screen::consumeEditModeEscape()
+    {
+        const bool consumed = mEscapeConsumed;
+        mEscapeConsumed = false;
+        return consumed;
     }
 
     void Screen::announceSubItem(size_t index, bool withSection)
@@ -576,6 +692,34 @@ namespace MWGui::A11y
                 MWBase::Environment::get().getWindowManager()->setKeyFocusWidget(mAnchor);
         }
 
+        // Real mode: self-heal dropped key focus. A MyGUI EditBox releases key
+        // focus to null when it processes Escape (it treats Escape as cancel).
+        // Since real-focus navigation relies on the focused option widget
+        // delivering key events to us, a null focus would silently kill all
+        // navigation. This check runs *after* the EditBox has finished
+        // swallowing the keystroke (re-pinning inside the key handler doesn't
+        // work -- the box clobbers it right after), so it reliably recovers.
+        if (!mVirtual)
+        {
+            MyGUI::Widget* focus = MyGUI::InputManager::getInstance().getKeyFocusWidget();
+            MyGUI::Widget* want = currentWidget();
+            if (want && focus != want)
+            {
+                // Focus drifted off our current option. If we were editing, that
+                // Escape (which the box ate) also ended editing -- leave edit
+                // mode cleanly, which re-pins focus and re-announces. Otherwise
+                // just restore focus silently so navigation keeps working.
+                if (mEditMode)
+                    exitEditMode();
+                else
+                {
+                    mSuppressFocusAnnounce = true;
+                    MWBase::Environment::get().getWindowManager()->setKeyFocusWidget(want);
+                    mSuppressFocusAnnounce = false;
+                }
+            }
+        }
+
         // Self-heal the initial selection: when the window first opens, child
         // widgets may not yet report getInheritedVisible()==true, so focusFirst
         // during onOpen can select nothing (mCurrent==npos) and stay silent
@@ -652,6 +796,23 @@ namespace MWGui::A11y
         if (mVirtual && MyGUI::InputManager::getInstance().isModalAny())
             return;
 
+        // While editing a text field, the EditField (the focused widget) owns
+        // every key for text editing; we only intercept Escape to leave edit
+        // mode. Note: onKey arrives from the focused edit box itself in
+        // real-focus mode, so returning here simply lets MyGUI's own edit
+        // handling run for that same keystroke.
+        if (mEditMode)
+        {
+            if (key == MyGUI::KeyCode::Escape)
+            {
+                // Latch so the owning modal's exit() can tell this Escape was
+                // for leaving edit mode (don't close the dialog).
+                mEscapeConsumed = true;
+                exitEditMode();
+            }
+            return;
+        }
+
         // Let the screen's bespoke handler have first refusal.
         if (mExtraKeyHandler && mExtraKeyHandler(key))
             return;
@@ -696,13 +857,21 @@ namespace MWGui::A11y
             return;
         }
 
+        const bool ctrl = MyGUI::InputManager::getInstance().isControlPressed();
         switch (key.getValue())
         {
             case MyGUI::KeyCode::ArrowDown:
-                moveSelection(1);
+                // Ctrl+Down jumps to the next section; Down moves one item.
+                if (ctrl)
+                    jumpSection(1);
+                else
+                    moveSelection(1);
                 break;
             case MyGUI::KeyCode::ArrowUp:
-                moveSelection(-1);
+                if (ctrl)
+                    jumpSection(-1);
+                else
+                    moveSelection(-1);
                 break;
             case MyGUI::KeyCode::ArrowRight:
                 changeValue(/*next=*/true);

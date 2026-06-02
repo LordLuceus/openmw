@@ -12,6 +12,8 @@ namespace MyGUI
 
 namespace MWGui::A11y
 {
+    class EditField;
+
     /// One item inside an expandable Element's submenu. Produced on demand by
     /// \c Element::children so it always reflects current data.
     struct SubItem
@@ -50,6 +52,13 @@ namespace MWGui::A11y
         /// Spoken name of the option. May contain MyGUI \c #{tags}.
         std::string label;
 
+        /// Optional section/group this option belongs to. When navigation moves
+        /// onto an option whose section differs from the previously focused
+        /// one's, the section name is announced before the option, e.g.
+        /// "Combat: Block". Options sharing a section are announced without the
+        /// prefix. Leave empty for a flat list with no sections.
+        std::string section;
+
         /// Optional override for the *focus* announcement. When set, this is
         /// spoken when the element gains focus instead of \c label + \c value.
         /// Use for options whose name is computed dynamically (e.g. settings
@@ -82,6 +91,17 @@ namespace MWGui::A11y
         /// Takes precedence over \c activate when both are set. Children may be
         /// grouped into sections via \c SubItem::section.
         std::function<std::vector<SubItem>()> children;
+
+        /// Makes this option an *editable text field*. When set, pressing Enter
+        /// on the option enters "edit mode": all keystrokes are routed to the
+        /// edit box (text editing + spoken feedback via EditField), and Escape
+        /// exits edit mode back to form navigation. While not in edit mode the
+        /// option behaves like a normal navigable item (its value, spoken on
+        /// focus, should report the current contents).
+        ///
+        /// Takes precedence over \c children and \c activate when set. The
+        /// EditField must outlive the screen (typically a window member).
+        EditField* edit = nullptr;
     };
 }
 

@@ -56,6 +56,16 @@ namespace MWGui::A11y
         /// \p label if non-empty. Useful on open / focus.
         void announceContents(const std::string& label = {});
 
+        /// The bound edit box (null until attach()).
+        MyGUI::EditBox* widget() const { return mEdit; }
+
+        /// Enable or disable spoken editing feedback. When inactive, keystrokes
+        /// are ignored (no announcements) -- used so the field only "talks"
+        /// while the user is actually in edit mode, not while merely navigating
+        /// past it. Activating re-baselines the snapshot.
+        void setActive(bool active);
+        bool active() const { return mActive; }
+
     private:
         void onKey(MyGUI::Widget* sender, MyGUI::KeyCode key, MyGUI::Char ch);
         void onSetFocus(MyGUI::Widget* sender, MyGUI::Widget* oldFocus);
@@ -80,6 +90,9 @@ namespace MWGui::A11y
         // nothing pending.
         MyGUI::KeyCode mPendingKey = MyGUI::KeyCode::None;
         bool mHasPending = false;
+
+        // Whether spoken editing feedback is currently on (see setActive).
+        bool mActive = true;
     };
 }
 

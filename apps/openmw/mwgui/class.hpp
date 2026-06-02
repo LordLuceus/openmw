@@ -10,6 +10,7 @@
 #include <components/esm/refid.hpp>
 #include <components/esm3/loadclas.hpp>
 
+#include "accessibility/editfield.hpp"
 #include "accessibility/screen.hpp"
 #include "widgets.hpp"
 #include "windowbase.hpp"
@@ -202,6 +203,10 @@ namespace MWGui
 
         bool exit() override;
 
+        void onOpen() override;
+        void onClose() override;
+        void onFrame(float dt) override;
+
         ESM::Class::Specialization getSpecializationId() const { return mSpecializationId; }
 
         // Events
@@ -223,9 +228,18 @@ namespace MWGui
         bool onControllerButtonEvent(const SDL_ControllerButtonEvent& arg) override;
 
     private:
+        // Build the screen-reader option list (the three specializations + the
+        // cancel button).
+        void setupAccessibility();
+        // Spoken tooltip lines for a specialization: its name + the list of
+        // skills it governs (mirrors the on-screen SpecializationToolTip).
+        std::vector<std::string> specializationTooltips(ESM::Class::Specialization spec) const;
+
         MyGUI::TextBox *mSpecialization0, *mSpecialization1, *mSpecialization2;
 
         ESM::Class::Specialization mSpecializationId;
+
+        A11y::Screen mA11y;
     };
 
     class SelectAttributeDialog : public WindowModal
@@ -235,6 +249,10 @@ namespace MWGui
         ~SelectAttributeDialog() override = default;
 
         bool exit() override;
+
+        void onOpen() override;
+        void onClose() override;
+        void onFrame(float dt) override;
 
         ESM::RefId getAttributeId() const { return mAttributeId; }
 
@@ -260,6 +278,8 @@ namespace MWGui
 
     private:
         ESM::RefId mAttributeId;
+
+        A11y::Screen mA11y;
     };
 
     class SelectSkillDialog : public WindowModal
@@ -269,6 +289,10 @@ namespace MWGui
         ~SelectSkillDialog();
 
         bool exit() override;
+
+        void onOpen() override;
+        void onClose() override;
+        void onFrame(float dt) override;
 
         ESM::RefId getSkillId() const { return mSkillId; }
 
@@ -297,6 +321,12 @@ namespace MWGui
         std::array<size_t, 3> mNumSkillsPerSpecialization{};
 
         void selectNextColumn(int direction);
+
+        // Build the screen-reader option list: every skill button, grouped into
+        // Combat / Magic / Stealth sections, plus the cancel button.
+        void setupAccessibility();
+
+        A11y::Screen mA11y;
     };
 
     class DescriptionDialog : public WindowModal
@@ -306,12 +336,25 @@ namespace MWGui
         ~DescriptionDialog();
 
         std::string getTextInput() const { return mTextEdit->getCaption(); }
-        void setTextInput(const std::string& text) { mTextEdit->setCaption(text); }
+        void setTextInput(const std::string& text)
+        {
+            mTextEdit->setCaption(text);
+            mDescField.sync();
+        }
+
+        void onOpen() override;
+        void onClose() override;
+        void onFrame(float dt) override;
+        bool exit() override;
 
         /** Event : Dialog finished, OK button clicked.\n
             signature : void method()\n
         */
         EventHandle_WindowBase eventDone;
+
+        // Fired when the dialog is cancelled (Escape / dismissed without OK).
+        typedef MyGUI::delegates::MultiDelegate<> EventHandle_Void;
+        EventHandle_Void eventCancel;
 
     protected:
         void onOkClicked(MyGUI::Widget* sender);
@@ -319,6 +362,9 @@ namespace MWGui
 
     private:
         MyGUI::EditBox* mTextEdit;
+
+        A11y::Screen mA11y;
+        A11y::EditField mDescField;
     };
 
     class CreateClassDialog : public WindowModal
@@ -328,6 +374,10 @@ namespace MWGui
         virtual ~CreateClassDialog();
 
         bool exit() override { return false; }
+
+        void onOpen() override;
+        void onClose() override;
+        void onFrame(float dt) override;
 
         std::string getName() const;
         std::string getDescription() const;
@@ -369,6 +419,16 @@ namespace MWGui
 
         void update();
 
+        void setupAccessibility();
+        // Spoken values for the navigable options (read on focus).
+        std::string specializationValue() const;
+        std::string attributeValue(Widgets::MWAttributePtr attr) const;
+        std::string skillValue(Widgets::MWSkillPtr skill) const;
+        // Native-data tooltip lines for the corresponding pickers.
+        std::vector<std::string> specializationTooltips() const;
+        std::vector<std::string> attributeTooltips(Widgets::MWAttributePtr attr) const;
+        std::vector<std::string> skillTooltips(Widgets::MWSkillPtr skill) const;
+
     private:
         MyGUI::EditBox* mEditName;
         MyGUI::TextBox* mSpecializationName;
@@ -391,6 +451,9 @@ namespace MWGui
 
         bool onControllerButtonEvent(const SDL_ControllerButtonEvent& arg) override;
         size_t mControllerFocus = 2;
+
+        A11y::Screen mA11y;
+        A11y::EditField mNameField;
     };
 }
 #endif
