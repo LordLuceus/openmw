@@ -165,6 +165,10 @@ namespace MWGui::A11y
         // (selection reset, hint cleared) and re-announces the first option.
         clear();
         mYieldedToModal = false;
+
+        // Drop any rereadable announcement so R can't repeat this screen's
+        // content from an unrelated screen opened later.
+        clearReread();
     }
 
     void Screen::announce(const Element& element)
@@ -437,6 +441,12 @@ namespace MWGui::A11y
                 break;
             case MyGUI::KeyCode::T:
                 cycleTooltip(/*forward=*/!MyGUI::InputManager::getInstance().isShiftPressed());
+                break;
+            case MyGUI::KeyCode::R:
+                // Repeat the last primary/contextual announcement (e.g. a
+                // class-quiz question). Per-option labels aren't rereadable --
+                // the user re-reads those by arrowing back onto the option.
+                reread();
                 break;
             case MyGUI::KeyCode::Return:
             case MyGUI::KeyCode::NumpadEnter:
