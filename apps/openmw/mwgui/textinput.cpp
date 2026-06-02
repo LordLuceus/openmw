@@ -8,7 +8,6 @@
 #include <MyGUI_LanguageManager.h>
 #include <MyGUI_UString.h>
 
-#include <components/accessibility/accessibilitymanager.hpp>
 #include <components/esm/refid.hpp>
 
 namespace MWGui
@@ -22,6 +21,7 @@ namespace MWGui
 
         getWidget(mTextEdit, "TextEdit");
         mTextEdit->eventEditSelectAccept += newDelegate(this, &TextInputDialog::onTextAccepted);
+        mEditField.attach(mTextEdit);
 
         MyGUI::Button* okButton;
         getWidget(okButton, "OKButton");
@@ -61,15 +61,14 @@ namespace MWGui
         // Make sure the edit box has focus
         MWBase::Environment::get().getWindowManager()->setKeyFocusWidget(mTextEdit);
         // Announce the prompt and current edit-box contents (if any) so the
-        // user knows what's being asked of them.
-        if (!mPromptLabel.empty())
-        {
-            std::string announcement = mPromptLabel;
-            std::string current = mTextEdit->getCaption().asUTF8();
-            if (!current.empty())
-                announcement += ". Current value: " + current;
-            Accessibility::AccessibilityManager::instance().speak(announcement);
-        }
+        // user knows what's being asked of them, and baseline the edit field so
+        // subsequent keystrokes give correct spoken feedback.
+        mEditField.announceContents(mPromptLabel);
+    }
+
+    void TextInputDialog::onFrame(float /*duration*/)
+    {
+        mEditField.onFrame();
     }
 
     // widget controls
@@ -101,6 +100,9 @@ namespace MWGui
     void TextInputDialog::setTextInput(const std::string& text)
     {
         mTextEdit->setCaption(text);
+        // Re-baseline the screen-reader snapshot after a programmatic change so
+        // the next keystroke diffs against the right text.
+        mEditField.sync();
     }
 
     bool TextInputDialog::onControllerButtonEvent(const SDL_ControllerButtonEvent& arg)

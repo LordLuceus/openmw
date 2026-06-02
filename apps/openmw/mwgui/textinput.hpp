@@ -1,6 +1,7 @@
 #ifndef MWGUI_TEXT_INPUT_H
 #define MWGUI_TEXT_INPUT_H
 
+#include "accessibility/editfield.hpp"
 #include "windowbase.hpp"
 
 namespace MWGui
@@ -16,6 +17,7 @@ namespace MWGui
         void setNextButtonShow(bool shown);
         void setTextLabel(std::string_view label);
         void onOpen() override;
+        void onFrame(float duration) override;
 
         bool exit() override { return false; }
 
@@ -35,6 +37,8 @@ namespace MWGui
         // setTextLabel() so we can read it aloud through the screen reader
         // when the dialog opens.
         std::string mPromptLabel;
+        // Screen-reader editing feedback for the text field.
+        A11y::EditField mEditField;
     };
 }
 #endif
