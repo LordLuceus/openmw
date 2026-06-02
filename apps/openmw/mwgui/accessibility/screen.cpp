@@ -284,6 +284,11 @@ namespace MWGui::A11y
 
         if (element->value)
             say(element->value());
+
+        // Restart the delayed "has N tooltips" hint: the new value (e.g. a
+        // different race or birthsign) may have a different tooltip count, so
+        // re-announce it after the linger just as a fresh selection would.
+        resetHint();
     }
 
     void Screen::activateCurrent()
