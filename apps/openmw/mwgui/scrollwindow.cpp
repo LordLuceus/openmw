@@ -15,6 +15,9 @@
 #include "../mwworld/actiontake.hpp"
 #include "../mwworld/class.hpp"
 
+#include "accessibility/booktext.hpp"
+#include "accessibility/speech.hpp"
+
 #include "formatting.hpp"
 
 namespace MWGui
@@ -42,6 +45,14 @@ namespace MWGui
         mControllerScrollWidget = mTextView;
         mControllerButtons.mB = "#{Interface:Close}";
         mControllerButtons.mDpad = "#{Interface:ScrollDown}";
+
+        // Screen-reader setup: invisible anchor holds key focus while the
+        // A11y::Screen tracks the current line/button internally. See
+        // BookWindow for the rationale.
+        mA11yAnchor = mMainWidget->createWidget<MyGUI::Widget>(
+            {}, MyGUI::IntCoord(0, 0, 1, 1), MyGUI::Align::Default);
+        mA11yAnchor->setNeedKeyFocus(true);
+        mA11y.setVirtualFocus(mA11yAnchor);
 
         center();
     }
@@ -80,6 +91,9 @@ namespace MWGui
         setTakeButtonShow(showTakeButton);
 
         MWBase::Environment::get().getWindowManager()->setKeyFocusWidget(mCloseButton);
+
+        buildAccessibility();
+        mA11y.activate();
     }
 
     void ScrollWindow::onKeyButtonPressed(MyGUI::Widget* /*sender*/, MyGUI::KeyCode key, MyGUI::Char character)
@@ -123,9 +137,43 @@ namespace MWGui
 
     void ScrollWindow::onClose()
     {
+        mA11y.deactivate();
         if (Settings::gui().mControllerMenus)
             MWBase::Environment::get().getInputManager()->setGamepadGuiCursorEnabled(true);
         BookWindowBase::onClose();
+    }
+
+    void ScrollWindow::onFrame(float duration)
+    {
+        mA11y.onFrame(duration);
+    }
+
+    void ScrollWindow::buildAccessibility()
+    {
+        mA11y.clear();
+
+        // Extract the body text via the engine's own parser and register one
+        // navigable (widget-less) option per paragraph. See BookWindow.
+        const std::string* text;
+        if (mScroll.getType() == ESM::REC_BOOK)
+            text = &mScroll.get<ESM::Book>()->mBase->mText;
+        else
+            text = &mScroll.get<ESM4::Book>()->mBase->mText;
+        const bool shrinkTextAtLastTag = mScroll.getType() == ESM::REC_BOOK;
+
+        std::vector<std::string> paragraphs = A11y::bookMarkupToParagraphs(*text, shrinkTextAtLastTag);
+
+        if (paragraphs.empty())
+            mA11y.add({ .widget = nullptr, .label = "This scroll is blank." });
+        else
+            for (std::string& para : paragraphs)
+                mA11y.add({ .widget = nullptr, .label = std::move(para) });
+
+        if (mTakeButton->getVisible())
+            mA11y.add({ .widget = mTakeButton, .label = "#{sTake}",
+                .activate = [this] { onTakeButtonClicked(mTakeButton); } });
+        mA11y.add({ .widget = mCloseButton, .label = "#{sClose}",
+            .activate = [this] { onCloseButtonClicked(mCloseButton); } });
     }
 
     ControllerButtons* ScrollWindow::getControllerButtons()

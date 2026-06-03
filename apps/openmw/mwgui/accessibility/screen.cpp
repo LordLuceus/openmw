@@ -59,10 +59,20 @@ namespace MWGui::A11y
 
     void Screen::add(Element element)
     {
-        if (!element.widget)
-            return;
-
         MyGUI::Widget* widget = element.widget;
+
+        // Widget-less elements are allowed only in virtual-focus mode, where
+        // navigation is tracked purely by index and never drives MyGUI focus.
+        // They model pure-text options that have no backing control -- e.g. a
+        // paragraph of book text, a line of dialogue, or a message-box prompt.
+        // In real-focus mode an element must have a widget to receive focus.
+        if (!widget)
+        {
+            if (mVirtual)
+                mElements.push_back(std::move(element));
+            return;
+        }
+
         if (mVirtual)
         {
             // The option widgets must never grab key focus themselves -- the
@@ -120,7 +130,11 @@ namespace MWGui::A11y
         if (index >= mElements.size())
             return false;
         MyGUI::Widget* widget = mElements[index].widget;
-        return widget && widget->getInheritedVisible() && widget->getInheritedEnabled();
+        // A widget-less element (virtual mode only) is a pure-text option with
+        // no control to gate on; it is always navigable.
+        if (!widget)
+            return true;
+        return widget->getInheritedVisible() && widget->getInheritedEnabled();
     }
 
     void Screen::activate(MyGUI::Widget* initialFocus)

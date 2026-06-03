@@ -14,6 +14,9 @@
 #include "../mwworld/actiontake.hpp"
 #include "../mwworld/class.hpp"
 
+#include "accessibility/booktext.hpp"
+#include "accessibility/speech.hpp"
+
 #include "formatting.hpp"
 
 namespace MWGui
@@ -70,6 +73,14 @@ namespace MWGui
         mControllerButtons.mR1 = "#{Interface:Next}";
         mControllerButtons.mB = "#{Interface:Close}";
 
+        // Screen-reader setup: an invisible anchor holds key focus while the
+        // A11y::Screen tracks the current line/button internally, so the
+        // book's page widgets and image buttons never eat our arrow keys.
+        mA11yAnchor = mMainWidget->createWidget<MyGUI::Widget>(
+            {}, MyGUI::IntCoord(0, 0, 1, 1), MyGUI::Align::Default);
+        mA11yAnchor->setNeedKeyFocus(true);
+        mA11y.setVirtualFocus(mA11yAnchor);
+
         center();
     }
 
@@ -114,6 +125,12 @@ namespace MWGui
         setTakeButtonShow(showTakeButton);
 
         MWBase::Environment::get().getWindowManager()->setKeyFocusWidget(mCloseButton);
+
+        // (Re)build the screen-reader option list for this book and take over
+        // input. setPtr() runs after onOpen(), so this is where the text is
+        // available; activate() pins focus to our anchor.
+        buildAccessibility();
+        mA11y.activate();
     }
 
     void BookWindow::setTakeButtonShow(bool show)
@@ -246,5 +263,49 @@ namespace MWGui
             nextPage();
 
         return true;
+    }
+
+    void BookWindow::buildAccessibility()
+    {
+        mA11y.clear();
+
+        // Extract the body text as plain paragraphs via the engine's own
+        // parser, and register one navigable (widget-less) option per
+        // paragraph. Up/Down read consecutive paragraphs; arrowing back
+        // re-reads one. This mirrors how a sighted reader scans the page.
+        const std::string* text;
+        if (mBook.getType() == ESM::REC_BOOK)
+            text = &mBook.get<ESM::Book>()->mBase->mText;
+        else
+            text = &mBook.get<ESM4::Book>()->mBase->mText;
+        const bool shrinkTextAtLastTag = mBook.getType() == ESM::REC_BOOK;
+
+        std::vector<std::string> paragraphs = A11y::bookMarkupToParagraphs(*text, shrinkTextAtLastTag);
+
+        if (paragraphs.empty())
+            mA11y.add({ .widget = nullptr, .label = "This book is blank." });
+        else
+            for (std::string& para : paragraphs)
+                mA11y.add({ .widget = nullptr, .label = std::move(para) });
+
+        // The Take button is only present when the book isn't already in the
+        // player's inventory; register it only when visible so it isn't
+        // announced for owned books. Close is always available.
+        if (mTakeButton->getVisible())
+            mA11y.add({ .widget = mTakeButton, .label = "#{sTake}",
+                .activate = [this] { onTakeButtonClicked(mTakeButton); } });
+        mA11y.add({ .widget = mCloseButton, .label = "#{sClose}",
+            .activate = [this] { onCloseButtonClicked(mCloseButton); } });
+    }
+
+    void BookWindow::onClose()
+    {
+        mA11y.deactivate();
+        BookWindowBase::onClose();
+    }
+
+    void BookWindow::onFrame(float duration)
+    {
+        mA11y.onFrame(duration);
     }
 }

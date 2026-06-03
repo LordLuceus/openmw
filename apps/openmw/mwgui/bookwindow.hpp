@@ -7,6 +7,8 @@
 
 #include <components/widgets/imagebutton.hpp>
 
+#include "accessibility/screen.hpp"
+
 namespace MWGui
 {
     class BookWindow : public BookWindowBase
@@ -18,6 +20,8 @@ namespace MWGui
         void setInventoryAllowed(bool allowed);
 
         void onResChange(int, int) override { center(); }
+        void onClose() override;
+        void onFrame(float duration) override;
         bool onControllerButtonEvent(const SDL_ControllerButtonEvent& arg) override;
 
         std::string_view getWindowIdForLua() const override { return "Book"; }
@@ -38,6 +42,10 @@ namespace MWGui
 
         void updatePages();
         void clearPages();
+
+        // Build the screen-reader option list (one element per paragraph, plus
+        // Take / Close actions) for the current book. Called from setPtr().
+        void buildAccessibility();
 
     private:
         typedef std::pair<int, int> Page;
@@ -60,6 +68,12 @@ namespace MWGui
 
         bool mTakeButtonShow;
         bool mTakeButtonAllowed;
+
+        // Screen-reader controller (virtual-focus mode). Navigated via an
+        // invisible anchor so the page text and buttons can be read with the
+        // arrow keys without the native widgets eating them.
+        A11y::Screen mA11y;
+        MyGUI::Widget* mA11yAnchor;
     };
 
 }
