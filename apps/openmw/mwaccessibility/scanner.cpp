@@ -316,6 +316,13 @@ namespace MWAccessibility
             mProximityCue.stop();
         }
 
+        // Prune objects that have left the world (e.g. an item the player just
+        // picked up) from the active category's cached list, so they stop being
+        // announced and the beacon stops homing on them. Skip when the list is
+        // dirty -- it'll be rebuilt from scratch on next access anyway.
+        if (!mLists[static_cast<size_t>(mCategory)].mDirty)
+            pruneDeadObjects();
+
         mAutoWalker.onFrame(dt);
         mProximityCue.onFrame(dt);
     }
@@ -634,6 +641,70 @@ namespace MWAccessibility
                 float db = (b.getRefData().getPosition().asVec3() - pp).length2();
                 return da < db;
             });
+    }
+
+    void Scanner::pruneDeadObjects()
+    {
+        auto& state = mLists[static_cast<size_t>(mCategory)];
+        if (state.mObjects.empty())
+            return;
+
+        // Remember the selected object so we can keep the cursor on it (or
+        // clear the selection if it was the thing that disappeared).
+        MWWorld::Ptr selected;
+        if (state.mIndex >= 0 && state.mIndex < static_cast<int>(state.mObjects.size()))
+            selected = state.mObjects[state.mIndex];
+
+        // An object is "dead" once taken/deleted (count drops to 0) or disabled
+        // (scripted out of the world). This mirrors the filters in
+        // rebuildCurrentList(), so a pruned list matches what a rebuild would
+        // produce -- without the cost of re-scanning the cell every frame.
+        auto isDead = [](const MWWorld::Ptr& ptr) {
+            return ptr.isEmpty() || ptr.getCellRef().getCount() <= 0 || !ptr.getRefData().isEnabled();
+        };
+
+        bool removedSelection = false;
+        std::vector<MWWorld::Ptr> kept;
+        kept.reserve(state.mObjects.size());
+        for (MWWorld::Ptr& ptr : state.mObjects)
+        {
+            if (isDead(ptr))
+            {
+                if (!selected.isEmpty() && ptr == selected)
+                    removedSelection = true;
+                continue;
+            }
+            kept.push_back(ptr);
+        }
+
+        if (kept.size() == state.mObjects.size())
+            return; // Nothing changed.
+
+        state.mObjects = std::move(kept);
+
+        // Re-pin the cursor. If the selected object survived, follow it to its
+        // new index; if it was the one removed (or there's no selection left),
+        // drop the selection so nothing stale is announced or cued.
+        if (!removedSelection && !selected.isEmpty())
+        {
+            state.mIndex = -1;
+            for (size_t i = 0; i < state.mObjects.size(); ++i)
+            {
+                if (state.mObjects[i] == selected)
+                {
+                    state.mIndex = static_cast<int>(i);
+                    break;
+                }
+            }
+        }
+        else
+        {
+            state.mIndex = -1;
+        }
+
+        // The selection may have been cleared or moved; keep the audio beacon
+        // in sync so it stops homing on a now-gone object.
+        updateProximityCue();
     }
 
     void Scanner::announceCurrent()

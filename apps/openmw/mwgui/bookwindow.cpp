@@ -288,12 +288,16 @@ namespace MWGui
             for (std::string& para : paragraphs)
                 mA11y.add({ .widget = nullptr, .label = std::move(para) });
 
-        // The Take button is only present when the book isn't already in the
-        // player's inventory; register it only when visible so it isn't
-        // announced for owned books. Close is always available.
-        if (mTakeButton->getVisible())
-            mA11y.add({ .widget = mTakeButton, .label = "#{sTake}",
-                .activate = [this] { onTakeButtonClicked(mTakeButton); } });
+        // Always register the Take button. Its visibility is dynamic -- the
+        // engine shows/hides it via setInventoryAllowed() as game state
+        // changes (e.g. inventory becomes allowed only after character
+        // creation), and that can happen *after* setPtr() built this list. We
+        // therefore register it unconditionally and let the framework's
+        // isUsable() check (which gates on getInheritedVisible()) include or
+        // skip it live, so a Take button that appears while the window is open
+        // becomes navigable without rebuilding. Close is always available.
+        mA11y.add({ .widget = mTakeButton, .label = "#{sTake}",
+            .activate = [this] { onTakeButtonClicked(mTakeButton); } });
         mA11y.add({ .widget = mCloseButton, .label = "#{sClose}",
             .activate = [this] { onCloseButtonClicked(mCloseButton); } });
     }

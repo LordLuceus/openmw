@@ -67,6 +67,12 @@ namespace MWAccessibility
         void resetToFirst();
 
         void rebuildCurrentList();
+        // Drop objects that have left the world (taken, deleted, or disabled)
+        // from the active category's cached list, keeping the current
+        // selection pinned to the same object where possible. Cheap; called
+        // every frame so a picked-up item stops being announced immediately
+        // without a full rebuild.
+        void pruneDeadObjects();
         void announceCurrent();
         void speak(const std::string& text);
 

@@ -169,9 +169,10 @@ namespace MWGui
             for (std::string& para : paragraphs)
                 mA11y.add({ .widget = nullptr, .label = std::move(para) });
 
-        if (mTakeButton->getVisible())
-            mA11y.add({ .widget = mTakeButton, .label = "#{sTake}",
-                .activate = [this] { onTakeButtonClicked(mTakeButton); } });
+        // Always register Take; its visibility is dynamic and may change after
+        // setPtr(), so let isUsable() include/skip it live. See BookWindow.
+        mA11y.add({ .widget = mTakeButton, .label = "#{sTake}",
+            .activate = [this] { onTakeButtonClicked(mTakeButton); } });
         mA11y.add({ .widget = mCloseButton, .label = "#{sClose}",
             .activate = [this] { onCloseButtonClicked(mCloseButton); } });
     }
