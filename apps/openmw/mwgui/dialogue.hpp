@@ -8,6 +8,8 @@
 
 #include "bookpage.hpp"
 
+#include "accessibility/screen.hpp"
+
 #include "../mwbase/dialoguemanager.hpp"
 #include "../mwdialogue/keywordsearch.hpp"
 
@@ -160,6 +162,7 @@ namespace MWGui
 
         void updateTopics();
 
+        void onOpen() override;
         void onClose() override;
 
         std::string_view getWindowIdForLua() const override { return "Dialogue"; }
@@ -190,6 +193,15 @@ namespace MWGui
         void restock();
         void deleteLater();
         void redrawTopicsList();
+
+        // Rebuild the screen-reader option list to match the window's current
+        // state (topics + services + Goodbye normally, or the inline choices
+        // when the dialogue manager is awaiting a choice). Called from
+        // updateHistory(), the central refresh point.
+        void buildAccessibility();
+        // Speak the NPC's current disposition toward the player (bound to D).
+        // Mirrors the on-screen disposition bar; NPC-only.
+        void announceDisposition();
 
         bool mIsCompanion;
         std::list<std::string> mKeywords;
@@ -225,6 +237,15 @@ namespace MWGui
         int mControllerChoice = -1;
 
         void updateTopicFormat();
+
+        // Screen-reader controller (virtual focus via an invisible anchor; see
+        // BookWindow). Rebuilt by buildAccessibility() on every history update.
+        A11y::Screen mA11y;
+        MyGUI::Widget* mA11yAnchor;
+        // Tracks whether the last buildAccessibility() saw a choice prompt, so
+        // we announce the choices only on the transition into choice mode (not
+        // on every rebuild, which would talk over navigation).
+        bool mA11yWasInChoice = false;
     };
 }
 #endif

@@ -34,6 +34,13 @@
 #include "bookpage.hpp"
 #include "textcolours.hpp"
 
+#include "accessibility/speech.hpp"
+
+#include <algorithm>
+#include <functional>
+
+#include <MyGUI_InputManager.h>
+
 namespace MWGui
 {
     void ResponseCallback::addResponse(std::string_view title, std::string_view text)
@@ -355,6 +362,25 @@ namespace MWGui
         mControllerButtons.mA = "#{Interface:Ask}";
         mControllerButtons.mB = "#{Interface:Goodbye}";
         mControllerButtons.mRStick = "#{Interface:ScrollUp}";
+
+        // Screen-reader setup: an invisible anchor holds key focus while the
+        // A11y::Screen tracks the selected topic/choice internally, so the
+        // native topics ListBox and history view never eat our arrow keys.
+        // The topic and choice lists are widget-less (pure text), rebuilt by
+        // buildAccessibility() from updateHistory().
+        mA11yAnchor = mMainWidget->createWidget<MyGUI::Widget>(
+            {}, MyGUI::IntCoord(0, 0, 1, 1), MyGUI::Align::Default);
+        mA11yAnchor->setNeedKeyFocus(true);
+        mA11y.setVirtualFocus(mA11yAnchor);
+        // D announces the NPC's disposition on demand (see announceDisposition).
+        mA11y.setExtraKeyHandler([this](MyGUI::KeyCode key) {
+            if (key == MyGUI::KeyCode::D)
+            {
+                announceDisposition();
+                return true;
+            }
+            return false;
+        });
     }
 
     void DialogueWindow::onTradeComplete()
@@ -520,6 +546,13 @@ namespace MWGui
 
         updateDisposition();
         restock();
+
+        // updateTopics()/updateHistory() above rebuilt the a11y option list via
+        // buildAccessibility() now that mPtr is set. onOpen() (which ran just
+        // before setPtr on a fresh conversation) already called activate(), but
+        // at that point mPtr was empty so the list was empty; re-activate now to
+        // select and announce the first real topic.
+        mA11y.activate();
     }
 
     void DialogueWindow::restock()
@@ -545,8 +578,24 @@ namespace MWGui
         mDeleteLater.clear();
     }
 
+    void DialogueWindow::onOpen()
+    {
+        // Fires both on a fresh conversation (before setPtr, when mPtr is still
+        // empty -- buildAccessibility no-ops, and setPtr rebuilds+activates
+        // shortly after) and when returning from a pushed sub-mode such as
+        // barter/training (setPtr is NOT called again, so this is the only hook
+        // to reclaim input). Rebuild to reflect current topics, then activate.
+        buildAccessibility();
+        mA11y.activate();
+    }
+
     void DialogueWindow::onClose()
     {
+        // Always yield screen-reader input when hidden -- whether the whole
+        // conversation is ending or a sub-mode (barter/training) is being
+        // pushed on top. deactivate() clears the option list; onOpen rebuilds.
+        mA11y.deactivate();
+
         if (MWBase::Environment::get().getWindowManager()->containsMode(GM_Dialogue))
             return;
         // Reset history
@@ -735,6 +784,11 @@ namespace MWGui
 
         bool topicsEnabled = !MWBase::Environment::get().getDialogueManager()->isInChoice() && !mGoodbye;
         mTopicsList->setEnabled(topicsEnabled);
+
+        // Keep the screen-reader option list in sync with the rebuilt window
+        // state (topics<->choices, goodbye availability). This is the single
+        // refresh point for the dialogue UI, so it's the right place to do it.
+        buildAccessibility();
     }
 
     void DialogueWindow::notifyLinkClicked(TypesetBook::InteractiveId link)
@@ -778,12 +832,36 @@ namespace MWGui
     {
         mHistoryContents.push_back(std::make_unique<Response>(text, title, needMargin));
         updateHistory();
+
+        // Speak the NPC's words (the contextual prose the player can't navigate
+        // to) and mark them rereadable so R repeats the latest line -- the
+        // signature reread convention. Prefix the speaker's name so the player
+        // knows who's talking (e.g. "Ganciele Douar: I'm an officer..."); this
+        // is especially useful on reread. The title is the topic heading (empty
+        // for greetings); include it after the speaker so the player knows which
+        // topic the response belongs to. interrupt=true so a fresh response
+        // cuts off any lingering focus chatter.
+        std::string spoken;
+        if (!mPtr.isEmpty())
+        {
+            std::string_view speaker = mPtr.getClass().getName(mPtr);
+            if (!speaker.empty())
+                spoken = std::string(speaker) + ": ";
+        }
+        if (!title.empty())
+            spoken += std::string(title) + ". ";
+        spoken += std::string(text);
+        if (!spoken.empty())
+            A11y::sayRereadable(spoken, /*interrupt=*/true);
     }
 
     void DialogueWindow::addMessageBox(std::string_view text)
     {
         mHistoryContents.push_back(std::make_unique<Message>(text));
         updateHistory();
+
+        if (!text.empty())
+            A11y::sayRereadable(std::string(text), /*interrupt=*/true);
     }
 
     void DialogueWindow::updateDisposition()
@@ -818,6 +896,121 @@ namespace MWGui
         }
     }
 
+    void DialogueWindow::buildAccessibility()
+    {
+        // Preserve the selected option across the rebuild by remembering its
+        // label (the widget-less options have no widget to refocus by). We
+        // restore it silently so a routine rebuild (e.g. an NPC response being
+        // appended) doesn't talk over the response that was just spoken.
+        const std::string previousLabel = mA11y.currentLabel();
+
+        mA11y.clear();
+
+        MWBase::DialogueManager* dialogueManager = MWBase::Environment::get().getDialogueManager();
+        const bool inChoice = dialogueManager->isInChoice();
+
+        if (inChoice)
+        {
+            // Choice prompt: the player must pick one of the inline answers.
+            // The topics list is disabled in this state, so expose only the
+            // choices (plus Goodbye if offered).
+            for (const std::pair<std::string, int>& choice : mChoices)
+            {
+                const int id = choice.second;
+                mA11y.add({ .widget = nullptr,
+                    .label = choice.first,
+                    .activate = [this, id] { onChoiceActivated(id); } });
+            }
+        }
+        else
+        {
+            // Normal state: services + dialogue topics. Walk the native topics
+            // list so services, the separator, and learned keywords stay in the
+            // same order the sighted player sees. Each entry activates through
+            // the same onSelectListItem() path the mouse uses.
+            for (size_t i = 0; i < mTopicsList->getItemCount(); ++i)
+            {
+                const std::string& name = mTopicsList->getItemNameAt(i);
+                if (name.empty())
+                    continue; // separator between services and topics
+
+                // For learned dialogue keywords, append the native new/exhausted
+                // state (the UI shows this via topic text colour). Services
+                // aren't keywords, so getTopicFlag returns nothing useful for
+                // them -- only annotate genuine keywords.
+                std::function<std::string()> value;
+                const bool isKeyword
+                    = std::find(mKeywords.begin(), mKeywords.end(), name) != mKeywords.end();
+                if (isKeyword)
+                {
+                    value = [name] {
+                        int flag = MWBase::Environment::get().getDialogueManager()->getTopicFlag(
+                            ESM::RefId::stringRefId(name));
+                        if (flag & MWBase::DialogueManager::TopicType::Specific)
+                            return std::string("new");
+                        if (flag & MWBase::DialogueManager::TopicType::Exhausted)
+                            return std::string("exhausted");
+                        return std::string();
+                    };
+                }
+
+                mA11y.add({ .widget = nullptr,
+                    .label = name,
+                    .value = std::move(value),
+                    .activate = [this, name, i] { onSelectListItem(name, static_cast<int>(i)); } });
+            }
+        }
+
+        // Goodbye is available outside of a choice, or when the dialogue
+        // manager explicitly offers it as the way out of a choice.
+        if (mGoodbyeButton->getEnabled())
+        {
+            const std::string& goodbye = MWBase::Environment::get()
+                                             .getESMStore()
+                                             ->get<ESM::GameSetting>()
+                                             .find("sGoodbye")
+                                             ->mValue.getString();
+            mA11y.add({ .widget = nullptr,
+                .label = goodbye,
+                .activate = [this] { onGoodbyeActivated(); } });
+        }
+
+        if (!mA11y.isActive())
+        {
+            mA11yWasInChoice = inChoice;
+            return;
+        }
+
+        // Announce policy: when we've just entered a choice prompt, announce the
+        // first choice so the player knows they must answer (the NPC's question
+        // was spoken by addResponse just before). Otherwise restore the prior
+        // selection silently -- the meaningful audio (the NPC response) has
+        // already been spoken, and we don't want to chatter on every rebuild.
+        const bool enteredChoice = inChoice && !mA11yWasInChoice;
+        if (enteredChoice)
+            mA11y.focusFirst(/*announce=*/true);
+        else if (!previousLabel.empty())
+        {
+            if (!mA11y.selectByLabel(previousLabel, /*announce=*/false))
+                mA11y.focusFirst(/*announce=*/false);
+        }
+        else
+            mA11y.focusFirst(/*announce=*/false);
+
+        mA11yWasInChoice = inChoice;
+    }
+
+    void DialogueWindow::announceDisposition()
+    {
+        if (mPtr.isEmpty() || !mPtr.getClass().isNpc())
+        {
+            A11y::say("No disposition.");
+            return;
+        }
+        int disposition = MWBase::Environment::get().getMechanicsManager()->getDerivedDisposition(mPtr);
+        A11y::say("Disposition: " + std::to_string(disposition) + " of 100.", /*interrupt=*/true);
+    }
+
     void DialogueWindow::onReferenceUnavailable()
     {
         MWBase::Environment::get().getWindowManager()->removeGuiMode(GM_Dialogue);
@@ -835,6 +1028,8 @@ namespace MWGui
         if (mChoices != MWBase::Environment::get().getDialogueManager()->getChoices()
             || mGoodbye != MWBase::Environment::get().getDialogueManager()->isGoodbye())
             updateHistory();
+
+        mA11y.onFrame(dt);
     }
 
     void DialogueWindow::updateTopicFormat()

@@ -236,6 +236,25 @@ namespace MWGui::A11y
             announce(*element);
     }
 
+    std::string Screen::currentLabel() const
+    {
+        const Element* element = current();
+        return element ? element->label : std::string();
+    }
+
+    bool Screen::selectByLabel(std::string_view label, bool doAnnounce)
+    {
+        for (size_t i = 0; i < mElements.size(); ++i)
+        {
+            if (mElements[i].label == label && isUsable(i))
+            {
+                select(i, doAnnounce);
+                return true;
+            }
+        }
+        return false;
+    }
+
     MyGUI::Widget* Screen::currentWidget() const
     {
         const Element* element = current();

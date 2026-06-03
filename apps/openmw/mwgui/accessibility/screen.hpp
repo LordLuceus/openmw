@@ -4,6 +4,7 @@
 #include <cstddef>
 #include <functional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include <MyGUI_KeyCode.h>
@@ -100,6 +101,17 @@ namespace MWGui::A11y
 
         /// Re-announce the current option's label + value.
         void announceCurrent();
+
+        /// The current option's label, or empty if nothing is selected. Useful
+        /// for preserving selection across a clear()/rebuild of a dynamic
+        /// screen whose options have no backing widget to refocus.
+        std::string currentLabel() const;
+
+        /// Select the first usable element whose label matches \p label,
+        /// announcing it unless \p announce is false. Returns false if no such
+        /// element exists (selection unchanged). Companion to currentLabel()
+        /// for restoring selection after a rebuild.
+        bool selectByLabel(std::string_view label, bool announce);
 
         /// The widget backing the current option, or null if none selected.
         /// Lets an owner implement option-type-specific extra keys.
