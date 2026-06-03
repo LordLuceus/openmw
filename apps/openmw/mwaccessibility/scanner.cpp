@@ -218,26 +218,41 @@ namespace
         return s.mMatch == nullptr || s.mMatch(ptr);
     }
 
-    // 8-point compass label for a relative bearing in radians ([-PI, PI]).
-    // 0 = ahead, +PI/2 = right, +/-PI = behind, -PI/2 = left.
-    const char* bearingLabel(float relYaw)
+    // 8-point absolute compass label for a world-space bearing in radians,
+    // where 0 = +Y = north and angle increases toward +X = east (matching the
+    // engine's own atan2(x, y) convention; see camera north handling). This is
+    // a fixed reference frame: a given door is always "to the north" regardless
+    // of which way the player looks.
+    const char* compassLabel(float absYaw)
     {
-        const float octant = kPi / 8.0f;
-        if (relYaw > -octant && relYaw < octant)
-            return "ahead";
-        if (relYaw >= octant && relYaw < 3 * octant)
-            return "ahead-right";
-        if (relYaw >= 3 * octant && relYaw < 5 * octant)
-            return "right";
-        if (relYaw >= 5 * octant && relYaw < 7 * octant)
-            return "behind-right";
-        if (relYaw >= 7 * octant || relYaw <= -7 * octant)
-            return "behind";
-        if (relYaw <= -5 * octant)
-            return "behind-left";
-        if (relYaw <= -3 * octant)
-            return "left";
-        return "ahead-left";
+        // Normalize to [0, 2*PI).
+        while (absYaw < 0)
+            absYaw += 2 * kPi;
+        while (absYaw >= 2 * kPi)
+            absYaw -= 2 * kPi;
+        // Each 45-degree sector centered on a compass point; offset by half a
+        // sector so e.g. north covers [-22.5, +22.5) degrees.
+        const float sector = 2 * kPi / 8.0f;
+        int idx = static_cast<int>((absYaw + sector / 2) / sector) % 8;
+        static const char* kPoints[8]
+            = { "north", "northeast", "east", "southeast", "south", "southwest", "west", "northwest" };
+        return kPoints[idx];
+    }
+
+    // Spoken disambiguation suffix for the i-th (0-based) duplicate: A, B, ...
+    // Z, then AA, AB, ... for the (rare) case of more than 26 same-named
+    // objects in one cell.
+    std::string letterForIndex(size_t i)
+    {
+        std::string out;
+        ++i; // 1-based for bijective base-26 (A=1).
+        while (i > 0)
+        {
+            size_t rem = (i - 1) % 26;
+            out.insert(out.begin(), static_cast<char>('A' + rem));
+            i = (i - 1) / 26;
+        }
+        return out;
     }
 
     std::string objectDisplayName(const MWWorld::Ptr& ptr)
@@ -391,6 +406,10 @@ namespace MWAccessibility
                 return true;
             case SDL_SCANCODE_HOME:
                 repeatAnnouncement();
+                return true;
+            case SDL_SCANCODE_L:
+                // Announce the player's current location (cell name).
+                announceLocation();
                 return true;
             case SDL_SCANCODE_END:
                 clearSelection();
@@ -593,6 +612,26 @@ namespace MWAccessibility
         updateProximityCue();
     }
 
+    void Scanner::announceLocation()
+    {
+        MWBase::World* world = MWBase::Environment::get().getWorld();
+        MWWorld::Ptr player = world->getPlayerPtr();
+        if (player.isEmpty())
+            return;
+        MWWorld::CellStore* cell = player.getCell();
+        if (!cell)
+            return;
+
+        // getCellName resolves to the interior name (e.g. "Census and Excise
+        // Office") or, for exteriors, the region/named-cell string. It may
+        // contain a #{...} tag, which speak() resolves.
+        std::string_view name = world->getCellName(cell);
+        if (name.empty())
+            speak("Unknown location.");
+        else
+            speak(std::string(name));
+    }
+
     void Scanner::rebuildCurrentList()
     {
         auto& state = mLists[static_cast<size_t>(mCategory)];
@@ -641,6 +680,36 @@ namespace MWAccessibility
                 float db = (b.getRefData().getPosition().asVec3() - pp).length2();
                 return da < db;
             });
+
+        assignDisambiguationLabels();
+    }
+
+    void Scanner::assignDisambiguationLabels()
+    {
+        auto& state = mLists[static_cast<size_t>(mCategory)];
+        state.mLabels.clear();
+
+        // Group the objects by display name so we can detect duplicates. We
+        // keep one bucket of RefNums per name. (Names are cheap to recompute;
+        // the lists are small -- everything in the current cell.)
+        std::unordered_map<std::string, std::vector<ESM::RefNum>> byName;
+        for (const MWWorld::Ptr& ptr : state.mObjects)
+            byName[objectDisplayName(ptr)].push_back(ptr.getCellRef().getRefNum());
+
+        for (auto& [name, refs] : byName)
+        {
+            if (refs.size() < 2)
+                continue; // Unique name: no suffix needed.
+
+            // Sort the duplicates by their stable RefNum so the letter
+            // assignment is deterministic and independent of the distance sort
+            // above. This is what keeps a given door's letter fixed as the
+            // player moves and the list re-orders.
+            std::sort(refs.begin(), refs.end());
+
+            for (size_t i = 0; i < refs.size(); ++i)
+                state.mLabels[refs[i]] = letterForIndex(i);
+        }
     }
 
     void Scanner::pruneDeadObjects()
@@ -720,21 +789,27 @@ namespace MWAccessibility
         osg::Vec3f delta = targetPos - playerPos;
         float dist = delta.length();
 
-        // Compute bearing relative to the player's current yaw.
-        float playerYaw = player.getRefData().getPosition().rot[2];
+        // targetYaw is an absolute world bearing (0 = north, +X = east), a
+        // fixed compass reference that doesn't change as the player turns.
         float targetYaw = std::atan2(delta.x(), delta.y());
-        float relYaw = targetYaw - playerYaw;
-        while (relYaw > kPi)
-            relYaw -= 2 * kPi;
-        while (relYaw < -kPi)
-            relYaw += 2 * kPi;
 
         std::string name = objectDisplayName(target);
         appendDoorDestination(target, name);
 
         auto& state = mLists[static_cast<size_t>(mCategory)];
+
+        // Append the stable disambiguation letter (if this object shares its
+        // name with others in range), right after the name so it reads as part
+        // of the object's identity, e.g. "Wooden Door, to Seyda Neen, A".
+        if (auto it = state.mLabels.find(target.getCellRef().getRefNum()); it != state.mLabels.end())
+            name += ", " + it->second;
+
+        // Direction is the absolute compass heading -- a fixed frame the
+        // player can use to remember where a thing is regardless of which way
+        // they're facing. Positional "N of M" stays at the very end (project
+        // convention).
         std::string msg = name + ". " + formatDistance(dist)
-            + ", " + bearingLabel(relYaw) + ". "
+            + ", " + compassLabel(targetYaw) + ". "
             + std::to_string(state.mIndex + 1) + " of "
             + std::to_string(state.mObjects.size()) + ".";
         speak(msg);

@@ -4,7 +4,10 @@
 #include <array>
 #include <memory>
 #include <string>
+#include <unordered_map>
 #include <vector>
+
+#include <components/esm3/refnum.hpp>
 
 #include "../mwworld/ptr.hpp"
 
@@ -65,8 +68,15 @@ namespace MWAccessibility
         void repeatAnnouncement();
         void clearSelection();
         void resetToFirst();
+        // Announce the player's current location (cell name), e.g. "Seyda
+        // Neen, Census and Excise Office". A quick orientation aid bound to L.
+        void announceLocation();
 
         void rebuildCurrentList();
+        // Compute stable A/B/C suffixes for same-named objects in the active
+        // category's list (populates CategoryState::mLabels). Called at the end
+        // of rebuildCurrentList().
+        void assignDisambiguationLabels();
         // Drop objects that have left the world (taken, deleted, or disabled)
         // from the active category's cached list, keeping the current
         // selection pinned to the same object where possible. Cheap; called
@@ -92,6 +102,15 @@ namespace MWAccessibility
             int mIndex = -1; // -1 = nothing selected yet
             int mSubIndex = 0; // 0 = "All"; secondary filter within category
             bool mDirty = true;
+
+            // Stable disambiguation suffixes for objects that share a display
+            // name (e.g. four "Wooden Door, to Seyda Neen"). Keyed by the
+            // object's RefNum -- a stable identity that does NOT change as the
+            // list re-sorts by distance -- so a given physical door keeps the
+            // same letter ("A", "B", ...) for as long as we're in the cell,
+            // letting the player remember which ones they've already tried.
+            // Objects with a unique name have no entry (no suffix spoken).
+            std::unordered_map<ESM::RefNum, std::string> mLabels;
         };
 
         std::array<CategoryState, static_cast<size_t>(Category::Count)> mLists;
