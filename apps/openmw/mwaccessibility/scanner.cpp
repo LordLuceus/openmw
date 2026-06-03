@@ -32,6 +32,8 @@
 #include <components/esm3/loadrepa.hpp>
 #include <components/esm3/loadweap.hpp>
 
+#include "../mwgui/tooltips.hpp"
+
 #include "../mwbase/environment.hpp"
 #include "../mwbase/luamanager.hpp"
 #include "../mwbase/statemanager.hpp"
@@ -812,6 +814,29 @@ namespace MWAccessibility
             + ", " + compassLabel(targetYaw) + ". "
             + std::to_string(state.mIndex + 1) + " of "
             + std::to_string(state.mObjects.size()) + ".";
+
+        // Ownership / "stolen from" info is sensitive: vanilla does NOT show it
+        // to sighted players during normal play -- only in "full help" mode
+        // (the ToggleFullHelp console command). Mirror that exactly, so we
+        // expose it only when the player has enabled full help, at parity with
+        // what a sighted player would then see. getCellRefString() is the same
+        // function the tooltips use; it returns newline-separated fields
+        // ("\nOwner: X", "\nStolen N from Y", faction/rank), which we flatten
+        // into the spoken line.
+        if (MWBase::Environment::get().getWindowManager()->getFullHelp())
+        {
+            std::string ownerInfo = MWGui::ToolTips::getCellRefString(target.getCellRef());
+            if (!ownerInfo.empty())
+            {
+                for (char& c : ownerInfo)
+                {
+                    if (c == '\n')
+                        c = ' ';
+                }
+                msg += ownerInfo + ".";
+            }
+        }
+
         speak(msg);
     }
 
