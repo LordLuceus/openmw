@@ -6,6 +6,8 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <iterator>
+#include <utility>
 
 #include <MyGUI_LanguageManager.h>
 
@@ -13,10 +15,22 @@
 
 #include <components/accessibility/accessibilitymanager.hpp>
 #include <components/esm3/loadacti.hpp>
+#include <components/esm3/loadalch.hpp>
+#include <components/esm3/loadappa.hpp>
+#include <components/esm3/loadarmo.hpp>
+#include <components/esm3/loadbook.hpp>
+#include <components/esm3/loadclot.hpp>
 #include <components/esm3/loadcont.hpp>
-#include <components/esm3/loaddoor.hpp>
-#include <components/esm3/loadnpc.hpp>
 #include <components/esm3/loadcrea.hpp>
+#include <components/esm3/loaddoor.hpp>
+#include <components/esm3/loadingr.hpp>
+#include <components/esm3/loadligh.hpp>
+#include <components/esm3/loadlock.hpp>
+#include <components/esm3/loadmisc.hpp>
+#include <components/esm3/loadnpc.hpp>
+#include <components/esm3/loadprob.hpp>
+#include <components/esm3/loadrepa.hpp>
+#include <components/esm3/loadweap.hpp>
 
 #include "../mwbase/environment.hpp"
 #include "../mwbase/statemanager.hpp"
@@ -113,6 +127,94 @@ namespace
                 break;
         }
         return false;
+    }
+
+    // --- Subcategories ----------------------------------------------------
+    //
+    // Some top-level categories can be narrowed by a secondary filter cycled
+    // with Shift+PageUp/PageDown. Each subcategory is just a label plus a
+    // predicate over a Ptr already known to match the parent category. Index 0
+    // is always "All" (no extra filtering). Categories without subcategories
+    // expose only "All", so Shift+Page is a harmless no-op there.
+
+    struct Subcategory
+    {
+        const char* mName;
+        // nullptr predicate == match everything ("All").
+        bool (*mMatch)(const MWWorld::Ptr&);
+    };
+
+    bool isWeapon(const MWWorld::Ptr& p) { return p.getType() == ESM::Weapon::sRecordId; }
+    bool isArmor(const MWWorld::Ptr& p) { return p.getType() == ESM::Armor::sRecordId; }
+    bool isClothing(const MWWorld::Ptr& p) { return p.getType() == ESM::Clothing::sRecordId; }
+    bool isPotion(const MWWorld::Ptr& p) { return p.getType() == ESM::Potion::sRecordId; }
+    bool isIngredient(const MWWorld::Ptr& p) { return p.getType() == ESM::Ingredient::sRecordId; }
+
+    bool isBookOrScroll(const MWWorld::Ptr& p) { return p.getType() == ESM::Book::sRecordId; }
+
+    // "Tools": apparatus, lockpicks, probes, repair items, and carryable
+    // lights (torches) -- the usable utility odds and ends.
+    bool isTool(const MWWorld::Ptr& p)
+    {
+        unsigned int t = p.getType();
+        return t == ESM::Apparatus::sRecordId || t == ESM::Lockpick::sRecordId
+            || t == ESM::Probe::sRecordId || t == ESM::Repair::sRecordId
+            || t == ESM::Light::sRecordId;
+    }
+
+    // "Misc": papers, keys, gold, soul gems -- everything carryable that is
+    // not covered by the buckets above.
+    bool isMiscItem(const MWWorld::Ptr& p)
+    {
+        return !isWeapon(p) && !isArmor(p) && !isClothing(p) && !isPotion(p)
+            && !isIngredient(p) && !isBookOrScroll(p) && !isTool(p);
+    }
+
+    bool isNpcActor(const MWWorld::Ptr& p) { return p.getType() == ESM::NPC::sRecordId; }
+    bool isCreatureActor(const MWWorld::Ptr& p) { return p.getType() == ESM::Creature::sRecordId; }
+
+    constexpr Subcategory kItemSubs[] = {
+        { "All", nullptr },
+        { "Weapons", &isWeapon },
+        { "Armor", &isArmor },
+        { "Clothing", &isClothing },
+        { "Potions", &isPotion },
+        { "Ingredients", &isIngredient },
+        { "Books and scrolls", &isBookOrScroll },
+        { "Tools", &isTool },
+        { "Miscellaneous", &isMiscItem },
+    };
+
+    constexpr Subcategory kNpcSubs[] = {
+        { "All", nullptr },
+        { "NPCs", &isNpcActor },
+        { "Creatures", &isCreatureActor },
+    };
+
+    // Returns the subcategory table for a category. Empty span (size 0) means
+    // the category has no subcategories beyond the implicit "All".
+    std::pair<const Subcategory*, size_t> subcategoriesFor(MWAccessibility::Category cat)
+    {
+        switch (cat)
+        {
+            case MWAccessibility::Category::Items:
+                return { kItemSubs, std::size(kItemSubs) };
+            case MWAccessibility::Category::Npcs:
+                return { kNpcSubs, std::size(kNpcSubs) };
+            default:
+                return { nullptr, 0 };
+        }
+    }
+
+    // True if \p ptr (already matching \p cat) also matches subcategory index
+    // \p subIndex. Index 0 / out-of-range / no-table all mean "match all".
+    bool matchesSubcategory(const MWWorld::Ptr& ptr, MWAccessibility::Category cat, int subIndex)
+    {
+        auto [subs, count] = subcategoriesFor(cat);
+        if (!subs || subIndex <= 0 || subIndex >= static_cast<int>(count))
+            return true;
+        const Subcategory& s = subs[subIndex];
+        return s.mMatch == nullptr || s.mMatch(ptr);
     }
 
     // 8-point compass label for a relative bearing in radians ([-PI, PI]).
@@ -250,14 +352,20 @@ namespace MWAccessibility
         switch (scancode)
         {
             case SDL_SCANCODE_PAGEDOWN:
+                // Ctrl cycles top-level category, Shift cycles the
+                // subcategory filter, plain cycles the target.
                 if (ctrl)
                     cycleCategory(+1);
+                else if (shift)
+                    cycleSubcategory(+1);
                 else
                     cycleTarget(+1);
                 return true;
             case SDL_SCANCODE_PAGEUP:
                 if (ctrl)
                     cycleCategory(-1);
+                else if (shift)
+                    cycleSubcategory(-1);
                 else
                     cycleTarget(-1);
                 return true;
@@ -301,6 +409,33 @@ namespace MWAccessibility
         state.mIndex = state.mObjects.empty() ? -1 : 0;
         std::string msg = std::string("Category: ") + categoryName(mCategory)
             + ". " + std::to_string(state.mObjects.size()) + " in range.";
+        speak(msg);
+        if (!state.mObjects.empty())
+            announceCurrent();
+        updateProximityCue();
+    }
+
+    void Scanner::cycleSubcategory(int delta)
+    {
+        auto [subs, count] = subcategoriesFor(mCategory);
+        if (!subs || count <= 1)
+        {
+            // No secondary filter for this category.
+            speak(std::string(categoryName(mCategory)) + " has no subcategories.");
+            return;
+        }
+
+        auto& state = mLists[static_cast<size_t>(mCategory)];
+        int n = static_cast<int>(count);
+        state.mSubIndex = ((state.mSubIndex + delta) % n + n) % n;
+
+        // The active filter changed, so the cached list is stale.
+        state.mDirty = true;
+        rebuildCurrentList();
+        state.mIndex = state.mObjects.empty() ? -1 : 0;
+
+        std::string msg = std::string(subs[state.mSubIndex].mName) + ". "
+            + std::to_string(state.mObjects.size()) + " in range.";
         speak(msg);
         if (!state.mObjects.empty())
             announceCurrent();
@@ -423,10 +558,13 @@ namespace MWAccessibility
             return;
 
         Category cat = mCategory;
+        int subIndex = state.mSubIndex;
         cell->forEach([&](const MWWorld::Ptr& ptr) {
             if (ptr == player)
                 return true;
             if (!matchesCategory(ptr, cat))
+                return true;
+            if (!matchesSubcategory(ptr, cat, subIndex))
                 return true;
             if (ptr.getCellRef().getCount() <= 0)
                 return true;

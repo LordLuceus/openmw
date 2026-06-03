@@ -53,6 +53,7 @@ namespace MWAccessibility
 
         void cycleCategory(int delta);
         void cycleTarget(int delta);
+        void cycleSubcategory(int delta);
         void focusCamera();
         void walkToTarget();
         void repeatAnnouncement();
@@ -77,6 +78,7 @@ namespace MWAccessibility
         {
             std::vector<MWWorld::Ptr> mObjects;
             int mIndex = -1; // -1 = nothing selected yet
+            int mSubIndex = 0; // 0 = "All"; secondary filter within category
             bool mDirty = true;
         };
 
