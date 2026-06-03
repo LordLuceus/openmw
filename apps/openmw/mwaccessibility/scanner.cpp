@@ -9,6 +9,8 @@
 
 #include <MyGUI_LanguageManager.h>
 
+#include <components/misc/strings/algorithm.hpp>
+
 #include <components/accessibility/accessibilitymanager.hpp>
 #include <components/esm3/loadacti.hpp>
 #include <components/esm3/loadcont.hpp>
@@ -93,7 +95,20 @@ namespace
             case MWAccessibility::Category::Items:
                 return ptr.getClass().isItem(ptr);
             case MWAccessibility::Category::Activators:
-                return ptr.getClass().isActivator();
+            {
+                if (!ptr.getClass().isActivator())
+                    return false;
+                // Exclude ambient sound emitters and similar invisible
+                // helpers. Morrowind implements these as activators whose
+                // model is the editor-only "EditorMarker.NIF" mesh (which the
+                // engine hides in-game) plus a script that loops a sound, e.g.
+                // "Sound_Boat_Creak". Real interactables (silt strider, signs,
+                // levers) use genuine visible meshes, so filtering out the
+                // editor-marker model drops the decoration without a fragile
+                // name match.
+                std::string_view model = ptr.getClass().getModel(ptr);
+                return !Misc::StringUtils::ciEndsWith(model, "editormarker.nif");
+            }
             case MWAccessibility::Category::Count:
                 break;
         }
@@ -414,6 +429,17 @@ namespace MWAccessibility
             if (!matchesCategory(ptr, cat))
                 return true;
             if (ptr.getCellRef().getCount() <= 0)
+                return true;
+            // Skip objects scripted out of the world (disabled refs).
+            if (!ptr.getRefData().isEnabled())
+                return true;
+            // Skip internal/helper objects the player can never interact with
+            // -- e.g. invisible collision activators like "CharGenCollision".
+            // hasToolTip() is the engine's own "would this ever show a tooltip"
+            // predicate (for activators it is literally !getName().empty()),
+            // so this filters nameless engine plumbing without hiding any real
+            // interactable object.
+            if (!ptr.getClass().hasToolTip(ptr))
                 return true;
             state.mObjects.push_back(ptr);
             return true;
