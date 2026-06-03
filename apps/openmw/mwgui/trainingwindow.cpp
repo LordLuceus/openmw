@@ -22,6 +22,8 @@
 
 #include "tooltips.hpp"
 
+#include "accessibility/speech.hpp"
+
 namespace MWGui
 {
 
@@ -33,6 +35,13 @@ namespace MWGui
         getWidget(mPlayerGold, "PlayerGold");
 
         mCancelButton->eventMouseButtonClick += MyGUI::newDelegate(this, &TrainingWindow::onCancelButtonClicked);
+
+        // Screen-reader setup: invisible anchor holds key focus; skill buttons
+        // are widget-less options rebuilt by buildAccessibility() each setPtr().
+        mA11yAnchor = mMainWidget->createWidget<MyGUI::Widget>(
+            {}, MyGUI::IntCoord(0, 0, 1, 1), MyGUI::Align::Default);
+        mA11yAnchor->setNeedKeyFocus(true);
+        mA11y.setVirtualFocus(mA11yAnchor);
 
         mTimeAdvancer.eventProgressChanged += MyGUI::newDelegate(this, &TrainingWindow::onTrainingProgressChanged);
         mTimeAdvancer.eventFinished += MyGUI::newDelegate(this, &TrainingWindow::onTrainingFinished);
@@ -148,6 +157,47 @@ namespace MWGui
         }
 
         center();
+
+        // Rebuild the screen-reader option list for the new trainer, then take
+        // input. Announce the player's gold first (it gates which skills are
+        // affordable), then land on the first skill.
+        buildAccessibility();
+        A11y::say("#{sGold}: " + std::to_string(playerGold));
+        mA11y.activate();
+    }
+
+    void TrainingWindow::buildAccessibility()
+    {
+        mA11y.clear();
+
+        // Enumerate the skill buttons in the order they were created (best 3
+        // skills, descending). Each button's caption is the fully-resolved
+        // "Skill  - NN gp" text the sighted player sees; read it verbatim via
+        // describe(). Unaffordable skills use a disabled skin but are not
+        // setEnabled(false) (that would drop their tooltip), so they remain
+        // navigable -- mirroring the greyed-but-visible on-screen entries.
+        // Activating routes through onTrainingSelected, which itself rejects an
+        // unaffordable or invalid pick, so it is safe to wire unconditionally.
+        MyGUI::EnumeratorWidgetPtr widgets = mTrainingOptions->getEnumerator();
+        while (widgets.next())
+        {
+            MyGUI::Widget* widget = widgets.current();
+            MyGUI::Button* button = widget->castType<MyGUI::Button>(false);
+            if (!button)
+                continue;
+
+            mA11y.add({ .widget = button,
+                .describe = [button] { return std::string(button->getCaption()); },
+                .activate = [this, button] { onTrainingSelected(button); } });
+        }
+
+        mA11y.add({ .widget = mCancelButton, .label = "#{sCancel}",
+            .activate = [this] { onCancelButtonClicked(mCancelButton); } });
+    }
+
+    void TrainingWindow::onClose()
+    {
+        mA11y.deactivate();
     }
 
     void TrainingWindow::onReferenceUnavailable()
@@ -239,6 +289,7 @@ namespace MWGui
     {
         checkReferenceAvailable();
         mTimeAdvancer.onFrame(dt);
+        mA11y.onFrame(dt);
     }
 
     bool TrainingWindow::exit()

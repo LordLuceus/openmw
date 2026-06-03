@@ -48,14 +48,26 @@ namespace MWGui
         PersuasionDialog(std::unique_ptr<ResponseCallback> callback);
 
         void onOpen() override;
+        void onClose() override;
+        void onFrame(float dt) override;
 
         MyGUI::Widget* getDefaultKeyFocus() override;
+
+        /// Invoked after the dialog closes (cancel or a persuasion attempt) so
+        /// the owning DialogueWindow can reclaim screen-reader input. Set by the
+        /// DialogueWindow that owns this dialog.
+        std::function<void()> mOnClosed;
 
     protected:
         bool onControllerButtonEvent(const SDL_ControllerButtonEvent& arg) override;
 
     private:
         std::unique_ptr<ResponseCallback> mCallback;
+
+        // Screen-reader controller. Real-focus mode: the persuasion buttons are
+        // ordinary focusable widgets, so we let MyGUI focus drive navigation.
+        A11y::Screen mA11y;
+        void buildAccessibility();
 
         int mInitialGoldLabelWidth;
         int mInitialMainWidgetWidth;

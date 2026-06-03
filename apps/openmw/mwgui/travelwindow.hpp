@@ -4,6 +4,8 @@
 #include "referenceinterface.hpp"
 #include "windowbase.hpp"
 
+#include "accessibility/screen.hpp"
+
 namespace MyGUI
 {
     class Gui;
@@ -18,6 +20,9 @@ namespace MWGui
         TravelWindow();
 
         void setPtr(const MWWorld::Ptr& actor) override;
+
+        void onClose() override;
+        void onFrame(float dt) override;
 
         std::string_view getWindowIdForLua() const override { return "Travel"; }
 
@@ -43,6 +48,12 @@ namespace MWGui
     private:
         bool onControllerButtonEvent(const SDL_ControllerButtonEvent& arg) override;
         size_t mControllerFocus = 0;
+
+        // Screen-reader controller. Virtual focus via an invisible anchor; the
+        // destination buttons are widget-backed options rebuilt each setPtr().
+        A11y::Screen mA11y;
+        MyGUI::Widget* mA11yAnchor = nullptr;
+        void buildAccessibility();
     };
 }
 

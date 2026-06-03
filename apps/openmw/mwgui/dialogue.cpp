@@ -101,6 +101,30 @@ namespace MWGui
         mControllerButtons.mB = "#{Interface:Cancel}";
     }
 
+    void PersuasionDialog::buildAccessibility()
+    {
+        // Register the persuasion actions in visual order, then Cancel. The
+        // bribe buttons may be disabled (insufficient gold); the framework's
+        // isUsable() check skips disabled widgets during navigation, so we can
+        // register them unconditionally and they self-hide. Real-focus mode:
+        // each button is an ordinary focusable widget.
+        mA11y.clear();
+        mA11y.add({ .widget = mAdmireButton, .label = "#{sAdmire}",
+            .activate = [this] { onPersuade(mAdmireButton); } });
+        mA11y.add({ .widget = mIntimidateButton, .label = "#{sIntimidate}",
+            .activate = [this] { onPersuade(mIntimidateButton); } });
+        mA11y.add({ .widget = mTauntButton, .label = "#{sTaunt}",
+            .activate = [this] { onPersuade(mTauntButton); } });
+        mA11y.add({ .widget = mBribe10Button, .label = "#{sBribe 10 Gold}",
+            .activate = [this] { onPersuade(mBribe10Button); } });
+        mA11y.add({ .widget = mBribe100Button, .label = "#{sBribe 100 Gold}",
+            .activate = [this] { onPersuade(mBribe100Button); } });
+        mA11y.add({ .widget = mBribe1000Button, .label = "#{sBribe 1000 Gold}",
+            .activate = [this] { onPersuade(mBribe1000Button); } });
+        mA11y.add({ .widget = mCancelButton, .label = "#{Interface:Cancel}",
+            .activate = [this] { onCancel(mCancelButton); } });
+    }
+
     void PersuasionDialog::adjustAction(MyGUI::Widget* action, int& totalHeight)
     {
         const int lineHeight = Settings::gui().mFontSize + 2;
@@ -174,6 +198,26 @@ namespace MWGui
         }
 
         WindowModal::onOpen();
+
+        // Take screen-reader input. Announce the player's gold first (it gates
+        // which bribe options are available), then land on the first action.
+        buildAccessibility();
+        A11y::say("#{sGold}: " + std::to_string(playerGold));
+        mA11y.activate(mAdmireButton);
+    }
+
+    void PersuasionDialog::onClose()
+    {
+        WindowModal::onClose();
+        mA11y.deactivate();
+        // Hand screen-reader input back to the dialogue window underneath.
+        if (mOnClosed)
+            mOnClosed();
+    }
+
+    void PersuasionDialog::onFrame(float dt)
+    {
+        mA11y.onFrame(dt);
     }
 
     MyGUI::Widget* PersuasionDialog::getDefaultKeyFocus()
@@ -381,6 +425,11 @@ namespace MWGui
             }
             return false;
         });
+
+        // When the persuasion modal closes, reclaim screen-reader input and
+        // re-announce the topic the player came from (its disposition/state may
+        // have changed as a result of the attempt).
+        mPersuasionDialog.mOnClosed = [this] { mA11y.activate(); };
     }
 
     void DialogueWindow::onTradeComplete()

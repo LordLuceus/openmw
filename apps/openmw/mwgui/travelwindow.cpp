@@ -26,6 +26,8 @@
 #include "../mwmechanics/actorutil.hpp"
 #include "../mwmechanics/creaturestats.hpp"
 
+#include "accessibility/speech.hpp"
+
 namespace MWGui
 {
     TravelWindow::TravelWindow()
@@ -37,6 +39,13 @@ namespace MWGui
         getWidget(mDestinationsView, "DestinationsView");
 
         mCancelButton->eventMouseButtonClick += MyGUI::newDelegate(this, &TravelWindow::onCancelButtonClicked);
+
+        // Screen-reader setup: invisible anchor holds key focus; destination
+        // buttons are widget-backed options rebuilt by buildAccessibility().
+        mA11yAnchor = mMainWidget->createWidget<MyGUI::Widget>(
+            {}, MyGUI::IntCoord(0, 0, 1, 1), MyGUI::Align::Default);
+        mA11yAnchor->setNeedKeyFocus(true);
+        mA11y.setVirtualFocus(mA11yAnchor);
 
         if (Settings::gui().mControllerMenus)
         {
@@ -170,6 +179,50 @@ namespace MWGui
         mDestinationsView->setCanvasSize(
             MyGUI::IntSize(mDestinationsView->getWidth(), std::max(mDestinationsView->getHeight(), mCurrentY)));
         mDestinationsView->setVisibleVScroll(true);
+
+        // Rebuild the screen-reader option list for this caravaner, then take
+        // input. Announce the player's gold first (it gates affordable trips).
+        buildAccessibility();
+        MWWorld::Ptr player = MWBase::Environment::get().getWorld()->getPlayerPtr();
+        int playerGold = player.getClass().getContainerStore(player).count(MWWorld::ContainerStore::sGoldId);
+        A11y::say("#{sGold}: " + std::to_string(playerGold));
+        mA11y.activate();
+    }
+
+    void TravelWindow::buildAccessibility()
+    {
+        mA11y.clear();
+
+        // Enumerate the destination buttons in creation order. Each caption is
+        // the fully-resolved "Place  - NN gp" text the sighted player sees; read
+        // it verbatim via describe(). Destinations the player can't afford are
+        // setEnabled(false) here (unlike training), so the framework's isUsable()
+        // check already skips them -- matching that they can't be clicked either.
+        MyGUI::EnumeratorWidgetPtr widgets = mDestinationsView->getEnumerator();
+        while (widgets.next())
+        {
+            MyGUI::Widget* widget = widgets.current();
+            MyGUI::Button* button = widget->castType<MyGUI::Button>(false);
+            if (!button)
+                continue;
+
+            mA11y.add({ .widget = button,
+                .describe = [button] { return std::string(button->getCaption()); },
+                .activate = [this, button] { onTravelButtonClick(button); } });
+        }
+
+        mA11y.add({ .widget = mCancelButton, .label = "#{sCancel}",
+            .activate = [this] { onCancelButtonClicked(mCancelButton); } });
+    }
+
+    void TravelWindow::onClose()
+    {
+        mA11y.deactivate();
+    }
+
+    void TravelWindow::onFrame(float dt)
+    {
+        mA11y.onFrame(dt);
     }
 
     void TravelWindow::onTravelButtonClick(MyGUI::Widget* sender)
