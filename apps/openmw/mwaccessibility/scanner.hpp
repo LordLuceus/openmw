@@ -9,19 +9,11 @@
 #include "../mwworld/ptr.hpp"
 
 #include "autowalker.hpp"
+#include "category.hpp"
+#include "proximitycue.hpp"
 
 namespace MWAccessibility
 {
-    /// Categories the screen-reader scanner can cycle through.
-    enum class Category
-    {
-        Npcs = 0,
-        Doors,
-        Containers,
-
-        Count
-    };
-
     /// Scanner: maintains, per-category, a distance-sorted list of nearby
     /// world objects and lets the user cycle a "cursor" through them, with
     /// the currently-selected target announced via the screen-reader.
@@ -55,6 +47,10 @@ namespace MWAccessibility
         AutoWalker& autoWalker() { return mAutoWalker; }
 
     private:
+        // Update the proximity audio cue to follow the current selection.
+        // Call whenever the selected target changes (cycle, clear, reset).
+        void updateProximityCue();
+
         void cycleCategory(int delta);
         void cycleTarget(int delta);
         void focusCamera();
@@ -66,6 +62,11 @@ namespace MWAccessibility
         void rebuildCurrentList();
         void announceCurrent();
         void speak(const std::string& text);
+
+        // Toggle the audio beacon (proximity cue) on/off. Off by default so it
+        // isn't constantly sounding; the player enables it only when actively
+        // homing in on something.
+        void toggleBeacon();
 
         // Returns empty Ptr when nothing is selected (or the list is empty).
         MWWorld::Ptr currentTarget();
@@ -86,6 +87,10 @@ namespace MWAccessibility
         const void* mLastCellId = nullptr;
 
         AutoWalker mAutoWalker;
+        ProximityCue mProximityCue;
+
+        // Whether the audio beacon is currently enabled. Off by default.
+        bool mBeaconEnabled = false;
     };
 }
 

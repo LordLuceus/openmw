@@ -51,6 +51,10 @@ set(BUILTIN_DATA_FILES
     fonts/MysticCards.omwfont
     fonts/MysticCardsFontLicense.txt
 
+    # Accessibility proximity-cue sounds (screen-reader navigation aid)
+    sounds/a11y/approach.wav
+    sounds/a11y/arrival.wav
+
     # Default animation blending config
     animations/animation-config.yaml
 

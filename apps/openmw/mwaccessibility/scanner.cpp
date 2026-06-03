@@ -181,9 +181,11 @@ namespace MWAccessibility
                 s.mDirty = true;
             }
             mAutoWalker.cancel();
+            mProximityCue.stop();
         }
 
         mAutoWalker.onFrame(dt);
+        mProximityCue.onFrame(dt);
     }
 
     bool Scanner::handleKey(int scancode, int modState)
@@ -232,7 +234,12 @@ namespace MWAccessibility
                 return true;
             case SDL_SCANCODE_RETURN:
             case SDL_SCANCODE_KP_ENTER:
-                if (shift)
+                // Enter faces the target, Shift+Enter walks to it, Ctrl+Enter
+                // toggles the audio beacon. (Ctrl takes precedence so it works
+                // regardless of whether Shift is also held.)
+                if (ctrl)
+                    toggleBeacon();
+                else if (shift)
                     walkToTarget();
                 else
                     focusCamera();
@@ -268,6 +275,7 @@ namespace MWAccessibility
         speak(msg);
         if (!state.mObjects.empty())
             announceCurrent();
+        updateProximityCue();
     }
 
     void Scanner::cycleTarget(int delta)
@@ -287,6 +295,7 @@ namespace MWAccessibility
         if (state.mIndex < 0)
             state.mIndex += static_cast<int>(state.mObjects.size());
         announceCurrent();
+        updateProximityCue();
     }
 
     void Scanner::focusCamera()
@@ -350,6 +359,7 @@ namespace MWAccessibility
         auto& state = mLists[static_cast<size_t>(mCategory)];
         state.mIndex = -1;
         mAutoWalker.cancel();
+        mProximityCue.stop();
         speak("Selection cleared.");
     }
 
@@ -365,6 +375,7 @@ namespace MWAccessibility
         }
         state.mIndex = 0;
         announceCurrent();
+        updateProximityCue();
     }
 
     void Scanner::rebuildCurrentList()
@@ -453,5 +464,32 @@ namespace MWAccessibility
         if (state.mIndex < 0 || state.mIndex >= static_cast<int>(state.mObjects.size()))
             return MWWorld::Ptr();
         return state.mObjects[state.mIndex];
+    }
+
+    void Scanner::updateProximityCue()
+    {
+        // Point the proximity cue at whatever is currently selected (an empty
+        // Ptr silences it). onFrame() then handles approach-loop vs arrival
+        // audio. A single sound pair is used for all categories.
+        //
+        // The beacon is opt-in: when disabled, keep the cue silenced
+        // regardless of selection so it never sounds unbidden.
+        mProximityCue.setTarget(mBeaconEnabled ? currentTarget() : MWWorld::Ptr());
+    }
+
+    void Scanner::toggleBeacon()
+    {
+        mBeaconEnabled = !mBeaconEnabled;
+        if (mBeaconEnabled)
+        {
+            speak("Audio beacon on.");
+            // Begin guiding toward the current selection immediately.
+            updateProximityCue();
+        }
+        else
+        {
+            speak("Audio beacon off.");
+            mProximityCue.stop();
+        }
     }
 }

@@ -116,7 +116,7 @@ add_openmw_dir (mwstate
     )
 
 add_openmw_dir (mwaccessibility
-    scanner autowalker
+    scanner autowalker proximitycue
     )
 
 add_openmw_dir (mwbase
