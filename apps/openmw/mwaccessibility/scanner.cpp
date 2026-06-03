@@ -63,6 +63,10 @@ namespace
                 return "Doors";
             case MWAccessibility::Category::Containers:
                 return "Containers";
+            case MWAccessibility::Category::Items:
+                return "Items";
+            case MWAccessibility::Category::Activators:
+                return "Activators";
             case MWAccessibility::Category::Count:
                 break;
         }
@@ -80,6 +84,16 @@ namespace
                 return type == ESM::Door::sRecordId;
             case MWAccessibility::Category::Containers:
                 return type == ESM::Container::sRecordId;
+            // Items and Activators use the engine's capability predicates
+            // rather than enumerating record types: isItem() covers every
+            // carryable (misc/papers/keys, books, weapons, armour, clothing,
+            // potions, ingredients, apparatus, lockpicks, probes, repair
+            // tools, soul gems), and isActivator() covers levers/buttons/
+            // scripted quest objects.
+            case MWAccessibility::Category::Items:
+                return ptr.getClass().isItem(ptr);
+            case MWAccessibility::Category::Activators:
+                return ptr.getClass().isActivator();
             case MWAccessibility::Category::Count:
                 break;
         }

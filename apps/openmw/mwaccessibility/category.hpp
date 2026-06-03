@@ -10,6 +10,8 @@ namespace MWAccessibility
         Npcs = 0,
         Doors,
         Containers,
+        Items,
+        Activators,
 
         Count
     };
