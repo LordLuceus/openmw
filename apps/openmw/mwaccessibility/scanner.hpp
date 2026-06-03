@@ -54,6 +54,12 @@ namespace MWAccessibility
         void cycleCategory(int delta);
         void cycleTarget(int delta);
         void cycleSubcategory(int delta);
+        // Directly activate the selected target via the normal engine
+        // activation path, bypassing the camera crosshair (which a blind
+        // player cannot aim at small items). Returns true if it handled the
+        // request (a target was selected), so the caller can consume the key
+        // and suppress the default crosshair-based Activate.
+        bool activateTarget();
         void focusCamera();
         void walkToTarget();
         void repeatAnnouncement();

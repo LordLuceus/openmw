@@ -33,6 +33,7 @@
 #include <components/esm3/loadweap.hpp>
 
 #include "../mwbase/environment.hpp"
+#include "../mwbase/luamanager.hpp"
 #include "../mwbase/statemanager.hpp"
 #include "../mwbase/windowmanager.hpp"
 #include "../mwbase/world.hpp"
@@ -390,6 +391,16 @@ namespace MWAccessibility
             case SDL_SCANCODE_BACKSPACE:
                 resetToFirst();
                 return true;
+            case SDL_SCANCODE_SPACE:
+                // Space is the default Activate binding. When the scanner has
+                // a target selected, redirect activation to that target
+                // (bypassing the crosshair the player can't aim). If nothing
+                // is selected, activateTarget() returns false and we fall
+                // through so normal crosshair Activate still works. Only plain
+                // Space is intercepted -- modified combos pass through.
+                if (!ctrl && !shift && activateTarget())
+                    return true;
+                return false;
             default:
                 return false;
         }
@@ -483,6 +494,39 @@ namespace MWAccessibility
         osg::Vec3f rot(desiredPitch, 0.0f, desiredYaw);
         world->rotateObject(player, rot, MWBase::RotationFlag_none);
         speak("Facing " + objectDisplayName(target) + ".");
+    }
+
+    bool Scanner::activateTarget()
+    {
+        MWWorld::Ptr target = currentTarget();
+        if (target.isEmpty())
+            return false; // Nothing selected; let the default Activate run.
+
+        MWBase::World* world = MWBase::Environment::get().getWorld();
+        MWWorld::Ptr player = world->getPlayerPtr();
+
+        // Gate on the engine's activation distance, matching vanilla reach.
+        // The audio beacon already guides the player into range, so this just
+        // prevents grabbing things across the room.
+        osg::Vec3f delta = target.getRefData().getPosition().asVec3()
+            - player.getRefData().getPosition().asVec3();
+        float dist = delta.length();
+        if (dist > world->getMaxActivationDistance())
+        {
+            speak(objectDisplayName(target) + " is too far away.");
+            return true; // Consume: we handled it (by refusing), don't also
+                         // fire the crosshair Activate.
+        }
+
+        // Mirror Player::activate(): only activate things that would show a
+        // tooltip, then dispatch through the normal Lua activation path. This
+        // bypasses the camera crosshair entirely -- the whole point, since a
+        // blind player can't aim at a small item on a table.
+        if (!target.getClass().hasToolTip(target))
+            return false;
+
+        MWBase::Environment::get().getLuaManager()->objectActivated(target, player);
+        return true;
     }
 
     void Scanner::walkToTarget()
