@@ -31,6 +31,9 @@
 #include "sortfilteritemmodel.hpp"
 #include "tooltips.hpp"
 
+#include "accessibility/itemtext.hpp"
+#include "accessibility/speech.hpp"
+
 namespace MWGui
 {
 
@@ -58,6 +61,14 @@ namespace MWGui
         mTakeButton->eventMouseButtonClick += MyGUI::newDelegate(this, &ContainerWindow::onTakeAllButtonClicked);
 
         setCoord(200, 0, 600, 300);
+
+        // Screen-reader setup: an invisible anchor holds key focus while the
+        // item list is navigated by index (the items are drawn by the custom
+        // ItemView, not as individual widgets), as in BookWindow.
+        mA11yAnchor = mMainWidget->createWidget<MyGUI::Widget>(
+            {}, MyGUI::IntCoord(0, 0, 1, 1), MyGUI::Align::Default);
+        mA11yAnchor->setNeedKeyFocus(true);
+        mA11y.setVirtualFocus(mA11yAnchor);
 
         mControllerButtons.mA = "#{Interface:Take}";
         mControllerButtons.mB = "#{Interface:Close}";
@@ -190,6 +201,107 @@ namespace MWGui
         MWBase::Environment::get().getWindowManager()->setKeyFocusWidget(mCloseButton);
 
         setTitle(container.getClass().getName(container));
+
+        // Take screen-reader input: announce the container, then build the item
+        // list and land on the first entry (or the Close button if empty).
+        A11y::say(container.getClass().getName(container));
+        buildAccessibility();
+        mA11y.activate();
+    }
+
+    void ContainerWindow::buildAccessibility()
+    {
+        mA11y.clear();
+
+        // Each item stack is a widget-less option (the ItemView draws them, so
+        // there's no per-item widget to focus). Label = name + count; the T-key
+        // tooltip carries the on-screen detail (weight / value / effects, plus
+        // owner info when full-help is on). Enter takes the whole stack;
+        // Shift+Enter opens the accessible count picker for a partial amount.
+        if (mSortModel)
+        {
+            for (size_t i = 0; i < mSortModel->getItemCount(); ++i)
+            {
+                const int index = static_cast<int>(i);
+                const ItemStack item = mSortModel->getItem(index);
+
+                std::string label = std::string(item.mBase.getClass().getName(item.mBase));
+                if (item.mCount > 1)
+                    label += " (" + std::to_string(item.mCount) + ")";
+
+                mA11y.add({ .widget = nullptr, .label = std::move(label),
+                    .tooltips = [base = item.mBase, count = item.mCount]
+                    { return A11y::itemTooltipLines(base, static_cast<int>(count)); },
+                    .activate = [this, index]
+                    { a11yTakeItem(index, !MyGUI::InputManager::getInstance().isShiftPressed()); } });
+            }
+        }
+
+        // Action buttons, mirroring those on screen (Dispose only for corpses).
+        if (mDisposeCorpseButton->getVisible())
+            mA11y.add({ .widget = mDisposeCorpseButton, .label = "#{sDisposeofCorpse}",
+                .activate = [this] { onDisposeCorpseButtonClicked(mDisposeCorpseButton); } });
+        mA11y.add({ .widget = mTakeButton, .label = "#{sTakeAll}",
+            .activate = [this] { onTakeAllButtonClicked(mTakeButton); } });
+        mA11y.add({ .widget = mCloseButton, .label = "#{sClose}",
+            .activate = [this] { onCloseButtonClicked(mCloseButton); } });
+    }
+
+    void ContainerWindow::a11yTakeItem(int sortIndex, bool wholeStack)
+    {
+        if (!mSortModel || mModel == nullptr)
+            return;
+        if (sortIndex < 0 || sortIndex >= static_cast<int>(mSortModel->getItemCount()))
+            return;
+
+        const ItemStack item = mSortModel->getItem(sortIndex);
+
+        // Conjured/bound items can't be taken (same guard as onItemSelected).
+        if (item.mFlags & ItemStack::Flag_Bound)
+        {
+            MWBase::Environment::get().getWindowManager()->messageBox("#{sContentsMessage1}");
+            return;
+        }
+
+        mSelectedItem = mSortModel->mapToSource(sortIndex);
+        const size_t count = item.mCount;
+
+        if (!wholeStack && count > 1)
+        {
+            // Open the (now accessible) count picker; on OK it transfers the
+            // chosen amount straight into the player's inventory.
+            std::string name{ item.mBase.getClass().getName(item.mBase) };
+            name += MWGui::ToolTips::getSoulString(item.mBase.getCellRef());
+            CountDialog* dialog = MWBase::Environment::get().getWindowManager()->getCountDialog();
+            dialog->openCountDialog(name, "#{sTake}", static_cast<int>(count));
+            dialog->eventOkClicked.clear();
+            dialog->eventOkClicked += MyGUI::newDelegate(this, &ContainerWindow::onA11yCountTaken);
+            return;
+        }
+
+        // Take the whole stack straight into the player's inventory, then
+        // rebuild the list and keep the cursor near the same row.
+        transferItem(nullptr, count);
+        a11yRebuildKeepingCursor();
+    }
+
+    void ContainerWindow::onA11yCountTaken(MyGUI::Widget* sender, std::size_t count)
+    {
+        // The count picker confirmed a partial take: perform it (mSelectedItem
+        // was set before the dialog opened), then refresh the spoken list.
+        transferItem(sender, count);
+        a11yRebuildKeepingCursor();
+    }
+
+    void ContainerWindow::a11yRebuildKeepingCursor()
+    {
+        const size_t cursor = mA11y.currentIndex();
+        buildAccessibility();
+        const size_t itemCount = mSortModel ? mSortModel->getItemCount() : 0;
+        if (cursor == A11y::Screen::npos || itemCount == 0)
+            mA11y.focusFirst(/*announce=*/true); // empty list lands on Take All / Close
+        else
+            mA11y.selectIndex(std::min(cursor, itemCount - 1), /*announce=*/true);
     }
 
     void ContainerWindow::resetReference()
@@ -210,6 +322,8 @@ namespace MWGui
         // Make sure the window was actually closed and not temporarily hidden.
         if (MWBase::Environment::get().getWindowManager()->containsMode(GM_Container))
             return;
+
+        mA11y.deactivate();
 
         if (mModel)
             mModel->onClose();
@@ -400,6 +514,7 @@ namespace MWGui
     void ContainerWindow::onFrame(float dt)
     {
         checkReferenceAvailable();
+        mA11y.onFrame(dt);
 
         if (mUpdateNextFrame)
         {

@@ -5,6 +5,8 @@
 #include "referenceinterface.hpp"
 #include "windowbase.hpp"
 
+#include "accessibility/screen.hpp"
+
 #include <components/misc/notnullptr.hpp>
 
 namespace MyGUI
@@ -76,6 +78,23 @@ namespace MWGui
         void onDisposeCorpseButtonClicked(MyGUI::Widget* sender);
 
         void onReferenceUnavailable() override;
+
+        // Screen-reader controller. Virtual focus (the items are drawn by a
+        // custom ItemView, not individual widgets, so each item is a
+        // widget-less option navigated by index, as in BookWindow). The
+        // action buttons (Take All / Close / Dispose) are widget-backed.
+        A11y::Screen mA11y;
+        MyGUI::Widget* mA11yAnchor = nullptr;
+        void buildAccessibility();
+        // Take the stack at sort-model index \p sortIndex: whole stack when
+        // \p wholeStack, else open the (accessible) count picker. Rebuilds the
+        // a11y list afterwards and keeps the cursor near the same row.
+        void a11yTakeItem(int sortIndex, bool wholeStack);
+        // CountDialog OK callback for a partial take (Shift+Enter path).
+        void onA11yCountTaken(MyGUI::Widget* sender, std::size_t count);
+        // Rebuild the a11y item list after the model changed, pinning the
+        // cursor to the same row (clamped) or the buttons if the list emptied.
+        void a11yRebuildKeepingCursor();
     };
 }
 #endif // CONTAINER_H

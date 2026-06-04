@@ -9,6 +9,8 @@
 #include "../mwbase/environment.hpp"
 #include "../mwbase/windowmanager.hpp"
 
+#include "accessibility/speech.hpp"
+
 namespace MWGui
 {
     CountDialog::CountDialog()
@@ -55,6 +57,14 @@ namespace MWGui
         mItemEdit->setMinValue(1);
         mItemEdit->setMaxValue(maxCount);
         mItemEdit->setValue(maxCount);
+
+        // Screen reader: announce the prompt, item and current/range. The
+        // numeric edit box already has key focus and handles Up/Down (adjust),
+        // digit typing and Enter (accept) natively, so we only need to speak.
+        // Up/Down then echo each new value via onEditValueChanged. Suppress the
+        // echo for the initial value we just set so it isn't said twice.
+        mA11ySuppressNextAnnounce = true;
+        A11y::say(message + " " + item + ". " + std::to_string(maxCount) + " of " + std::to_string(maxCount));
     }
 
     void CountDialog::setCount(int count)
@@ -89,6 +99,13 @@ namespace MWGui
     void CountDialog::onEditValueChanged(int value)
     {
         mSlider->setScrollPosition(value - 1);
+
+        // Speak each new amount as the user adjusts it (Up/Down on the edit box,
+        // or typing). Skip the one-shot echo for the value set on open.
+        if (mA11ySuppressNextAnnounce)
+            mA11ySuppressNextAnnounce = false;
+        else
+            A11y::say(std::to_string(value) + " of " + std::to_string(mSlider->getScrollRange()), /*interrupt=*/true);
     }
 
     void CountDialog::onSliderMoved(MyGUI::ScrollBar* sender, size_t position)

@@ -36,6 +36,11 @@ namespace MWGui
         void onSliderMoved(MyGUI::ScrollBar* sender, size_t position);
         void onEnterKeyPressed(MyGUI::EditBox* sender);
         bool onControllerButtonEvent(const SDL_ControllerButtonEvent& arg) override;
+
+        // One-shot guard so the value we set when opening the dialog isn't
+        // spoken twice (once by our open announcement, once by the resulting
+        // onEditValueChanged echo).
+        bool mA11ySuppressNextAnnounce = false;
     };
 
 }

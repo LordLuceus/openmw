@@ -8,6 +8,11 @@ namespace ESM
     struct IndexedENAMstruct;
 }
 
+namespace MWGui::Widgets
+{
+    struct SpellEffectParams;
+}
+
 namespace MWGui::A11y
 {
     /// Build a human-readable description of a single spell effect, including
@@ -19,6 +24,12 @@ namespace MWGui::A11y
     ///        duration / area / range are omitted (they don't apply), matching
     ///        how constant effects are displayed in game.
     std::string formatSpellEffectLine(const ESM::IndexedENAMstruct& effect, bool isConstant = false);
+
+    /// Same, for the Widgets::SpellEffectParams form used by item tooltips
+    /// (potions, enchanted gear). Honours mKnown (unknown effects read as "?"),
+    /// mNoMagnitude (ingredients), mNoTarget (potions) and mIsConstant exactly
+    /// as MWSpellEffect::updateWidgets renders them on screen.
+    std::string formatSpellEffectLine(const Widgets::SpellEffectParams& effect);
 }
 
 #endif

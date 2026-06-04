@@ -273,6 +273,12 @@ namespace MWGui::A11y
         return false;
     }
 
+    void Screen::selectIndex(size_t index, bool doAnnounce)
+    {
+        if (index < mElements.size() && isUsable(index))
+            select(index, doAnnounce);
+    }
+
     MyGUI::Widget* Screen::currentWidget() const
     {
         const Element* element = current();

@@ -113,6 +113,20 @@ namespace MWGui::A11y
         /// for restoring selection after a rebuild.
         bool selectByLabel(std::string_view label, bool announce);
 
+        /// Sentinel for "no selection", returned by currentIndex().
+        static constexpr size_t npos = static_cast<size_t>(-1);
+
+        /// The index of the current option, or npos if none. Companion to
+        /// selectIndex() for preserving selection by POSITION across a rebuild
+        /// of a dynamic widget-less list (e.g. a container's items) whose labels
+        /// aren't unique enough for selectByLabel() (many identical stacks).
+        size_t currentIndex() const { return mCurrent; }
+
+        /// Select the usable option at \p index, announcing it unless
+        /// \p announce is false. No-op if the index is out of range or not
+        /// usable. Companion to currentIndex().
+        void selectIndex(size_t index, bool announce);
+
         /// The widget backing the current option, or null if none selected.
         /// Lets an owner implement option-type-specific extra keys.
         MyGUI::Widget* currentWidget() const;
@@ -151,8 +165,6 @@ namespace MWGui::A11y
         void beginEditing() { enterEditMode(); }
 
     private:
-        static constexpr size_t npos = static_cast<size_t>(-1);
-
         const Element* find(MyGUI::Widget* widget) const;
         size_t indexOf(MyGUI::Widget* widget) const;
         const Element* current() const;

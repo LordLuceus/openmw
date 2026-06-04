@@ -48,7 +48,7 @@ add_openmw_dir (mwgui
     )
 
 add_openmw_dir (mwgui/accessibility
-    speech element screen uimanager spelltext editfield booktext
+    speech element screen uimanager spelltext editfield booktext itemtext
     )
 
 add_openmw_dir (mwdialogue
