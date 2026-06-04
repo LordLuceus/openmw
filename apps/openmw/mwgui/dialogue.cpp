@@ -926,8 +926,22 @@ namespace MWGui
         mHistoryContents.push_back(std::make_unique<Message>(text));
         updateHistory();
 
+        // These are the transient status notifications the engine shows during
+        // dialogue -- "X removed from your inventory", "Your journal has been
+        // updated", "87 Gold has been added", etc. They typically arrive in the
+        // same frame as (and just after) the NPC's spoken line via addResponse.
+        //
+        // QUEUE them (interrupt=false) so they read AFTER the dialogue line
+        // instead of clobbering it: with interrupt=true each notification cut
+        // off the line and the preceding notifications, so only the last one
+        // ("87 Gold...") was ever heard. A fresh topic still interrupts the
+        // whole lot, because addResponse uses interrupt=true.
+        //
+        // Use plain say(), NOT sayRereadable(): these are transient status
+        // lines, not contextual prose, so they must not overwrite the dialogue
+        // line that R (reread) is meant to repeat.
         if (!text.empty())
-            A11y::sayRereadable(std::string(text), /*interrupt=*/true);
+            A11y::say(std::string(text), /*interrupt=*/false);
     }
 
     void DialogueWindow::updateDisposition()
