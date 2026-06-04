@@ -76,6 +76,7 @@ namespace MWBase
         /// If keyboard is true, only pay attention to keyboard events. If false, only pay attention to controller
         /// events (excluding esc)
         virtual void enableDetectingBindingMode(int action, bool keyboard) = 0;
+        virtual bool isDetectingBindingState() const = 0;
         virtual void resetToDefaultKeyBindings() = 0;
         virtual void resetToDefaultControllerBindings() = 0;
 

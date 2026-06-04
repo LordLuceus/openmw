@@ -229,6 +229,11 @@ namespace MWInput
         mBindingsManager->enableDetectingBindingMode(action, keyboard);
     }
 
+    bool InputManager::isDetectingBindingState() const
+    {
+        return mBindingsManager->isDetectingBindingState();
+    }
+
     size_t InputManager::countSavedGameRecords() const
     {
         return mControlSwitch->countSavedGameRecords();

@@ -129,6 +129,23 @@ namespace MWGui
         // instead, avoiding double-announcements during keyboard navigation.
         bool mSuppressSettingSpeech = false;
 
+        // Key-rebinding via the keyboard needs care. The user starts a rebind by
+        // pressing Enter on a binding row; if we armed ICS detection right then,
+        // ICS would capture that still-held Enter (key-repeat) as "Return", the
+        // bind would complete, the row would re-enable, and the held Enter would
+        // re-trigger the rebind -- an endless loop. We instead remember the
+        // requested action here and let onFrame arm detection only once the
+        // activation key (Enter / Space) is physically released. -1 means
+        // "nothing pending".
+        int mPendingRebindAction = -1;
+        // After a successful rebind, updateControlsBox() destroys and recreates
+        // every controls-list widget, which dangles the widget pointers captured
+        // by our A11y options (so the row's binding value stops being spoken).
+        // This asks onFrame to rebuild the A11y option list and restore the
+        // selection to the row we just rebound (matched by its description).
+        bool mRebuildControlsA11y = false;
+        std::string mLastRebindLabel;
+
         // (Re)build the option list for the currently selected tab and focus
         // its first option. \p announceSelection controls whether that first
         // option is spoken (false right after the tab name was just announced).

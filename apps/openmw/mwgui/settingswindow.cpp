@@ -17,6 +17,7 @@
 #include <MyGUI_UString.h>
 #include <MyGUI_Window.h>
 
+#include <SDL_keyboard.h>
 #include <SDL_video.h>
 
 #include <MyGUI_Button.h>
@@ -281,6 +282,45 @@ namespace MWGui
             const auto scriptsSize = mScriptAdapter->getSize();
             if (mScriptView->getCanvasSize() != scriptsSize)
                 mScriptView->setCanvasSize(scriptsSize);
+        }
+
+        // Arm a deferred key-rebind, but only once the activation key (Enter /
+        // Space) has been physically RELEASED. The user starts a rebind by
+        // pressing Enter on the row; if we arm ICS detection while Enter is
+        // still held, ICS captures that Enter (key-repeat) as "Return", the bind
+        // completes, the row re-enables, and the still-held Enter re-triggers the
+        // rebind -- an endless loop. Waiting for release breaks that cycle and
+        // also stops the activating key from being captured as the new binding.
+        if (mPendingRebindAction >= 0)
+        {
+            const Uint8* keyState = SDL_GetKeyboardState(nullptr);
+            const bool activationHeld = keyState
+                && (keyState[SDL_SCANCODE_RETURN] || keyState[SDL_SCANCODE_KP_ENTER]
+                    || keyState[SDL_SCANCODE_SPACE]);
+            if (!activationHeld)
+            {
+                const int action = mPendingRebindAction;
+                mPendingRebindAction = -1;
+                MWBase::Environment::get().getInputManager()->enableDetectingBindingMode(action, mKeyboardMode);
+            }
+        }
+
+        // A bind (or a keyboard/controller-mode switch, or a reset) rebuilt the
+        // controls list, destroying the widgets our A11y options referenced.
+        // Rebuild the option list and restore the cursor to the rebound row.
+        if (mRebuildControlsA11y)
+        {
+            mRebuildControlsA11y = false;
+            buildAccessibilityElements(/*announceSelection=*/false);
+            if (!mLastRebindLabel.empty() && mA11y.selectByLabel(mLastRebindLabel, /*announce=*/true))
+            {
+                // Selection (and its new binding value) announced.
+            }
+            else
+            {
+                mA11y.announceCurrent();
+            }
+            mLastRebindLabel.clear();
         }
 
         mA11y.onFrame(duration);
@@ -1331,6 +1371,15 @@ namespace MWGui
         }
 
         layoutControlsBox();
+
+        // We just destroyed and recreated every controls-list widget, so any
+        // A11y options anchored on the old widgets now dangle. If the screen
+        // reader is active, ask onFrame to rebuild the option list (and restore
+        // the selection). Guarded on isActive() so the initial onOpen build --
+        // which calls updateControlsBox() before the A11y list exists -- is
+        // unaffected.
+        if (mA11y.isActive())
+            mRebuildControlsA11y = true;
     }
 
     void SettingsWindow::updateLightSettings()
@@ -1506,12 +1555,29 @@ namespace MWGui
     {
         int actionId = *sender->getUserData<int>();
 
+        // Ignore re-entry while a rebind is already pending or in progress.
+        // Holding Enter on a row produces MyGUI key-repeat activations; without
+        // this guard each repeat re-announced "press a key" and re-started the
+        // detection dance.
+        if (mPendingRebindAction >= 0
+            || MWBase::Environment::get().getInputManager()->isDetectingBindingState())
+            return;
+
         sender->castType<MyGUI::Button>()->setCaptionWithReplacing("#{Interface:None}");
 
         MWBase::Environment::get().getWindowManager()->staticMessageBox("#{OMWEngine:RebindAction}");
         MWBase::Environment::get().getWindowManager()->disallowMouse();
 
-        MWBase::Environment::get().getInputManager()->enableDetectingBindingMode(actionId, mKeyboardMode);
+        // Remember which row this is (by its action description) so that, once
+        // the bind completes and updateControlsBox() rebuilds the widgets, we
+        // can rebuild our A11y options and land the cursor back on this row.
+        mLastRebindLabel = mA11y.currentLabel();
+
+        // Do NOT arm ICS detection now: when this was triggered by pressing
+        // Enter on the row (the screen-reader activation path), the activating
+        // Enter key is still held. onFrame arms detection only once that key is
+        // released, so ICS doesn't immediately capture it as "Return".
+        mPendingRebindAction = actionId;
     }
 
     void SettingsWindow::onInputTabMouseWheel(MyGUI::Widget* /*sender*/, int rel)

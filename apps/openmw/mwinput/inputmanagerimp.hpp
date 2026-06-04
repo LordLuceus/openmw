@@ -87,6 +87,7 @@ namespace MWInput
         const std::initializer_list<int>& getActionKeySorting() override;
         const std::initializer_list<int>& getActionControllerSorting() override;
         void enableDetectingBindingMode(int action, bool keyboard) override;
+        bool isDetectingBindingState() const override;
         void resetToDefaultKeyBindings() override;
         void resetToDefaultControllerBindings() override;
 
