@@ -83,6 +83,8 @@
 #include "companionwindow.hpp"
 #include "confirmationdialog.hpp"
 #include "console.hpp"
+#include "accessibility/screen.hpp"
+#include "accessibility/uimanager.hpp"
 #include "container.hpp"
 #include "controllerbuttonsoverlay.hpp"
 #include "controllers.hpp"
@@ -2562,6 +2564,20 @@ namespace MWGui
         {
             MyGUI::Widget* focus = MyGUI::InputManager::getInstance().getKeyFocusWidget();
             bool widgetActive = MyGUI::InputManager::getInstance().injectKeyPress(key, text);
+
+            // An active accessibility screen receives the key via its anchor's
+            // eventKeyButtonPressed during the inject above. If it handled the
+            // key (navigation, submenu open/close, etc.), report it as consumed
+            // so the engine doesn't also dispatch it as a game binding (e.g. the
+            // Escape that collapses a submenu must not also fire A_GameMenu and
+            // close the whole window). A11y::Screen leaves keys it deliberately
+            // passes through (a top-level Escape) unconsumed.
+            if (A11y::Screen* screen = A11y::UiManager::instance().active())
+            {
+                if (screen->consumedKey())
+                    return true;
+            }
+
             if (!widgetActive || !focus)
                 return false;
             // FIXME: MyGUI doesn't allow widgets to state if a given key was actually used, so make a guess

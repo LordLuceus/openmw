@@ -569,7 +569,7 @@ namespace MWGui::A11y
         resetHint();
     }
 
-    bool Screen::consumeEditModeEscape()
+    bool Screen::consumeEscape()
     {
         const bool consumed = mEscapeConsumed;
         mEscapeConsumed = false;
@@ -843,15 +843,26 @@ namespace MWGui::A11y
 
     void Screen::onKeyValue(MyGUI::KeyCode key)
     {
+        // Assume the key is ours; individual branches that deliberately let a
+        // key through to the engine (e.g. a top-level Escape that should close
+        // the window) clear this. Read by consumedKey().
+        mKeyConsumed = true;
+
         if (!isActive())
+        {
+            mKeyConsumed = false;
             return;
+        }
 
         // For a virtual-focus (non-modal) screen, a live modal dialog owns the
         // keyboard -- let the engine route keys to it. Real-focus screens are
         // themselves modal, so this guard must not apply to them (it would
         // swallow every key). See the matching note in onFrame().
         if (mVirtual && MyGUI::InputManager::getInstance().isModalAny())
+        {
+            mKeyConsumed = false;
             return;
+        }
 
         // While editing a text field, the EditField (the focused widget) owns
         // every key for text editing; we only intercept Escape to leave edit
@@ -905,10 +916,18 @@ namespace MWGui::A11y
                     cycleSubTooltip(/*forward=*/!MyGUI::InputManager::getInstance().isShiftPressed());
                     break;
                 case MyGUI::KeyCode::Escape:
+                    // Also latch for the modal exit() path (consumeEscape()).
+                    // For a non-modal host, consumedKey() additionally stops the
+                    // engine turning this Escape into A_GameMenu, which would
+                    // close the whole window instead of just collapsing here.
+                    mEscapeConsumed = true;
+                    closeSubmenu();
+                    break;
                 case MyGUI::KeyCode::ArrowLeft:
                     closeSubmenu();
                     break;
                 default:
+                    mKeyConsumed = false;
                     break;
             }
             return;
@@ -951,6 +970,9 @@ namespace MWGui::A11y
                 activateCurrent();
                 break;
             default:
+                // Unhandled at the top level (notably Escape): let the engine
+                // have it so e.g. Escape closes the window as usual.
+                mKeyConsumed = false;
                 break;
         }
     }

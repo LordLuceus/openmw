@@ -3,6 +3,9 @@
 
 #include "statswatcher.hpp"
 #include "windowpinnablebase.hpp"
+
+#include "accessibility/screen.hpp"
+
 #include <components/esm/attr.hpp>
 #include <components/esm/refid.hpp>
 
@@ -47,7 +50,8 @@ namespace MWGui
         }
         void updateSkillArea();
 
-        void onOpen() override { onWindowResize(mMainWidget->castType<MyGUI::Window>()); }
+        void onOpen() override;
+        void onClose() override;
 
         std::string_view getWindowIdForLua() const override { return "Stats"; }
 
@@ -89,6 +93,25 @@ namespace MWGui
 
         bool mChanged;
         const int mMinFullWidth;
+
+        // Screen-reader support. The stats window rebuilds its skill/faction
+        // widgets whenever data changes (updateSkillArea destroys + recreates
+        // them) and updates values live every frame, so we must NOT anchor A11y
+        // options on those widgets. Instead the screen uses a single invisible
+        // anchor (virtual focus) and widget-less Elements whose value callbacks
+        // read straight from the player's stats each time they are spoken.
+        A11y::Screen mA11y;
+        MyGUI::Widget* mA11yAnchor = nullptr;
+        // (Re)build the option list from the current character.
+        void buildAccessibility();
+        // Submenu item builders (Attributes / Skills are expandable lists).
+        std::vector<A11y::SubItem> attributeItems() const;
+        std::vector<A11y::SubItem> skillItems() const;
+        void appendSkillItems(std::vector<A11y::SubItem>& out, const std::vector<ESM::RefId>& skills,
+            const std::string& section) const;
+        // Live value strings for the top-level vital / character / status items.
+        std::string vitalValue(int dynamicIndex) const; // 0=health 1=magicka 2=fatigue
+        std::string factionValue() const;
 
     protected:
         void onPinToggled() override;

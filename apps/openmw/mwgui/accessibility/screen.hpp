@@ -146,14 +146,28 @@ namespace MWGui::A11y
 
         bool isActive() const;
 
+        /// True if the most recent key fed to this screen was handled by the
+        /// framework (navigation, value change, submenu open/close, activation,
+        /// tooltip cycling, or the extra-key handler). A non-modal screen's host
+        /// (WindowManager::injectKeyPress) checks this so a consumed key -- e.g.
+        /// the Escape that collapses a submenu -- isn't also dispatched to game
+        /// input bindings like A_GameMenu (which would close the whole window).
+        /// Keys the framework deliberately lets through (notably a top-level
+        /// Escape, which should close the window) leave this false.
+        bool consumedKey() const { return mKeyConsumed; }
+
         /// One-shot: returns true (and resets the latch) if the most recent
-        /// Escape was consumed to leave edit mode. A WindowModal whose exit()
-        /// defaults to closing on Escape should call this from exit() and return
-        /// false when it's true, so the Escape that ends text editing doesn't
-        /// also close the dialog. (The engine's Escape action runs *after* our
-        /// key handler within the same keystroke, so the latch is still set when
-        /// exit() is queried.)
-        bool consumeEditModeEscape();
+        /// Escape was consumed internally by the framework -- either to leave
+        /// edit mode or to collapse an open submenu. A window whose exit()
+        /// closes on Escape should call this from exit() and return false when
+        /// it's true, so the Escape that ended editing / collapsed a submenu
+        /// doesn't also close the window. (The engine's Escape action runs
+        /// *after* our key handler within the same keystroke, so the latch is
+        /// still set when exit() is queried.)
+        bool consumeEscape();
+
+        /// Backwards-compatible alias for consumeEscape().
+        bool consumeEditModeEscape() { return consumeEscape(); }
 
         /// True while the current option's text field is being edited.
         bool inEditMode() const { return mEditMode; }
@@ -260,6 +274,11 @@ namespace MWGui::A11y
         size_t mSubTooltipIndex = 0;
 
         std::function<bool(MyGUI::KeyCode)> mExtraKeyHandler;
+
+        // Set by onKeyValue() for each key it actually handles; read by
+        // consumedKey(). Lets a non-modal host suppress game bindings for keys
+        // we consumed (see consumedKey()).
+        bool mKeyConsumed = false;
     };
 }
 

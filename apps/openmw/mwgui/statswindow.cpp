@@ -32,6 +32,8 @@
 #include "../mwmechanics/actorutil.hpp"
 #include "../mwmechanics/npcstats.hpp"
 
+#include <components/esm3/loadskil.hpp>
+
 #include "tooltips.hpp"
 
 namespace MWGui
@@ -80,6 +82,14 @@ namespace MWGui
 
         MyGUI::Window* t = mMainWidget->castType<MyGUI::Window>();
         t->eventWindowChangeCoord += MyGUI::newDelegate(this, &StatsWindow::onWindowResize);
+
+        // Accessibility: an invisible anchor holds key focus while the A11y
+        // screen navigates widget-less options internally (virtual focus). The
+        // option list is (re)built in buildAccessibility() and activated when
+        // the window becomes visible.
+        mA11yAnchor = mMainWidget->createWidget<MyGUI::Widget>({}, MyGUI::IntCoord(0, 0, 1, 1), MyGUI::Align::Default);
+        mA11yAnchor->setNeedKeyFocus(true);
+        mA11y.setVirtualFocus(mA11yAnchor);
 
         if (Settings::gui().mControllerMenus)
         {
@@ -379,6 +389,25 @@ namespace MWGui
 
         if (mChanged)
             updateSkillArea();
+
+        mA11y.onFrame(dt);
+    }
+
+    void StatsWindow::onOpen()
+    {
+        onWindowResize(mMainWidget->castType<MyGUI::Window>());
+
+        // Build the option list from the current character and claim screen-
+        // reader input. The stats arrive via the StatsWatcher (which may push
+        // updates after this point); the widget-less value callbacks always
+        // read the latest values, so an early build is fine.
+        buildAccessibility();
+        mA11y.activate();
+    }
+
+    void StatsWindow::onClose()
+    {
+        mA11y.deactivate();
     }
 
     void StatsWindow::setFactions(const FactionList& factions)
@@ -712,6 +741,206 @@ namespace MWGui
         mSkillView->setVisibleVScroll(false);
         mSkillView->setCanvasSize(mSkillView->getWidth(), std::max(mSkillView->getHeight(), coord1.top));
         mSkillView->setVisibleVScroll(true);
+    }
+
+    std::string StatsWindow::vitalValue(int dynamicIndex) const
+    {
+        MWWorld::Ptr player = MWMechanics::getPlayer();
+        const MWMechanics::CreatureStats& stats = player.getClass().getCreatureStats(player);
+        const MWMechanics::DynamicStat<float>& value = stats.getDynamic(dynamicIndex);
+        int current = static_cast<int>(value.getCurrent());
+        int modified = static_cast<int>(value.getModified(false));
+        if (dynamicIndex != 2) // fatigue can be negative
+            current = std::max(0, current);
+        return MyGUI::utility::toString(current) + " / " + MyGUI::utility::toString(modified);
+    }
+
+    std::vector<A11y::SubItem> StatsWindow::attributeItems() const
+    {
+        std::vector<A11y::SubItem> items;
+        MWWorld::Ptr player = MWMechanics::getPlayer();
+        const MWMechanics::CreatureStats& stats = player.getClass().getCreatureStats(player);
+        const auto& store = MWBase::Environment::get().getESMStore()->get<ESM::Attribute>();
+        for (const ESM::Attribute& attribute : store)
+        {
+            const std::string name = attribute.mName;
+            const std::string description = attribute.mDescription;
+            const int value = static_cast<int>(stats.getAttribute(attribute.mId).getModified());
+            A11y::SubItem item;
+            item.label = name + " " + MyGUI::utility::toString(value);
+            item.tooltips = [name, description, value] {
+                std::string line = name + " " + MyGUI::utility::toString(value);
+                if (!description.empty())
+                    line += ". " + description;
+                return std::vector<std::string>{ line };
+            };
+            items.push_back(std::move(item));
+        }
+        return items;
+    }
+
+    void StatsWindow::appendSkillItems(
+        std::vector<A11y::SubItem>& out, const std::vector<ESM::RefId>& skills, const std::string& section) const
+    {
+        const MWWorld::ESMStore& store = *MWBase::Environment::get().getESMStore();
+        for (const ESM::RefId& skillId : skills)
+        {
+            const ESM::Skill* skill = store.get<ESM::Skill>().search(skillId);
+            if (!skill)
+                continue;
+            auto valueIt = mSkillValues.find(skillId);
+            const int modified = (valueIt != mSkillValues.end()) ? static_cast<int>(valueIt->second.getModified()) : 0;
+
+            const std::string name = skill->mName;
+            const std::string description = skill->mDescription;
+            const ESM::RefId governingId = ESM::Attribute::indexToRefId(skill->mData.mAttribute);
+
+            A11y::SubItem item;
+            item.label = name + " " + MyGUI::utility::toString(modified);
+            item.section = section;
+            item.tooltips = [name, description, governingId, modified] {
+                std::string line = name + " " + MyGUI::utility::toString(modified);
+                const ESM::Attribute* attr
+                    = MWBase::Environment::get().getESMStore()->get<ESM::Attribute>().search(governingId);
+                if (attr)
+                    line += ". #{sGoverningAttribute}: " + attr->mName;
+                if (!description.empty())
+                    line += ". " + description;
+                return std::vector<std::string>{ line };
+            };
+            out.push_back(std::move(item));
+        }
+    }
+
+    std::vector<A11y::SubItem> StatsWindow::skillItems() const
+    {
+        MWBase::WindowManager* winMgr = MWBase::Environment::get().getWindowManager();
+        std::vector<A11y::SubItem> items;
+        appendSkillItems(
+            items, mMajorSkills, std::string(winMgr->getGameSettingString("sSkillClassMajor", "Major Skills")));
+        appendSkillItems(
+            items, mMinorSkills, std::string(winMgr->getGameSettingString("sSkillClassMinor", "Minor Skills")));
+        appendSkillItems(
+            items, mMiscSkills, std::string(winMgr->getGameSettingString("sSkillClassMisc", "Misc Skills")));
+        return items;
+    }
+
+    std::string StatsWindow::factionValue() const
+    {
+        const MWWorld::ESMStore& store = *MWBase::Environment::get().getESMStore();
+        MWWorld::Ptr player = MWMechanics::getPlayer();
+        const MWMechanics::NpcStats& playerStats = player.getClass().getNpcStats(player);
+        const std::set<ESM::RefId>& expelled = playerStats.getExpelled();
+
+        std::string result;
+        bool first = true;
+        for (const auto& [factionId, factionRank] : mFactions)
+        {
+            const ESM::Faction* faction = store.get<ESM::Faction>().search(factionId);
+            if (!faction || faction->mData.mIsHidden == 1)
+                continue;
+
+            std::string entry = faction->mName + ": ";
+            if (expelled.find(factionId) != expelled.end())
+                entry += "#{sExpelled}";
+            else
+            {
+                const auto rank = static_cast<size_t>(std::max(0, factionRank));
+                if (rank < faction->mRanks.size() && !faction->mRanks[rank].empty())
+                    entry += faction->mRanks[rank];
+            }
+
+            if (!first)
+                result += ". ";
+            result += entry;
+            first = false;
+        }
+        return result;
+    }
+
+    void StatsWindow::buildAccessibility()
+    {
+        mA11y.clear();
+
+        MWBase::WindowManager* winMgr = MWBase::Environment::get().getWindowManager();
+
+        // The left pane (name/level/race/class + health/magicka/fatigue) has no
+        // native section headings in vanilla, so these are flat top-level items.
+
+        // Player name (window title).
+        mA11y.add({ .widget = nullptr,
+            .label = std::string(winMgr->getGameSettingString("sName", "Name")),
+            .value = [this] { return mMainWidget->castType<MyGUI::Window>()->getCaption().asUTF8(); } });
+
+        // Level, race, class (read the on-screen captions, which the watcher keeps current).
+        mA11y.add({ .widget = nullptr,
+            .label = std::string(winMgr->getGameSettingString("sLevel", "Level")),
+            .value = [this] {
+                MyGUI::TextBox* w = nullptr;
+                getWidget(w, "LevelText");
+                return w ? w->getCaption().asUTF8() : std::string();
+            } });
+        mA11y.add({ .widget = nullptr,
+            .label = std::string(winMgr->getGameSettingString("sRace", "Race")),
+            .value = [this] {
+                MyGUI::TextBox* w = nullptr;
+                getWidget(w, "RaceText");
+                return w ? w->getCaption().asUTF8() : std::string();
+            } });
+        mA11y.add({ .widget = nullptr,
+            .label = std::string(winMgr->getGameSettingString("sClass", "Class")),
+            .value = [this] {
+                MyGUI::TextBox* w = nullptr;
+                getWidget(w, "ClassText");
+                return w ? w->getCaption().asUTF8() : std::string();
+            } });
+
+        // Health, magicka, fatigue (current / max).
+        mA11y.add({ .widget = nullptr,
+            .label = std::string(winMgr->getGameSettingString("sHealth", "Health")),
+            .value = [this] { return vitalValue(0); } });
+        mA11y.add({ .widget = nullptr,
+            .label = std::string(winMgr->getGameSettingString("sMagic", "Magicka")),
+            .value = [this] { return vitalValue(1); } });
+        mA11y.add({ .widget = nullptr,
+            .label = std::string(winMgr->getGameSettingString("sFatigue", "Fatigue")),
+            .value = [this] { return vitalValue(2); } });
+
+        // Attributes and skills as expandable submenus (Enter to enter the list).
+        mA11y.add({ .widget = nullptr,
+            .label = std::string(winMgr->getGameSettingString("sAttributes", "Attributes")),
+            .children = [this] { return attributeItems(); } });
+        mA11y.add({ .widget = nullptr,
+            .label = std::string(winMgr->getGameSettingString("sSkills", "Skills")),
+            .children = [this] { return skillItems(); } });
+
+        // Factions (combined into one spoken line; empty if none).
+        if (!mFactions.empty())
+        {
+            mA11y.add({ .widget = nullptr,
+                .label = std::string(winMgr->getGameSettingString("sFaction", "Faction")),
+                .value = [this] { return factionValue(); } });
+        }
+
+        // Birthsign.
+        if (!mBirthSignId.empty())
+        {
+            mA11y.add({ .widget = nullptr,
+                .label = std::string(winMgr->getGameSettingString("sBirthSign", "Birthsign")),
+                .value = [this] {
+                    const ESM::BirthSign* sign
+                        = MWBase::Environment::get().getESMStore()->get<ESM::BirthSign>().search(mBirthSignId);
+                    return sign ? sign->mName : std::string();
+                } });
+        }
+
+        // Reputation and bounty.
+        mA11y.add({ .widget = nullptr,
+            .label = std::string(winMgr->getGameSettingString("sReputation", "Reputation")),
+            .value = [this] { return MyGUI::utility::toString(mReputation); } });
+        mA11y.add({ .widget = nullptr,
+            .label = std::string(winMgr->getGameSettingString("sBounty", "Bounty")),
+            .value = [this] { return MyGUI::utility::toString(mBounty); } });
     }
 
     void StatsWindow::onPinToggled()
