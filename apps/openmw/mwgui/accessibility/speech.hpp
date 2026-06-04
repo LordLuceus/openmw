@@ -24,6 +24,14 @@ namespace MWGui::A11y
     /// re-read by simply arrowing back onto the option).
     void sayRereadable(std::string_view text, bool interrupt = false);
 
+    /// Speak \p spoken now, but remember a DIFFERENT \p rereadable string as the
+    /// text the reread key (R) will repeat. Use when the on-the-fly
+    /// announcement should stay terse but the reread should carry extra context
+    /// -- e.g. a dialogue line is spoken without the speaker's name (it would be
+    /// repetitive on every line), yet R repeats it WITH the speaker prefixed so
+    /// the user can recall who said it.
+    void sayRereadable(std::string_view spoken, std::string_view rereadable, bool interrupt = false);
+
     /// Re-speak the last rereadable announcement, interrupting any current
     /// speech. No-op when nothing has been marked rereadable.
     void reread();

@@ -92,6 +92,24 @@ namespace MWGui::A11y
 
     void Screen::clear()
     {
+        // In real-focus mode, add() bound key/focus delegates to each option
+        // widget. Unbind them before dropping the elements, otherwise a later
+        // rebuild that re-adds the same widget would try to += an identical
+        // delegate -- MyGUI throws "Trying to add same delegate twice", which
+        // aborts the rebuild mid-way (empty/partial list -> dead navigation and
+        // no speech). Virtual-focus options carry no per-widget delegates.
+        if (!mVirtual)
+        {
+            for (const Element& element : mElements)
+            {
+                if (element.widget)
+                {
+                    element.widget->eventKeySetFocus -= MyGUI::newDelegate(this, &Screen::onKeyFocus);
+                    element.widget->eventKeyButtonPressed -= MyGUI::newDelegate(this, &Screen::onKey);
+                }
+            }
+        }
+
         mElements.clear();
         mCurrent = npos;
         mTooltipElement = npos;

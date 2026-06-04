@@ -199,8 +199,11 @@ namespace MWGui
 
         WindowModal::onOpen();
 
-        // Take screen-reader input. Announce the player's gold first (it gates
-        // which bribe options are available), then land on the first action.
+        // Rebuild the option list and take screen-reader input. clear() (called
+        // here and on deactivate) now unbinds the per-widget key delegates, so
+        // re-adding them on each open is safe. Announce the player's gold first
+        // (it gates which bribe options are available), then land on the first
+        // action. isUsable() re-checks each button's live enabled state.
         buildAccessibility();
         A11y::say("#{sGold}: " + std::to_string(playerGold));
         mA11y.activate(mAdmireButton);
@@ -600,7 +603,9 @@ namespace MWGui
         // buildAccessibility() now that mPtr is set. onOpen() (which ran just
         // before setPtr on a fresh conversation) already called activate(), but
         // at that point mPtr was empty so the list was empty; re-activate now to
-        // select and announce the first real topic.
+        // select and announce the first real topic. A fresh open announces
+        // immediately, so cancel any deferred activation onOpen queued.
+        mA11yPendingActivate = false;
         mA11y.activate();
     }
 
@@ -633,13 +638,20 @@ namespace MWGui
         // empty -- buildAccessibility no-ops, and setPtr rebuilds+activates
         // shortly after) and when returning from a pushed sub-mode such as
         // barter/training (setPtr is NOT called again, so this is the only hook
-        // to reclaim input). Rebuild to reflect current topics, then activate.
+        // to reclaim input). Rebuild to reflect current topics, then defer the
+        // re-activation to the next frame (see mA11yPendingActivate): returning
+        // from a sub-mode can reveal us and tear us down in the same frame, and
+        // an immediate activate would announce a topic during teardown.
         buildAccessibility();
-        mA11y.activate();
+        mA11yPendingActivate = true;
     }
 
     void DialogueWindow::onClose()
     {
+        // Cancel any deferred re-activation (e.g. a sub-mode revealed us and is
+        // now closing the whole conversation in the same frame).
+        mA11yPendingActivate = false;
+
         // Always yield screen-reader input when hidden -- whether the whole
         // conversation is ending or a sub-mode (barter/training) is being
         // pushed on top. deactivate() clears the option list; onOpen rebuilds.
@@ -884,24 +896,29 @@ namespace MWGui
 
         // Speak the NPC's words (the contextual prose the player can't navigate
         // to) and mark them rereadable so R repeats the latest line -- the
-        // signature reread convention. Prefix the speaker's name so the player
-        // knows who's talking (e.g. "Ganciele Douar: I'm an officer..."); this
-        // is especially useful on reread. The title is the topic heading (empty
-        // for greetings); include it after the speaker so the player knows which
-        // topic the response belongs to. interrupt=true so a fresh response
-        // cuts off any lingering focus chatter.
+        // signature reread convention. The line is SPOKEN without the speaker's
+        // name (prefixing it on every line is repetitive), but R rereads it WITH
+        // the speaker prefixed (e.g. "Ganciele Douar: I'm an officer...") so the
+        // player can recall who said it. The title is the topic heading (empty
+        // for greetings); include it so the player knows which topic the
+        // response belongs to. interrupt=true so a fresh response cuts off any
+        // lingering focus chatter.
         std::string spoken;
+        if (!title.empty())
+            spoken = std::string(title) + ". ";
+        spoken += std::string(text);
+
+        std::string rereadable;
         if (!mPtr.isEmpty())
         {
             std::string_view speaker = mPtr.getClass().getName(mPtr);
             if (!speaker.empty())
-                spoken = std::string(speaker) + ": ";
+                rereadable = std::string(speaker) + ": ";
         }
-        if (!title.empty())
-            spoken += std::string(title) + ". ";
-        spoken += std::string(text);
+        rereadable += spoken;
+
         if (!spoken.empty())
-            A11y::sayRereadable(spoken, /*interrupt=*/true);
+            A11y::sayRereadable(spoken, rereadable, /*interrupt=*/true);
     }
 
     void DialogueWindow::addMessageBox(std::string_view text)
@@ -1070,6 +1087,16 @@ namespace MWGui
         checkReferenceAvailable();
         if (mPtr.isEmpty())
             return;
+
+        // Honor a deferred re-activation queued by onOpen (returning from a
+        // sub-mode). Doing it here -- one frame later -- means a same-frame
+        // teardown (onClose) has already cancelled it, so we don't announce a
+        // topic while the window is closing.
+        if (mA11yPendingActivate)
+        {
+            mA11yPendingActivate = false;
+            mA11y.activate();
+        }
 
         updateDisposition();
         deleteLater();

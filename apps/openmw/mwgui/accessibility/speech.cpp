@@ -50,6 +50,19 @@ namespace MWGui::A11y
         Accessibility::AccessibilityManager::instance().speak(utf8, interrupt);
     }
 
+    void sayRereadable(std::string_view spoken, std::string_view rereadable, bool interrupt)
+    {
+        // Store the (possibly richer) reread text even if there's nothing to
+        // speak right now, so R can still recall it.
+        std::string rereadUtf8 = resolveTags(rereadable);
+        if (!rereadUtf8.empty())
+            sLastRereadable = rereadUtf8;
+
+        std::string spokenUtf8 = resolveTags(spoken);
+        if (!spokenUtf8.empty())
+            Accessibility::AccessibilityManager::instance().speak(spokenUtf8, interrupt);
+    }
+
     void reread()
     {
         if (sLastRereadable.empty())

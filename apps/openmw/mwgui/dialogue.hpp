@@ -258,6 +258,15 @@ namespace MWGui
         // we announce the choices only on the transition into choice mode (not
         // on every rebuild, which would talk over navigation).
         bool mA11yWasInChoice = false;
+        // Set by onOpen() to re-activate the screen one frame later (in
+        // onFrame), rather than immediately. When returning from a sub-mode
+        // (barter/training) the window can be revealed and then torn down in
+        // the SAME frame (e.g. training finishes: removeGuiMode reveals us,
+        // then exitCurrentGuiMode closes us) -- an immediate activate would
+        // announce the first topic during teardown. Deferring lets the
+        // synchronous onClose cancel it. Fresh opens activate from setPtr and
+        // clear this flag, so they still announce immediately.
+        bool mA11yPendingActivate = false;
     };
 }
 #endif
