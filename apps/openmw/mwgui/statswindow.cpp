@@ -34,6 +34,7 @@
 
 #include <components/esm3/loadskil.hpp>
 
+#include "accessibility/panegroup.hpp"
 #include "tooltips.hpp"
 
 namespace MWGui
@@ -400,8 +401,17 @@ namespace MWGui
         if (mChanged)
             updateSkillArea();
 
-        if (dataChanged && mA11y.isActive())
+        // Rebuild when the screen is in play: either the sole active screen, or
+        // enrolled in the PaneGroup (where it may be suspended behind another
+        // pane right when the faction/birthsign data arrives -- we must still
+        // pick it up so it's present when the user Tabs back).
+        if (dataChanged && (mA11y.isActive() || A11y::PaneGroup::instance().contains(&mA11y)))
             buildAccessibility();
+
+        // In Inventory mode, let the PaneGroup pick the initial pane (Stats)
+        // once the windows have settled, rather than racing in onOpen.
+        if (A11y::PaneGroup::instance().contains(&mA11y))
+            A11y::PaneGroup::instance().maybeActivateInitial(&mA11y);
 
         mA11y.onFrame(dt);
     }
@@ -410,16 +420,31 @@ namespace MWGui
     {
         onWindowResize(mMainWidget->castType<MyGUI::Window>());
 
-        // Build the option list from the current character and claim screen-
-        // reader input. The stats arrive via the StatsWatcher (which may push
-        // updates after this point); the widget-less value callbacks always
-        // read the latest values, so an early build is fine.
+        // Build the option list from the current character. The stats arrive
+        // via the StatsWatcher (which may push updates after this point); the
+        // widget-less value callbacks always read the latest values, so an early
+        // build is fine.
         buildAccessibility();
-        mA11y.activate();
+
+        // In Inventory mode the Stats window is shown alongside Inventory (and
+        // later Spells/Map). Enrol in the PaneGroup so Tab/Shift+Tab switch
+        // between those panes; Stats is the first pane (order 0) and claims
+        // focus initially. In any other context (e.g. pinned during gameplay)
+        // there's no sibling pane, so just claim screen-reader input directly.
+        if (MWBase::Environment::get().getWindowManager()->getMode() == GM_Inventory)
+        {
+            A11y::PaneGroup::instance().enrol(&mA11y,
+                std::string(MWBase::Environment::get().getWindowManager()->getGameSettingString("sStats", "Stats")), 0);
+        }
+        else
+        {
+            mA11y.activate();
+        }
     }
 
     void StatsWindow::onClose()
     {
+        A11y::PaneGroup::instance().withdraw(&mA11y);
         mA11y.deactivate();
     }
 
@@ -960,11 +985,12 @@ namespace MWGui
             .label = std::string(winMgr->getGameSettingString("sBounty", "Bounty")),
             .value = [this] { return MyGUI::utility::toString(mBounty); } });
 
-        // Restore the prior selection silently if this was a rebuild of an
-        // already-active screen. onOpen() activates separately (which focuses
-        // the first option), so on a fresh open previousLabel is empty and we
-        // leave selection alone for activate() to set.
-        if (mA11y.isActive() && !previousLabel.empty())
+        // Restore the prior selection silently if this was a rebuild of a
+        // screen that already had one (active, or suspended behind another
+        // pane). onOpen() activates separately (which focuses the first option),
+        // so on a fresh open previousLabel is empty and we leave selection alone
+        // for activate() to set.
+        if (!previousLabel.empty())
             mA11y.selectByLabel(previousLabel, /*announce=*/false);
     }
 

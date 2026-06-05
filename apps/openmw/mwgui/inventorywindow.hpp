@@ -4,6 +4,9 @@
 #include "mode.hpp"
 #include "windowpinnablebase.hpp"
 
+#include "accessibility/editfield.hpp"
+#include "accessibility/screen.hpp"
+
 #include "../mwrender/characterpreview.hpp"
 #include "../mwworld/ptr.hpp"
 
@@ -32,6 +35,7 @@ namespace MWGui
     class DragAndDrop;
     class ItemModel;
     class ItemTransfer;
+    struct ItemStack;
 
     class InventoryWindow : public WindowPinnableBase
     {
@@ -164,6 +168,76 @@ namespace MWGui
         /// Unequips count items from mSelectedItem, if it is equipped, and then updates mSelectedItem in case the items
         /// were re-stacked
         void ensureSelectedItemUnequipped(int count);
+
+        // --- Screen-reader accessibility ---------------------------------
+        // Virtual-focus controller (the items are drawn by the custom ItemView,
+        // not as per-item widgets, so navigation is by index like the container
+        // window). Shown alongside Stats/Spells/Map in Inventory mode; switched
+        // to via Tab through the A11y::PaneGroup.
+        A11y::Screen mA11y;
+        MyGUI::Widget* mA11yAnchor;
+        // Screen-reader editing for the native name-filter box (mFilterEdit).
+        A11y::EditField mA11yFilterEdit;
+
+        // (Re)build the spoken option list: name filter field, category filter,
+        // then one entry per item stack, then encumbrance/armor info. Called on
+        // open and after any action that changes the item list.
+        void buildAccessibility();
+        // Rebuild after an item action, keeping the cursor near its old row.
+        void a11yRebuildKeepingCursor();
+        // Activate the currently-selected item (Enter): equip/use it, or open
+        // the count picker first for a partial drop. \p drop selects the
+        // drop-into-world action instead of equip/use.
+        void a11yActivateItem(int sortIndex, bool drop);
+        // Count-picker OK callback for an a11y-initiated partial drop.
+        void onA11yCountDropped(MyGUI::Widget* sender, std::size_t count);
+        // Begin following \p item across asynchronous inventory updates so the
+        // spoken list + cursor track it as it reorders. The current
+        // (equipped, count) signature is captured so a11yUpdateFollow can detect
+        // when the async change lands.
+        void a11yStartFollowing(const ItemStack& item);
+        // Per-frame handling of the follow window: poll for the followed item's
+        // change to land, then rebuild the list, move the cursor onto it and
+        // announce its settled state. Also keeps the list synced on a passive
+        // content update when not following.
+        void a11yUpdateFollow(bool contentUpdated, float dt);
+        // Spoken description of one item stack (name, count, equipped state).
+        std::string a11yItemLabel(const ItemStack& item) const;
+        // Cycle the category filter (All/Weapon/Apparel/Magic/Misc).
+        void a11yCycleCategory(bool next);
+        // Spoken name of the active category filter.
+        std::string a11yCategoryName() const;
+        // Encumbrance + armor rating, spoken on demand.
+        std::string a11yEncumbranceValue() const;
+        // The sort-model index a11y is currently on, or -1 if not on an item.
+        int mA11yPendingDropIndex = -1;
+        // Number of leading non-item options (name filter + category) in the
+        // a11y list, so a list index can be mapped to a sort-model item row.
+        size_t mA11yItemBase = 0;
+        // Index (0..4) of the active category filter button, tracked so the
+        // a11y category option can cycle and report it (SortFilterItemModel has
+        // no public getter). Maps to All/Weapon/Apparel/Magic/Misc.
+        int mA11yCategoryIndex = 0;
+        // Whether a11y text-edit mode was active last frame, so we can rebuild
+        // the item list once the user finishes editing the name filter.
+        bool mA11yWasEditing = false;
+        // After an a11y equip/use/drop, the inventory changes asynchronously and
+        // the list reorders, so we "follow" the acted-on item to land the cursor
+        // on it and announce its settled state. Equip/unequip only flips an
+        // item's equipped flag (no item added/removed), so it does NOT fire
+        // onInventoryUpdate -- we therefore can't rely on a content-update
+        // signal. Instead, while following we POLL the model every frame and
+        // detect when the followed item's (equipped, count, list size) signature
+        // settles to a changed value, then rebuild + announce once. mA11yFollowItem
+        // is the item's base Ptr (empty = not following); the timer bounds the
+        // window so a consumed item doesn't follow forever.
+        MWWorld::Ptr mA11yFollowItem;
+        float mA11yFollowTimer = 0.f;
+        // Signature of the followed item captured at action time, compared each
+        // frame to detect when the async change has landed.
+        bool mA11yFollowWasEquipped = false;
+        size_t mA11yFollowCount = 0;
+        size_t mA11yFollowItemTotal = 0;
     };
 }
 

@@ -12,6 +12,8 @@
 
 #include <osg/Texture2D>
 
+#include <components/debug/debuglog.hpp>
+
 #include <components/misc/strings/algorithm.hpp>
 
 #include <components/myguiplatform/myguitexture.hpp>
@@ -32,9 +34,13 @@
 #include "../mwmechanics/actorutil.hpp"
 #include "../mwmechanics/npcstats.hpp"
 
+#include "accessibility/itemtext.hpp"
+#include "accessibility/panegroup.hpp"
+#include "accessibility/speech.hpp"
 #include "companionwindow.hpp"
 #include "container.hpp"
 #include "countdialog.hpp"
+#include "itemmodel.hpp"
 #include "draganddrop.hpp"
 #include "hud.hpp"
 #include "inventoryitemmodel.hpp"
@@ -133,6 +139,47 @@ namespace MWGui
         mFilterEdit->eventEditTextChange += MyGUI::newDelegate(this, &InventoryWindow::onNameFilterChanged);
 
         mFilterAll->setStateSelected(true);
+
+        // Screen-reader setup: an invisible anchor holds key focus while the
+        // item list is navigated by index (the items are drawn by the custom
+        // ItemView, not as individual widgets), as in the container window.
+        mA11yAnchor = mMainWidget->createWidget<MyGUI::Widget>(
+            {}, MyGUI::IntCoord(0, 0, 1, 1), MyGUI::Align::Default);
+        mA11yAnchor->setNeedKeyFocus(true);
+        mA11y.setVirtualFocus(mA11yAnchor);
+        mA11yFilterEdit.attach(mFilterEdit);
+        mA11yFilterEdit.setActive(false);
+        // Extra keys on the item list:
+        //  - Ctrl+Left/Right cycle the category filter (All/Weapon/.../Misc).
+        //  - Delete drops the selected item (count picker first for a stack).
+        //  - E reports encumbrance + armor rating on demand.
+        mA11y.setExtraKeyHandler([this](MyGUI::KeyCode key) -> bool {
+            const bool ctrl = MyGUI::InputManager::getInstance().isControlPressed();
+            if (ctrl && (key == MyGUI::KeyCode::ArrowLeft || key == MyGUI::KeyCode::ArrowRight))
+            {
+                a11yCycleCategory(key == MyGUI::KeyCode::ArrowRight);
+                return true;
+            }
+            if (key == MyGUI::KeyCode::Delete)
+            {
+                const size_t cur = mA11y.currentIndex();
+                // Item rows follow the leading filter/category options; map the
+                // list index onto a sort-model row.
+                if (mSortModel && cur != A11y::Screen::npos && cur >= mA11yItemBase)
+                {
+                    const int index = static_cast<int>(cur - mA11yItemBase);
+                    if (index < static_cast<int>(mSortModel->getItemCount()))
+                        a11yActivateItem(index, /*drop=*/true);
+                }
+                return true;
+            }
+            if (key == MyGUI::KeyCode::E)
+            {
+                A11y::say(a11yEncumbranceValue(), /*interrupt=*/true);
+                return true;
+            }
+            return false;
+        });
 
         setGuiMode(mGuiMode);
 
@@ -276,6 +323,300 @@ namespace MWGui
     {
         if (mDragAndDrop->mIsOnDragAndDrop)
             mDragAndDrop->drop(mTradeModel, mItemView);
+    }
+
+    std::string InventoryWindow::a11yItemLabel(const ItemStack& item) const
+    {
+        std::string label = std::string(item.mBase.getClass().getName(item.mBase));
+        if (item.mCount > 1)
+            label += " (" + std::to_string(item.mCount) + ")";
+        // Surface the equipped state, which is the inventory's key extra signal
+        // over a plain container list.
+        if (item.mType == ItemStack::Type_Equipped)
+            label += ", "
+                + std::string(MWBase::Environment::get().getWindowManager()->getGameSettingString(
+                    "sEquip", "Equipped"));
+        return label;
+    }
+
+    std::string InventoryWindow::a11yCategoryName() const
+    {
+        MWBase::WindowManager* winMgr = MWBase::Environment::get().getWindowManager();
+        switch (mA11yCategoryIndex)
+        {
+            case 1:
+                return std::string(winMgr->getGameSettingString("sWeapon", "Weapon"));
+            case 2:
+                return std::string(winMgr->getGameSettingString("sApparel", "Apparel"));
+            case 3:
+                return std::string(winMgr->getGameSettingString("sMagic", "Magic"));
+            case 4:
+                return std::string(winMgr->getGameSettingString("sMisc", "Misc"));
+            default:
+                return std::string(winMgr->getGameSettingString("sAll", "All"));
+        }
+    }
+
+    void InventoryWindow::a11yCycleCategory(bool next)
+    {
+        mA11yCategoryIndex = (mA11yCategoryIndex + (next ? 1 : 4)) % 5; // -1 mod 5
+
+        // Drive the same path a mouse click would: select the matching filter
+        // button so the on-screen UI and model stay in sync.
+        MyGUI::Button* buttons[] = { mFilterAll, mFilterWeapon, mFilterApparel, mFilterMagic, mFilterMisc };
+        onFilterChanged(buttons[mA11yCategoryIndex]);
+
+        // Rebuild the spoken list for the new filter and land back on the first
+        // item; announce the category we switched to first.
+        A11y::say(a11yCategoryName(), /*interrupt=*/true);
+        buildAccessibility();
+        mA11y.selectIndex(mA11yItemBase, /*announce=*/true);
+    }
+
+    std::string InventoryWindow::a11yEncumbranceValue() const
+    {
+        MWWorld::Ptr player = MWMechanics::getPlayer();
+        const int capacity = static_cast<int>(player.getClass().getCapacity(player));
+        const int encumbrance = static_cast<int>(std::ceil(player.getClass().getEncumbrance(player)));
+        const int armor = static_cast<int>(player.getClass().getArmorRating(player, true));
+        MWBase::WindowManager* winMgr = MWBase::Environment::get().getWindowManager();
+
+        std::string out = std::string(winMgr->getGameSettingString("sEncumbrance", "Encumbrance")) + ": "
+            + std::to_string(encumbrance) + " / " + std::to_string(capacity) + ". "
+            + std::string(winMgr->getGameSettingString("sArmor", "Armor")) + ": " + std::to_string(armor);
+        return out;
+    }
+
+    void InventoryWindow::buildAccessibility()
+    {
+        mA11y.clear();
+
+        MWBase::WindowManager* winMgr = MWBase::Environment::get().getWindowManager();
+
+        // Leading options: name-filter field, then the category filter.
+        mA11y.add({ .widget = nullptr,
+            .label = std::string(winMgr->getGameSettingString("sName", "Name")),
+            .value =
+                [this] {
+                    const std::string text = mFilterEdit->getOnlyText().asUTF8();
+                    return text.empty() ? std::string("blank") : text;
+                },
+            .edit = &mA11yFilterEdit });
+
+        mA11y.add({ .widget = nullptr,
+            .label = std::string(winMgr->getGameSettingString("sShowAll", "Category")),
+            .value = [this] { return a11yCategoryName(); },
+            .change = [this](bool next) { a11yCycleCategory(next); } });
+
+        mA11yItemBase = 2;
+
+        // One option per item stack. Label carries name/count/equipped; the
+        // T-key tooltip carries weight/value/effects. Enter equips or uses the
+        // item (mirroring a normal click); Delete drops it (handled centrally
+        // in the extra-key handler).
+        if (mSortModel)
+        {
+            for (size_t i = 0; i < mSortModel->getItemCount(); ++i)
+            {
+                const int index = static_cast<int>(i);
+                const ItemStack item = mSortModel->getItem(index);
+                mA11y.add({ .widget = nullptr,
+                    .label = a11yItemLabel(item),
+                    .tooltips = [base = item.mBase, count = item.mCount]
+                    { return A11y::itemTooltipLines(base, static_cast<int>(count)); },
+                    .activate = [this, index] { a11yActivateItem(index, /*drop=*/false); } });
+            }
+        }
+    }
+
+    void InventoryWindow::a11yActivateItem(int sortIndex, bool drop)
+    {
+        if (!mSortModel || mTradeModel == nullptr)
+            return;
+        if (sortIndex < 0 || sortIndex >= static_cast<int>(mSortModel->getItemCount()))
+            return;
+
+        const ItemStack item = mSortModel->getItem(sortIndex);
+        const int sourceIndex = mSortModel->mapToSource(sortIndex);
+
+        if (drop)
+        {
+            // Can't drop a conjured/bound item.
+            if (item.mFlags & ItemStack::Flag_Bound)
+            {
+                MWBase::Environment::get().getWindowManager()->messageBox("#{sContentsMessage1}");
+                return;
+            }
+
+            const size_t count = item.mCount;
+            if (count > 1)
+            {
+                // Offer the accessible count picker for a partial drop.
+                std::string name{ item.mBase.getClass().getName(item.mBase) };
+                name += MWGui::ToolTips::getSoulString(item.mBase.getCellRef());
+                CountDialog* dialog = MWBase::Environment::get().getWindowManager()->getCountDialog();
+                dialog->openCountDialog(name, "#{sDrop}", static_cast<int>(count));
+                dialog->eventOkClicked.clear();
+                dialog->eventOkClicked += MyGUI::newDelegate(this, &InventoryWindow::onA11yCountDropped);
+                mSelectedItem = sourceIndex;
+                return;
+            }
+
+            mSelectedItem = sourceIndex;
+            dropItem(nullptr, count);
+            a11yStartFollowing(item);
+            return;
+        }
+
+        // Equip / use the whole interaction the same way a click does. The
+        // change is applied asynchronously (drag&drop now, the Lua-driven equip
+        // a few frames later) and reorders the list, so we follow the item until
+        // its state settles (handled in onFrame) rather than guessing when to
+        // rebuild.
+        mSelectedItem = sourceIndex;
+        equipItem(item.mCount);
+        a11yStartFollowing(item);
+    }
+
+    void InventoryWindow::a11yStartFollowing(const ItemStack& item)
+    {
+        mA11yFollowItem = item.mBase;
+        mA11yFollowTimer = 0.f;
+        // Capture the pre-action signature so a11yUpdateFollow can tell when the
+        // async equip/use/drop has actually landed (the model mutates a frame or
+        // more later, and equip/unequip fires no onInventoryUpdate at all).
+        mA11yFollowWasEquipped = item.mType == ItemStack::Type_Equipped;
+        mA11yFollowCount = item.mCount;
+        mA11yFollowItemTotal = mSortModel ? mSortModel->getItemCount() : 0;
+    }
+
+    void InventoryWindow::onA11yCountDropped(MyGUI::Widget* sender, std::size_t count)
+    {
+        // Grab the item identity before the drop mutates the model.
+        MWWorld::Ptr dropped;
+        if (mTradeModel && mSelectedItem >= 0 && mSelectedItem < static_cast<int>(mTradeModel->getItemCount()))
+            dropped = mTradeModel->getItem(mSelectedItem).mBase;
+
+        dropItem(sender, count);
+
+        // A partial drop leaves a smaller stack of the same item behind; follow
+        // it so the announced count reflects the remainder (a full drop removes
+        // it, which a11yUpdateFollow handles by detecting the item is gone).
+        if (mSortModel && !dropped.isEmpty())
+        {
+            for (size_t i = 0; i < mSortModel->getItemCount(); ++i)
+            {
+                const ItemStack stack = mSortModel->getItem(static_cast<int>(i));
+                if (stack.mBase == dropped)
+                {
+                    a11yStartFollowing(stack);
+                    return;
+                }
+            }
+            // Item fully gone: follow the now-removed identity so the update
+            // logic announces the row's new occupant.
+            mA11yFollowItem = dropped;
+            mA11yFollowTimer = 0.f;
+            mA11yFollowItemTotal = mSortModel->getItemCount() + 1; // was one more before drop
+        }
+    }
+
+    void InventoryWindow::a11yRebuildKeepingCursor()
+    {
+        const size_t cursor = mA11y.currentIndex();
+        buildAccessibility();
+        const size_t itemCount = mSortModel ? mSortModel->getItemCount() : 0;
+        if (cursor == A11y::Screen::npos)
+            mA11y.focusFirst(/*announce=*/true);
+        else if (cursor < mA11yItemBase)
+            mA11y.selectIndex(cursor, /*announce=*/true); // stayed on a filter option
+        else if (itemCount == 0)
+            mA11y.selectIndex(mA11yItemBase - 1, /*announce=*/true); // no items: land on category
+        else
+        {
+            const size_t item = std::min(cursor - mA11yItemBase, itemCount - 1);
+            mA11y.selectIndex(mA11yItemBase + item, /*announce=*/true);
+        }
+    }
+
+    void InventoryWindow::a11yUpdateFollow(bool contentUpdated, float dt)
+    {
+        // Not following: keep the spoken list in sync with the on-screen ItemView
+        // on a passive content update (e.g. an item picked up while the menu is
+        // open), preserving the cursor position silently.
+        if (mA11yFollowItem.isEmpty())
+        {
+            if (contentUpdated)
+            {
+                const size_t cursor = mA11y.currentIndex();
+                buildAccessibility();
+                const size_t itemCount = mSortModel ? mSortModel->getItemCount() : 0;
+                if (mA11y.isActive() && cursor != A11y::Screen::npos)
+                {
+                    if (cursor < mA11yItemBase)
+                        mA11y.selectIndex(cursor, /*announce=*/false);
+                    else if (itemCount > 0)
+                        mA11y.selectIndex(
+                            mA11yItemBase + std::min(cursor - mA11yItemBase, itemCount - 1), /*announce=*/false);
+                }
+            }
+            return;
+        }
+
+        // Following an item across an asynchronous equip/use/drop. The change
+        // lands a frame or more after the keypress; crucially, equip/unequip
+        // only flips the item's equipped flag and fires NO onInventoryUpdate, so
+        // we cannot wait on contentUpdated -- instead we POLL the model every
+        // frame and detect when the followed item's signature has changed from
+        // what it was at action time (equipped flag, count, or total item
+        // count). Once it has (or it vanished), we rebuild, land on it, announce
+        // once, and stop following.
+        mA11yFollowTimer += dt;
+
+        // Refresh the model + on-screen view so we read LIVE state. Equip/unequip
+        // mutates the inventory store but fires no onInventoryUpdate, so without
+        // this the cached item list (and the visible UI) would stay stale -- the
+        // exact symptom of the equip not showing until the menu is reopened.
+        updateItemView();
+
+        int found = -1;
+        ItemStack foundItem;
+        const size_t itemCount = mSortModel ? mSortModel->getItemCount() : 0;
+        if (mSortModel)
+        {
+            for (size_t i = 0; i < itemCount; ++i)
+            {
+                const ItemStack stack = mSortModel->getItem(static_cast<int>(i));
+                if (stack.mBase == mA11yFollowItem)
+                {
+                    found = static_cast<int>(i);
+                    foundItem = stack;
+                    break;
+                }
+            }
+        }
+
+        // Has the change landed? Either the item is gone, the total item count
+        // changed (use/drop), or the item's equipped/count signature flipped.
+        const bool gone = (found < 0);
+        const bool changed = gone || itemCount != mA11yFollowItemTotal
+            || (foundItem.mType == ItemStack::Type_Equipped) != mA11yFollowWasEquipped
+            || foundItem.mCount != mA11yFollowCount;
+
+        // Wait for the change unless we've exhausted the settle window.
+        if (!changed && mA11yFollowTimer <= 0.6f)
+            return;
+
+        // Settled (or timed out): refresh the list and announce the result once.
+        buildAccessibility();
+        if (mA11y.isActive())
+        {
+            if (found >= 0)
+                mA11y.selectIndexInterrupting(mA11yItemBase + static_cast<size_t>(found));
+            else
+                a11yRebuildKeepingCursor(); // item gone (fully dropped/used)
+        }
+        mA11yFollowItem = MWWorld::Ptr();
     }
 
     void InventoryWindow::onItemSelected(int index)
@@ -508,11 +849,36 @@ namespace MWGui
         adjustPanes();
 
         mItemTransfer->addTarget(*mItemView);
+
+        // Screen reader: in the standalone inventory the window is shown next to
+        // Stats/Spells/Map, so enrol in the PaneGroup (Inventory = pane 1) and
+        // let Tab switch between them. In trade/container/companion modes the
+        // inventory shares the screen with a different window and the a11y flow
+        // is driven from there, so don't enrol here.
+        if (mGuiMode == GM_Inventory)
+        {
+            buildAccessibility();
+            A11y::PaneGroup::instance().enrol(&mA11y,
+                std::string(
+                    MWBase::Environment::get().getWindowManager()->getGameSettingString("sInventory", "Inventory")),
+                1);
+        }
     }
 
     void InventoryWindow::onClose()
     {
         mItemTransfer->removeTarget(*mItemView);
+
+        A11y::PaneGroup::instance().withdraw(&mA11y);
+        mA11y.deactivate();
+
+        // If the inventory mode is gone for good (not just hidden behind a
+        // sub-mode like reading a book), forget which pane was active so the
+        // next fresh open lands on Stats again. While a book/scroll is open the
+        // mode is still on the stack, so the memory survives and we return to
+        // the pane the user left.
+        if (!MWBase::Environment::get().getWindowManager()->containsMode(GM_Inventory))
+            A11y::PaneGroup::instance().resetMemory();
     }
 
     void InventoryWindow::onWindowResize(MyGUI::Window* sender)
@@ -762,6 +1128,7 @@ namespace MWGui
     {
         updateEncumbranceBar();
 
+        bool contentUpdated = false;
         if (mUpdateNextFrame)
         {
             if (mTrading)
@@ -776,7 +1143,28 @@ namespace MWGui
             mItemView->update();
             notifyContentChanged();
             mUpdateNextFrame = false;
+            contentUpdated = true;
         }
+
+        mA11yFilterEdit.onFrame();
+
+        a11yUpdateFollow(contentUpdated, dt);
+
+        // When the user finishes editing the name filter, the matching set of
+        // items has changed: rebuild the spoken list (the on-screen ItemView is
+        // already kept current by onNameFilterChanged). Defer until edit mode
+        // ends so we don't churn the list on every keystroke.
+        const bool editing = mA11y.editing();
+        if (mA11yWasEditing && !editing && mA11y.isActive())
+            a11yRebuildKeepingCursor();
+        mA11yWasEditing = editing;
+
+        // Let the PaneGroup activate this pane if it's the one to land on (e.g.
+        // returning from a book to the Inventory pane the user was reading from).
+        if (A11y::PaneGroup::instance().contains(&mA11y))
+            A11y::PaneGroup::instance().maybeActivateInitial(&mA11y);
+
+        mA11y.onFrame(dt);
     }
 
     void InventoryWindow::setTrading(bool trading)

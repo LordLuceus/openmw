@@ -1,5 +1,6 @@
 #include "screen.hpp"
 
+#include <MyGUI_EditBox.h>
 #include <MyGUI_InputManager.h>
 #include <MyGUI_Widget.h>
 
@@ -7,6 +8,7 @@
 #include "../../mwbase/windowmanager.hpp"
 
 #include "editfield.hpp"
+#include "panegroup.hpp"
 #include "speech.hpp"
 #include "uimanager.hpp"
 
@@ -227,25 +229,90 @@ namespace MWGui::A11y
         clearReread();
     }
 
+    void Screen::suspend()
+    {
+        if (!isActive())
+            return;
+
+        // Step down as the active screen but keep our elements + selection so
+        // resume() can return the user exactly where they were.
+        UiManager::instance().clear(this);
+
+        if (mDisableEngineNav && !mVirtual)
+            MWBase::Environment::get().getWindowManager()->setKeyboardNavigationEnabled(true);
+
+        // Drop the anchor key delegate (virtual) so the pane we're switching to
+        // can pin focus to its own anchor without us fighting it in onFrame().
+        if (mVirtual && mAnchor)
+            mAnchor->eventKeyButtonPressed -= MyGUI::newDelegate(this, &Screen::onKey);
+    }
+
+    void Screen::resume()
+    {
+        if (isActive())
+            return;
+
+        UiManager::instance().setActive(this);
+
+        if (mDisableEngineNav && !mVirtual)
+            MWBase::Environment::get().getWindowManager()->setKeyboardNavigationEnabled(false);
+
+        if (mVirtual && mAnchor)
+        {
+            mAnchor->setNeedKeyFocus(true);
+            mAnchor->eventKeyButtonPressed -= MyGUI::newDelegate(this, &Screen::onKey);
+            mAnchor->eventKeyButtonPressed += MyGUI::newDelegate(this, &Screen::onKey);
+            MWBase::Environment::get().getWindowManager()->setKeyFocusWidget(mAnchor);
+        }
+
+        // If we never had a selection (suspended before the list settled), pick
+        // the first usable option now; otherwise keep the one we left on. The
+        // caller announces, so don't announce here.
+        if (mCurrent == npos)
+            focusFirst(/*announce=*/false);
+    }
+
     void Screen::announce(const Element& element, bool withSection)
     {
+        // The first say() of this announcement may interrupt prior speech (so a
+        // rapid re-announcement replaces a stale one rather than queueing behind
+        // it); subsequent parts always queue so the whole announcement stays
+        // together. The flag is one-shot.
+        const bool interrupt = mAnnounceInterrupt;
+        mAnnounceInterrupt = false;
+        bool first = true;
+        const auto speak = [&](std::string_view text) {
+            say(text, /*interrupt=*/first && interrupt);
+            first = false;
+        };
+
         // Announce the section name when focus has crossed into a new one
         // (computed by the caller). A dynamic describe() option is announced
         // verbatim, so prefix the section separately.
         if (withSection && !element.section.empty())
-            say(element.section + ":");
+            speak(element.section + ":");
 
         // A dynamic describe() callback fully replaces the label + value
         // announcement (used by screens whose names are computed at runtime).
         if (element.describe)
         {
-            say(element.describe());
+            speak(element.describe());
             return;
         }
         if (!element.label.empty())
-            say(element.label);
+            speak(element.label);
         if (element.value)
-            say(element.value());
+            speak(element.value());
+    }
+
+    void Screen::selectIndexInterrupting(size_t index)
+    {
+        if (index < mElements.size() && isUsable(index))
+        {
+            mAnnounceInterrupt = true;
+            select(index, /*announce=*/true);
+            mAnnounceInterrupt = false; // belt-and-suspenders if select didn't announce
+        }
     }
 
     void Screen::announceCurrent()
@@ -565,6 +632,18 @@ namespace MWGui::A11y
         mEditMode = true;
         // Cancel the delayed hint -- it's irrelevant while editing.
         mHintElement = npos;
+        // In virtual-focus mode our key delegate is bound only to the anchor,
+        // but edit mode pins real focus to the edit box (so it can receive typed
+        // characters) -- which means key events now arrive at the box, not the
+        // anchor. Bind onKey to the box too so Escape (to leave edit mode) still
+        // reaches us. Real-focus mode already has the delegate on every option
+        // widget, so this is virtual-only.
+        if (mVirtual && element->edit->widget())
+        {
+            MyGUI::Widget* box = element->edit->widget();
+            box->eventKeyButtonPressed -= MyGUI::newDelegate(this, &Screen::onKey);
+            box->eventKeyButtonPressed += MyGUI::newDelegate(this, &Screen::onKey);
+        }
         // Activate spoken editing feedback and announce the current contents so
         // the user knows what they're editing.
         element->edit->setActive(true);
@@ -579,7 +658,13 @@ namespace MWGui::A11y
         mEditMode = false;
         const Element* element = current();
         if (element && element->edit)
+        {
             element->edit->setActive(false);
+            // Undo the virtual-mode edit-box key binding added in enterEditMode
+            // so a later rebuild/activate doesn't double-add the delegate.
+            if (mVirtual && element->edit->widget())
+                element->edit->widget()->eventKeyButtonPressed -= MyGUI::newDelegate(this, &Screen::onKey);
+        }
         // CRITICAL: a MyGUI EditBox releases key focus when it sees Escape (it
         // treats it as cancel). In real-focus mode the Screen receives keys only
         // via the focused widget, so with focus dropped to null all navigation
@@ -772,8 +857,18 @@ namespace MWGui::A11y
         // controls or a stray mouse click can't take over the arrow keys.
         if (mVirtual && mAnchor)
         {
-            if (MyGUI::InputManager::getInstance().getKeyFocusWidget() != mAnchor)
-                MWBase::Environment::get().getWindowManager()->setKeyFocusWidget(mAnchor);
+            // While editing a text field, key focus must rest on the edit box
+            // so typed characters reach it -- pinning to the anchor would
+            // swallow them. Otherwise keep focus on the anchor so navigation
+            // keys reach us and a stray click can't steal the arrows.
+            MyGUI::Widget* want = mAnchor;
+            if (mEditMode)
+            {
+                if (const Element* element = current(); element && element->edit && element->edit->widget())
+                    want = element->edit->widget();
+            }
+            if (MyGUI::InputManager::getInstance().getKeyFocusWidget() != want)
+                MWBase::Environment::get().getWindowManager()->setKeyFocusWidget(want);
         }
 
         // Real mode: self-heal dropped key focus. A MyGUI EditBox releases key
@@ -863,6 +958,19 @@ namespace MWGui::A11y
         say("Has " + std::to_string(count) + (count == 1 ? " tooltip" : " tooltips") + ". Press T to read.");
     }
 
+    bool Screen::consumedKey() const
+    {
+        // When a modal dialog (e.g. the count picker) is open over a virtual
+        // screen, our anchor never received the key -- mKeyConsumed is stale from
+        // the last key we genuinely handled. Reporting that stale value would
+        // tell the engine the key was consumed and swallow the modal's own
+        // Escape/Enter handling (so the dialog couldn't be cancelled). While
+        // yielding to a modal we never consume keys.
+        if (mVirtual && MyGUI::InputManager::getInstance().isModalAny())
+            return false;
+        return mKeyConsumed;
+    }
+
     void Screen::onKey(MyGUI::Widget* /*sender*/, MyGUI::KeyCode key, MyGUI::Char /*ch*/)
     {
         onKeyValue(key);
@@ -906,6 +1014,20 @@ namespace MWGui::A11y
                 exitEditMode();
             }
             return;
+        }
+
+        // Tab / Shift+Tab switch between sibling panes shown together in one GUI
+        // mode (e.g. Stats <-> Inventory). PaneGroup::cycle() is a no-op unless
+        // this screen is part of a multi-pane group, so this is inert for
+        // ordinary single-window screens -- except Settings, which uses Tab for
+        // its own tab cycling and is never enrolled in a PaneGroup, so its
+        // extra-key handler (below) still wins there. Skipped while editing a
+        // text field (Tab should reach the field / be ignored, not switch panes).
+        if (!mEditMode && key == MyGUI::KeyCode::Tab && PaneGroup::instance().contains(this))
+        {
+            const int delta = MyGUI::InputManager::getInstance().isShiftPressed() ? -1 : 1;
+            if (PaneGroup::instance().cycle(delta))
+                return;
         }
 
         // Let the screen's bespoke handler have first refusal.

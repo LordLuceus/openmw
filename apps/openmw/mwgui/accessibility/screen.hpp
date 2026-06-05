@@ -87,6 +87,22 @@ namespace MWGui::A11y
         /// Relinquish active status and restore engine nav. Call from onClose().
         void deactivate();
 
+        /// Temporarily relinquish active status WITHOUT tearing down the option
+        /// list or selection. Unlike deactivate(), the elements and current
+        /// cursor are preserved, and the rereadable buffer is kept, so resume()
+        /// returns the user to exactly where they were. Used by PaneGroup to
+        /// switch between sibling windows shown together in one GUI mode (e.g.
+        /// Tab from Stats to Inventory) -- the windows all stay visible, so a
+        /// full deactivate()/activate() (which resets selection and re-announces
+        /// from the top) would be wrong. No-op if not currently active.
+        void suspend();
+
+        /// Reclaim active status after a suspend(): re-pin anchor focus (virtual
+        /// mode) / disable engine nav (real mode) and become the sole active
+        /// screen again. Does NOT announce -- the caller (PaneGroup) announces
+        /// the pane name then calls announceCurrent(). No-op if already active.
+        void resume();
+
         /// Drive the delayed tooltip hint. Call from the window's onFrame().
         void onFrame(float dt);
 
@@ -122,10 +138,21 @@ namespace MWGui::A11y
         /// aren't unique enough for selectByLabel() (many identical stacks).
         size_t currentIndex() const { return mCurrent; }
 
+        /// True while the user is in text-edit mode on an editable option, so an
+        /// owner can defer a list rebuild until editing finishes.
+        bool editing() const { return mEditMode; }
+
         /// Select the usable option at \p index, announcing it unless
         /// \p announce is false. No-op if the index is out of range or not
         /// usable. Companion to currentIndex().
         void selectIndex(size_t index, bool announce);
+
+        /// Like selectIndex(index, true) but the announcement INTERRUPTS any
+        /// in-progress speech instead of queueing after it. Use when re-landing
+        /// on an option repeatedly in quick succession (e.g. following an item
+        /// across several asynchronous inventory updates) so the user hears only
+        /// the final, settled announcement rather than a stack of stale ones.
+        void selectIndexInterrupting(size_t index);
 
         /// Move the selection in the direction of \p delta (>0 = forward/down,
         /// <0 = back/up) to the next usable element whose label satisfies
@@ -165,7 +192,7 @@ namespace MWGui::A11y
         /// input bindings like A_GameMenu (which would close the whole window).
         /// Keys the framework deliberately lets through (notably a top-level
         /// Escape, which should close the window) leave this false.
-        bool consumedKey() const { return mKeyConsumed; }
+        bool consumedKey() const;
 
         /// One-shot: returns true (and resets the latch) if the most recent
         /// Escape was consumed internally by the framework -- either to leave
@@ -196,6 +223,10 @@ namespace MWGui::A11y
         bool isUsable(size_t index) const;
         void select(size_t index, bool announce);
         void announce(const Element& element, bool withSection = false);
+        // When true, the next announce() interrupts current speech instead of
+        // queueing. Self-clearing (reset at the end of announce()). Set by
+        // selectIndexInterrupting().
+        bool mAnnounceInterrupt = false;
         void moveSelection(int delta);
         void jumpSection(int delta);  // Ctrl+Up/Down: jump between top-level sections
         void changeValue(bool next);
