@@ -215,6 +215,12 @@ namespace MWGui
         // Mirrors the on-screen disposition bar; NPC-only.
         void announceDisposition();
 
+        // True if \p label is a learned dialogue topic keyword that is NOT
+        // exhausted (i.e. still has something new to say). Used by the
+        // Ctrl+Up/Down jump-to-topic shortcut to skip services, Goodbye, and
+        // exhausted topics.
+        bool isUnexhaustedTopic(std::string_view label) const;
+
         bool mIsCompanion;
         std::list<std::string> mKeywords;
 

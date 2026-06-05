@@ -279,6 +279,33 @@ namespace MWGui::A11y
             select(index, doAnnounce);
     }
 
+    bool Screen::selectMatchingLabel(
+        int delta, const std::function<bool(std::string_view)>& pred, bool doAnnounce)
+    {
+        if (delta == 0 || !pred)
+            return false;
+
+        const std::ptrdiff_t count = static_cast<std::ptrdiff_t>(mElements.size());
+        if (count == 0)
+            return false;
+
+        // Start from the current selection (or one before the start, so a
+        // forward search from "no selection" can land on index 0). Search
+        // outward without wrapping -- the list is ordered, and wrapping past the
+        // ends would surprise the user mid-navigation.
+        const std::ptrdiff_t start = (mCurrent == npos) ? -1 : static_cast<std::ptrdiff_t>(mCurrent);
+        for (std::ptrdiff_t index = start + delta; index >= 0 && index < count; index += delta)
+        {
+            const size_t i = static_cast<size_t>(index);
+            if (isUsable(i) && pred(mElements[i].label))
+            {
+                select(i, doAnnounce);
+                return true;
+            }
+        }
+        return false;
+    }
+
     MyGUI::Widget* Screen::currentWidget() const
     {
         const Element* element = current();

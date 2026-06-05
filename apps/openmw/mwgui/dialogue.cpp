@@ -419,11 +419,30 @@ namespace MWGui
             {}, MyGUI::IntCoord(0, 0, 1, 1), MyGUI::Align::Default);
         mA11yAnchor->setNeedKeyFocus(true);
         mA11y.setVirtualFocus(mA11yAnchor);
-        // D announces the NPC's disposition on demand (see announceDisposition).
+        // Extra keys for the topic list:
+        //  - D announces the NPC's disposition on demand (see announceDisposition).
+        //  - Ctrl+Up / Ctrl+Down jump to the previous / next un-exhausted topic.
+        //    Long topic lists are tedious to scan, and freshly-learned topics
+        //    often appear mid-list, so this skips straight to the topics that
+        //    still have something new to say (un-exhausted keywords), skipping
+        //    services, Goodbye, and already-exhausted topics.
         mA11y.setExtraKeyHandler([this](MyGUI::KeyCode key) {
             if (key == MyGUI::KeyCode::D)
             {
                 announceDisposition();
+                return true;
+            }
+
+            const bool ctrl = MyGUI::InputManager::getInstance().isControlPressed();
+            if (ctrl && (key == MyGUI::KeyCode::ArrowDown || key == MyGUI::KeyCode::ArrowUp))
+            {
+                const int delta = (key == MyGUI::KeyCode::ArrowDown) ? 1 : -1;
+                if (!mA11y.selectMatchingLabel(delta, [this](std::string_view label) {
+                        return isUnexhaustedTopic(label);
+                    }))
+                {
+                    A11y::say(delta > 0 ? "No more topics." : "No previous topics.");
+                }
                 return true;
             }
             return false;
@@ -1089,6 +1108,20 @@ namespace MWGui
         }
         int disposition = MWBase::Environment::get().getMechanicsManager()->getDerivedDisposition(mPtr);
         A11y::say("Disposition: " + std::to_string(disposition) + " of 100.", /*interrupt=*/true);
+    }
+
+    bool DialogueWindow::isUnexhaustedTopic(std::string_view label) const
+    {
+        // Only genuine learned keywords are topics; services and Goodbye are
+        // not in mKeywords (same gate buildAccessibility uses to annotate
+        // new/exhausted state).
+        const std::string name(label);
+        if (std::find(mKeywords.begin(), mKeywords.end(), name) == mKeywords.end())
+            return false;
+
+        const int flag = MWBase::Environment::get().getDialogueManager()->getTopicFlag(
+            ESM::RefId::stringRefId(name));
+        return (flag & MWBase::DialogueManager::TopicType::Exhausted) == 0;
     }
 
     void DialogueWindow::onReferenceUnavailable()

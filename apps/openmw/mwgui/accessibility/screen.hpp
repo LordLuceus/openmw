@@ -127,6 +127,17 @@ namespace MWGui::A11y
         /// usable. Companion to currentIndex().
         void selectIndex(size_t index, bool announce);
 
+        /// Move the selection in the direction of \p delta (>0 = forward/down,
+        /// <0 = back/up) to the next usable element whose label satisfies
+        /// \p pred, announcing it unless \p announce is false. Does NOT wrap.
+        /// Returns true if the selection moved; false if no matching element
+        /// exists in that direction (selection left unchanged). Lets an owner
+        /// implement domain-specific jumps (e.g. the dialogue window jumping to
+        /// the next un-exhausted topic) without the framework needing to know
+        /// what the predicate means.
+        bool selectMatchingLabel(
+            int delta, const std::function<bool(std::string_view)>& pred, bool announce = true);
+
         /// The widget backing the current option, or null if none selected.
         /// Lets an owner implement option-type-specific extra keys.
         MyGUI::Widget* currentWidget() const;
