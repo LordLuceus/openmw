@@ -4,6 +4,7 @@
 #include <SDL_scancode.h>
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <cstdio>
 #include <iterator>
@@ -284,6 +285,19 @@ namespace
             out += dest;
         }
     }
+
+    // The text the search filter matches against: the same enriched, spoken
+    // identity the user hears -- the display name plus a door's destination
+    // (e.g. "Door, to Balmora, Guild of Mages"). Without this, doors (which are
+    // all just named "Door") would be unsearchable; the useful, distinguishing
+    // text is the destination. Any #{...} localisation tags are resolved so the
+    // match works against the form the user actually hears.
+    std::string objectSearchText(const MWWorld::Ptr& ptr)
+    {
+        std::string text = objectDisplayName(ptr);
+        appendDoorDestination(ptr, text);
+        return MyGUI::LanguageManager::getInstance().replaceTags(text).asUTF8();
+    }
 }
 
 namespace MWAccessibility
@@ -428,6 +442,15 @@ namespace MWAccessibility
             case SDL_SCANCODE_L:
                 // Announce the player's current location (cell name).
                 announceLocation();
+                return true;
+            case SDL_SCANCODE_SLASH:
+                // Open the search prompt to filter the current category by
+                // name. Ctrl+/ clears any active filter outright (a quick way
+                // back to the full list without opening the prompt).
+                if (ctrl)
+                    applySearchFilter(std::string());
+                else
+                    openSearch();
                 return true;
             case SDL_SCANCODE_END:
                 clearSelection();
@@ -596,6 +619,63 @@ namespace MWAccessibility
         }
     }
 
+    void Scanner::openSearch()
+    {
+        // Hand off to the WindowManager, which shows the text-input prompt
+        // (GM_ScannerSearch) seeded with the current filter and calls back into
+        // applySearchFilter() / onSearchCancelled().
+        auto& state = mLists[static_cast<size_t>(mCategory)];
+        MWBase::Environment::get().getWindowManager()->openScannerSearch(state.mFilter);
+    }
+
+    void Scanner::applySearchFilter(const std::string& query)
+    {
+        auto& state = mLists[static_cast<size_t>(mCategory)];
+
+        // Trim surrounding whitespace so a stray space doesn't filter to zero
+        // results; an all-whitespace (or empty) query clears the filter.
+        std::string trimmed = query;
+        const auto notSpace = [](unsigned char c) { return !std::isspace(c); };
+        trimmed.erase(trimmed.begin(), std::find_if(trimmed.begin(), trimmed.end(), notSpace));
+        trimmed.erase(std::find_if(trimmed.rbegin(), trimmed.rend(), notSpace).base(), trimmed.end());
+
+        state.mFilter = trimmed;
+        // Re-scan the current cells with the new filter and select the first
+        // match. Don't try to preserve the old selection -- the user just chose
+        // a new filter, so jumping to the nearest match is what they want.
+        state.mDirty = true;
+        state.mSelectedRef = ESM::RefNum{};
+        rebuildCurrentList();
+        state.mIndex = state.mObjects.empty() ? -1 : 0;
+
+        if (trimmed.empty())
+        {
+            speak(std::string("Filter cleared. ") + std::to_string(state.mObjects.size())
+                + " " + categoryName(mCategory) + " in range.");
+        }
+        else if (state.mObjects.empty())
+        {
+            speak(std::string("No ") + categoryName(mCategory) + " matching " + trimmed + ".");
+        }
+        else
+        {
+            speak(std::string("Filter: ") + trimmed + ". " + std::to_string(state.mObjects.size())
+                + " matching.");
+        }
+
+        if (!state.mObjects.empty())
+            announceCurrent();
+        updateProximityCue();
+    }
+
+    void Scanner::onSearchCancelled()
+    {
+        // The prompt closed without applying a change. Re-announce the current
+        // selection (if any) so the user knows focus is back on the scanner.
+        if (!currentTarget().isEmpty())
+            announceCurrent();
+    }
+
     void Scanner::repeatAnnouncement()
     {
         if (currentTarget().isEmpty())
@@ -701,6 +781,14 @@ namespace MWAccessibility
                 // literally !getName().empty()), so this filters nameless
                 // engine plumbing without hiding any real interactable object.
                 if (!ptr.getClass().hasToolTip(ptr))
+                    return true;
+                // Apply the active name filter (case-insensitive substring of
+                // the object's spoken identity -- name plus, for doors, their
+                // destination, so "guild" matches "Door, to ... Guild of
+                // Mages"). Empty filter matches everything.
+                if (!state.mFilter.empty()
+                    && Misc::StringUtils::ciFind(objectSearchText(ptr), state.mFilter)
+                        == std::string_view::npos)
                     return true;
                 state.mObjects.push_back(ptr);
                 return true;

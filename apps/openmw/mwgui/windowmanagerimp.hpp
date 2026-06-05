@@ -96,6 +96,7 @@ namespace MWGui
     class InventoryWindow;
     struct JournalWindow;
     class TextInputDialog;
+    class ScannerSearchDialog;
     class InfoBoxDialog;
     class SettingsWindow;
     class AlchemyWindow;
@@ -166,6 +167,8 @@ namespace MWGui
         bool isPostProcessorHudVisible() const override;
         bool isSettingsWindowVisible() const override;
         bool isInteractiveMessageBoxActive() const override;
+
+        void openScannerSearch(const std::string& currentText) override;
 
         void toggleVisible(GuiWindow wnd) override;
 
@@ -462,6 +465,7 @@ namespace MWGui
         QuickKeysMenu* mQuickKeysMenu;
         LoadingScreen* mLoadingScreen;
         WaitDialog* mWaitDialog;
+        ScannerSearchDialog* mScannerSearchDialog;
         std::unique_ptr<SoulgemDialog> mSoulgemDialog;
         MyGUI::ImageBox* mVideoBackground;
         VideoWidget* mVideoWidget;
@@ -599,6 +603,10 @@ namespace MWGui
 
         void onClipboardChanged(std::string_view type, std::string_view data);
         void onClipboardRequested(std::string_view type, std::string& data);
+
+        // Scanner search prompt (GM_ScannerSearch) confirm / cancel handlers.
+        void onScannerSearchAccepted(WindowBase* sender);
+        void onScannerSearchCancelled(WindowBase* sender);
 
         void createTextures();
         void createCursors();

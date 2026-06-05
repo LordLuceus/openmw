@@ -45,7 +45,13 @@ namespace MWGui
         GM_LoadingWallpaper,
         GM_Jail,
 
-        GM_QuickKeysMenu
+        GM_QuickKeysMenu,
+
+        // Accessibility: a small text-input prompt used by the object scanner
+        // to filter the current category by name. Pushed during gameplay so the
+        // world pauses and keystrokes route to the edit box; popped on
+        // confirm/cancel.
+        GM_ScannerSearch
     };
 
     // Windows shown in inventory mode

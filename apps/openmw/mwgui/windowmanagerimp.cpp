@@ -65,6 +65,8 @@
 
 #include "../mwrender/vismask.hpp"
 
+#include "../mwaccessibility/scanner.hpp"
+
 #include "../mwworld/cellstore.hpp"
 #include "../mwworld/class.hpp"
 #include "../mwworld/esmstore.hpp"
@@ -114,6 +116,7 @@
 #include "recharge.hpp"
 #include "repair.hpp"
 #include "resourceskin.hpp"
+#include "scannersearchdialog.hpp"
 #include "screenfader.hpp"
 #include "scrollwindow.hpp"
 #include "settingswindow.hpp"
@@ -447,6 +450,13 @@ namespace MWGui
         auto spellCreationDialog = std::make_unique<SpellCreationDialog>();
         mGuiModeStates[GM_SpellCreation] = GuiModeState(spellCreationDialog.get());
         mWindows.push_back(std::move(spellCreationDialog));
+
+        auto scannerSearchDialog = std::make_unique<ScannerSearchDialog>();
+        mScannerSearchDialog = scannerSearchDialog.get();
+        mScannerSearchDialog->eventAccepted += MyGUI::newDelegate(this, &WindowManager::onScannerSearchAccepted);
+        mScannerSearchDialog->eventCancelled += MyGUI::newDelegate(this, &WindowManager::onScannerSearchCancelled);
+        mGuiModeStates[GM_ScannerSearch] = GuiModeState(mScannerSearchDialog);
+        mWindows.push_back(std::move(scannerSearchDialog));
 
         auto enchantingDialog = std::make_unique<EnchantingDialog>();
         mGuiModeStates[GM_Enchanting] = GuiModeState(enchantingDialog.get());
@@ -1463,6 +1473,32 @@ namespace MWGui
                 cycleActiveControllerWindow(true);
             }
         }
+    }
+
+    void WindowManager::openScannerSearch(const std::string& currentText)
+    {
+        // Seed the edit box with the existing filter so the user can refine it,
+        // then push the dedicated GUI mode (pausing the world and routing
+        // keystrokes to the edit box).
+        mScannerSearchDialog->setSearchText(currentText);
+        pushGuiMode(GM_ScannerSearch);
+    }
+
+    void WindowManager::onScannerSearchAccepted(WindowBase* /*sender*/)
+    {
+        const std::string query = mScannerSearchDialog->getSearchText();
+        if (containsMode(GM_ScannerSearch))
+            removeGuiMode(GM_ScannerSearch);
+        MWAccessibility::Scanner::instance().applySearchFilter(query);
+    }
+
+    void WindowManager::onScannerSearchCancelled(WindowBase* /*sender*/)
+    {
+        if (containsMode(GM_ScannerSearch))
+            removeGuiMode(GM_ScannerSearch);
+        // Filter left unchanged on cancel; just let the scanner know the prompt
+        // closed so it can re-announce the current state.
+        MWAccessibility::Scanner::instance().onSearchCancelled();
     }
 
     void WindowManager::setCullMask(uint32_t mask)

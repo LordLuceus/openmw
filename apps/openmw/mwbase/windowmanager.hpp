@@ -141,6 +141,11 @@ namespace MWBase
         virtual bool isSettingsWindowVisible() const = 0;
         virtual bool isInteractiveMessageBoxActive() const = 0;
 
+        /// Accessibility: open the object-scanner's search prompt (GM_ScannerSearch),
+        /// seeded with \p currentText. On confirm/cancel the dialog calls back
+        /// into MWAccessibility::Scanner with the result.
+        virtual void openScannerSearch(const std::string& currentText) = 0;
+
         virtual void toggleVisible(MWGui::GuiWindow wnd) = 0;
 
         virtual void forceHide(MWGui::GuiWindow wnd) = 0;

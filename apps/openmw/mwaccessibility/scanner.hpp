@@ -49,6 +49,16 @@ namespace MWAccessibility
 
         AutoWalker& autoWalker() { return mAutoWalker; }
 
+        /// Called by the WindowManager when the search prompt is confirmed.
+        /// \p query is the (possibly empty) name filter; an empty query clears
+        /// the filter. Applies to the current category, persists across cell
+        /// rebuilds, and re-announces the resulting match count.
+        void applySearchFilter(const std::string& query);
+
+        /// Called when the search prompt is cancelled; re-announces the current
+        /// selection so the user knows focus has returned to the scanner.
+        void onSearchCancelled();
+
     private:
         // Update the proximity audio cue to follow the current selection.
         // Call whenever the selected target changes (cycle, clear, reset).
@@ -65,6 +75,9 @@ namespace MWAccessibility
         bool activateTarget();
         void focusCamera();
         void walkToTarget();
+        // Open the text-input prompt to set/refine the current category's name
+        // filter (see applySearchFilter). Seeds it with the active filter.
+        void openSearch();
         void repeatAnnouncement();
         void clearSelection();
         void resetToFirst();
@@ -109,6 +122,11 @@ namespace MWAccessibility
             // crosses an exterior cell boundary and the active cell grid (and
             // thus the object list) changes. Unset when nothing is selected.
             ESM::RefNum mSelectedRef;
+
+            // Active name filter for this category (case-insensitive substring).
+            // Persists across cell-boundary rebuilds until the player changes or
+            // clears it. Empty means "no filter" (the full list is shown).
+            std::string mFilter;
 
             // Stable disambiguation suffixes for objects that share a display
             // name (e.g. four "Wooden Door, to Seyda Neen"). Keyed by the
