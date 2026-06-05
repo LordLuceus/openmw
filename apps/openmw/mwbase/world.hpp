@@ -160,6 +160,13 @@ namespace MWBase
 
         virtual bool isCellQuasiExterior() const = 0;
 
+        /// Append every currently-active cell (the loaded grid around the
+        /// player, plus any other loaded cells) to \p out. In an interior this
+        /// is just the one cell; in an exterior it is the whole loaded cell
+        /// grid. Used by the accessibility scanner so it can find objects in
+        /// neighbouring exterior cells, not only the player's own cell.
+        virtual void getActiveCells(std::vector<MWWorld::CellStore*>& out) const = 0;
+
         virtual void getDoorMarkers(MWWorld::CellStore& cell, std::vector<DoorMarker>& out) = 0;
         ///< get a list of teleport door markers for a given cell, to be displayed on the local map
 

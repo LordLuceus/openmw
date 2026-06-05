@@ -317,20 +317,36 @@ namespace MWAccessibility
         if (player.isEmpty())
             return;
 
-        // Invalidate caches when the player's cell changes (handles
-        // both interior/exterior transitions).
+        // Invalidate caches when the player's cell changes (handles both
+        // interior/exterior transitions). In an exterior the active cell grid
+        // shifts as the player walks, so the cached object lists must be
+        // rebuilt -- but the player's selection and any in-progress auto-walk
+        // should survive: the target object is typically still loaded one cell
+        // over. We remember the selected object's stable RefNum so the lazy
+        // rebuild can re-pin the cursor onto it (see rebuildCurrentList), and
+        // we deliberately do NOT cancel the auto-walker or proximity cue here
+        // -- the auto-walker re-paths every second and self-cancels if its
+        // target genuinely unloads, so it now walks seamlessly across cell
+        // boundaries instead of stopping at every one.
         const void* cellId = static_cast<const void*>(player.getCell());
         if (cellId != mLastCellId)
         {
             mLastCellId = cellId;
             for (auto& s : mLists)
             {
+                // Capture the current selection's identity before discarding
+                // the (now stale) Ptr list, so rebuildCurrentList can restore
+                // it once the new cell grid is scanned. If nothing is selected,
+                // clear the remembered ref so a rebuild doesn't resurrect a
+                // stale selection.
+                if (s.mIndex >= 0 && s.mIndex < static_cast<int>(s.mObjects.size()))
+                    s.mSelectedRef = s.mObjects[s.mIndex].getCellRef().getRefNum();
+                else
+                    s.mSelectedRef = ESM::RefNum{};
                 s.mObjects.clear();
                 s.mIndex = -1;
                 s.mDirty = true;
             }
-            mAutoWalker.cancel();
-            mProximityCue.stop();
         }
 
         // Prune objects that have left the world (e.g. an item the player just
@@ -594,6 +610,7 @@ namespace MWAccessibility
     {
         auto& state = mLists[static_cast<size_t>(mCategory)];
         state.mIndex = -1;
+        state.mSelectedRef = ESM::RefNum{};
         mAutoWalker.cancel();
         mProximityCue.stop();
         speak("Selection cleared.");
@@ -645,35 +662,50 @@ namespace MWAccessibility
         MWWorld::Ptr player = world->getPlayerPtr();
         if (player.isEmpty())
             return;
-        MWWorld::CellStore* cell = player.getCell();
-        if (!cell)
-            return;
+        // Scan every active cell, not just the player's own. In an exterior
+        // (e.g. a town like Balmora) OpenMW keeps a whole grid of cells loaded
+        // around the player; scanning only player.getCell() hid everything in
+        // the neighbouring cells -- doors, NPCs, etc. just a short walk away.
+        // In an interior getActiveCells() returns the single cell, so this is
+        // a no-op there. The distance sort below orders results across cells.
+        std::vector<MWWorld::CellStore*> cells;
+        world->getActiveCells(cells);
+        if (cells.empty())
+        {
+            if (MWWorld::CellStore* cell = player.getCell())
+                cells.push_back(cell);
+        }
 
         Category cat = mCategory;
         int subIndex = state.mSubIndex;
-        cell->forEach([&](const MWWorld::Ptr& ptr) {
-            if (ptr == player)
+        for (MWWorld::CellStore* cell : cells)
+        {
+            if (!cell)
+                continue;
+            cell->forEach([&](const MWWorld::Ptr& ptr) {
+                if (ptr == player)
+                    return true;
+                if (!matchesCategory(ptr, cat))
+                    return true;
+                if (!matchesSubcategory(ptr, cat, subIndex))
+                    return true;
+                if (ptr.getCellRef().getCount() <= 0)
+                    return true;
+                // Skip objects scripted out of the world (disabled refs).
+                if (!ptr.getRefData().isEnabled())
+                    return true;
+                // Skip internal/helper objects the player can never interact
+                // with -- e.g. invisible collision activators like
+                // "CharGenCollision". hasToolTip() is the engine's own "would
+                // this ever show a tooltip" predicate (for activators it is
+                // literally !getName().empty()), so this filters nameless
+                // engine plumbing without hiding any real interactable object.
+                if (!ptr.getClass().hasToolTip(ptr))
+                    return true;
+                state.mObjects.push_back(ptr);
                 return true;
-            if (!matchesCategory(ptr, cat))
-                return true;
-            if (!matchesSubcategory(ptr, cat, subIndex))
-                return true;
-            if (ptr.getCellRef().getCount() <= 0)
-                return true;
-            // Skip objects scripted out of the world (disabled refs).
-            if (!ptr.getRefData().isEnabled())
-                return true;
-            // Skip internal/helper objects the player can never interact with
-            // -- e.g. invisible collision activators like "CharGenCollision".
-            // hasToolTip() is the engine's own "would this ever show a tooltip"
-            // predicate (for activators it is literally !getName().empty()),
-            // so this filters nameless engine plumbing without hiding any real
-            // interactable object.
-            if (!ptr.getClass().hasToolTip(ptr))
-                return true;
-            state.mObjects.push_back(ptr);
-            return true;
-        });
+            });
+        }
 
         osg::Vec3f pp = player.getRefData().getPosition().asVec3();
         std::sort(state.mObjects.begin(), state.mObjects.end(),
@@ -682,6 +714,23 @@ namespace MWAccessibility
                 float db = (b.getRefData().getPosition().asVec3() - pp).length2();
                 return da < db;
             });
+
+        // Re-pin the selection onto the same physical object it was on before
+        // this rebuild (matched by stable RefNum), so crossing a cell boundary
+        // doesn't lose the player's place in the list. If that object is no
+        // longer present (truly unloaded / removed), the selection stays
+        // cleared.
+        if (state.mSelectedRef.isSet())
+        {
+            for (size_t i = 0; i < state.mObjects.size(); ++i)
+            {
+                if (state.mObjects[i].getCellRef().getRefNum() == state.mSelectedRef)
+                {
+                    state.mIndex = static_cast<int>(i);
+                    break;
+                }
+            }
+        }
 
         assignDisambiguationLabels();
     }

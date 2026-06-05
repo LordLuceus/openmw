@@ -103,6 +103,13 @@ namespace MWAccessibility
             int mSubIndex = 0; // 0 = "All"; secondary filter within category
             bool mDirty = true;
 
+            // Stable identity of the selected object (its RefNum), tracked
+            // independently of mIndex so the selection can be re-pinned after a
+            // rebuild that re-sorts or shifts the list -- e.g. when the player
+            // crosses an exterior cell boundary and the active cell grid (and
+            // thus the object list) changes. Unset when nothing is selected.
+            ESM::RefNum mSelectedRef;
+
             // Stable disambiguation suffixes for objects that share a display
             // name (e.g. four "Wooden Door, to Seyda Neen"). Keyed by the
             // object's RefNum -- a stable identity that does NOT change as the
