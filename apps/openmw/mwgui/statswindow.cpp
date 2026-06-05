@@ -387,8 +387,21 @@ namespace MWGui
         setReputation(playerStats.getReputation());
         setBounty(playerStats.getBounty());
 
+        // Note mChanged before updateSkillArea() clears it: it signals that the
+        // character data behind the option list may have changed shape, not
+        // just its values. Conditionally-present options -- Faction and
+        // Birthsign -- are only added when their data is non-empty, and that
+        // data arrives via the StatsWatcher *after* the initial onOpen build
+        // (the very first time the sheet is opened in a session, factions
+        // hadn't been populated yet, so the Faction line was silently missing).
+        // Rebuild the a11y list on a real data change so those options appear /
+        // disappear correctly; buildAccessibility() preserves the selection.
+        const bool dataChanged = mChanged;
         if (mChanged)
             updateSkillArea();
+
+        if (dataChanged && mA11y.isActive())
+            buildAccessibility();
 
         mA11y.onFrame(dt);
     }
@@ -860,6 +873,11 @@ namespace MWGui
 
     void StatsWindow::buildAccessibility()
     {
+        // Preserve the current selection across the rebuild (the options are
+        // widget-less, so remember it by label and restore it silently -- a
+        // routine data-change rebuild must not move focus or talk over the user).
+        const std::string previousLabel = mA11y.currentLabel();
+
         mA11y.clear();
 
         MWBase::WindowManager* winMgr = MWBase::Environment::get().getWindowManager();
@@ -941,6 +959,13 @@ namespace MWGui
         mA11y.add({ .widget = nullptr,
             .label = std::string(winMgr->getGameSettingString("sBounty", "Bounty")),
             .value = [this] { return MyGUI::utility::toString(mBounty); } });
+
+        // Restore the prior selection silently if this was a rebuild of an
+        // already-active screen. onOpen() activates separately (which focuses
+        // the first option), so on a fresh open previousLabel is empty and we
+        // leave selection alone for activate() to set.
+        if (mA11y.isActive() && !previousLabel.empty())
+            mA11y.selectByLabel(previousLabel, /*announce=*/false);
     }
 
     void StatsWindow::onPinToggled()
