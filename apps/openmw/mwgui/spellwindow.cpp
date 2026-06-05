@@ -28,6 +28,7 @@
 
 #include <components/esm3/loadspel.hpp>
 
+#include "accessibility/activeeffects.hpp"
 #include "accessibility/itemtext.hpp"
 #include "accessibility/panegroup.hpp"
 #include "accessibility/speech.hpp"
@@ -399,7 +400,18 @@ namespace MWGui
                 },
             .edit = &mA11yFilterEdit });
 
-        mA11yItemBase = 1;
+        // Leading option: the player's currently-active magic effects, as an
+        // expandable submenu (Enter to expand, Up/Down through the effects).
+        // Each effect's source is its section, announced before the effect.
+        // This is the same set shown as the on-screen effect-icon row: cast
+        // spells, constant enchantments, racial/birthsign abilities, potions,
+        // diseases, summon buffs, etc. Recomputed each time it's opened so it
+        // reflects live durations.
+        mA11y.add({ .widget = nullptr,
+            .label = "Active effects",
+            .children = [this] { return a11yActiveEffectItems(); } });
+
+        mA11yItemBase = 2;
 
         // One option per power/spell/enchanted item, grouped into sections
         // (Powers / Spells / Magic Items) exactly as the visual list groups
@@ -481,6 +493,23 @@ namespace MWGui
         // is rebuilt on the next edit/selection; rebuild here too so a deletion
         // confirmed via the dialog leaves the cursor sensible.
         askDeleteSpell(spell.mId);
+    }
+
+    std::vector<A11y::SubItem> SpellWindow::a11yActiveEffectItems() const
+    {
+        std::vector<A11y::SubItem> items;
+        for (const A11y::ActiveEffectLine& line : A11y::activeEffects(MWMechanics::getPlayer()))
+        {
+            A11y::SubItem item;
+            // The source (spell / item / ability) is the section, announced
+            // before its effects when focus crosses into a new group -- so the
+            // user hears "Ancestor Guardian: Sanctuary 50 points for 58 seconds"
+            // rather than the source trailing the effect.
+            item.section = line.source;
+            item.label = line.effect;
+            items.push_back(std::move(item));
+        }
+        return items;
     }
 
     void SpellWindow::cycle(bool next)

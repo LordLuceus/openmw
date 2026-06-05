@@ -85,6 +85,11 @@ namespace MWGui
         // native confirmation dialog (powers/racial/sign spells can't be
         // deleted, matching the vanilla rules).
         void a11yDeleteSpell(int modelIndex);
+        // Build the submenu items for the "Active effects" expandable option:
+        // the player's currently-applied magic effects (the same set shown as
+        // the on-screen effect-icon row), each grouped under its source. Uses
+        // the shared A11y::activeEffects helper (reused by the HUD later).
+        std::vector<A11y::SubItem> a11yActiveEffectItems() const;
         // Spoken label for one spell/item row (name, count, selected/equipped).
         std::string a11ySpellLabel(const Spell& spell) const;
         // Section name for a spell row (Powers / Spells / Magic Items).
