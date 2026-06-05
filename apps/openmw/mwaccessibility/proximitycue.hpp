@@ -1,10 +1,19 @@
 #ifndef GAME_MWACCESSIBILITY_PROXIMITYCUE_H
 #define GAME_MWACCESSIBILITY_PROXIMITYCUE_H
 
+#include <osg/Vec3f>
+
 #include "../mwworld/ptr.hpp"
+
+namespace MWSound
+{
+    class Sound;
+}
 
 namespace MWAccessibility
 {
+    using MWSound::Sound;
+
     /// Plays an audio cue for the scanner's currently-selected target so a
     /// blind player can home in on it by ear.
     ///
@@ -35,6 +44,12 @@ namespace MWAccessibility
         /// target is unchanged.
         void setTarget(const MWWorld::Ptr& target);
 
+        /// Point the cue at a fixed world position (used for scanner waypoints,
+        /// which have no backing object). Unlike the Ptr cue the sound can't be
+        /// attached to an object, so it's played as a static-position 3D sound
+        /// and re-issued as the player crosses the approach/arrival threshold.
+        void setTarget(const osg::Vec3f& position);
+
         /// Per-frame: evaluate distance to the target and start/stop the
         /// approach loop or fire the arrival sound as the player crosses the
         /// activation threshold. Safe to call when no target is set.
@@ -53,9 +68,19 @@ namespace MWAccessibility
 
         void startApproachLoop();
         void stopApproachLoop();
-        void playArrivalSound();
+        // \p targetPos is where the one-shot is played; for a Ptr target it's
+        // the object's current position, for a waypoint it's the fixed point.
+        void playArrivalSound(const osg::Vec3f& targetPos);
 
+        // A target is either a world object (mTarget) or, for waypoints, a fixed
+        // position (mPosTarget with mHasPtrTarget == false).
         MWWorld::Ptr mTarget;
+        osg::Vec3f mPosTarget;
+        bool mHasPtrTarget = true;
+        // The currently-playing static-position approach sound handle (position
+        // targets only), so we can stop/replace it. Null when not playing or
+        // when using a Ptr-attached loop.
+        Sound* mPosSound = nullptr;
         State mState = State::Idle;
     };
 }

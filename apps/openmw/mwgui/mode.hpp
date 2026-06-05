@@ -51,7 +51,13 @@ namespace MWGui
         // to filter the current category by name. Pushed during gameplay so the
         // world pauses and keystrokes route to the edit box; popped on
         // confirm/cancel.
-        GM_ScannerSearch
+        GM_ScannerSearch,
+
+        // Accessibility: a text-input prompt for the "drop note" feature. The
+        // player presses N during gameplay to place a map note at their current
+        // position and types its text here. Same gameplay-pause behaviour as
+        // GM_ScannerSearch.
+        GM_WaypointNote
     };
 
     // Windows shown in inventory mode

@@ -7,6 +7,8 @@
 #include <unordered_map>
 #include <vector>
 
+#include <osg/Vec3f>
+
 #include <components/esm3/refnum.hpp>
 
 #include "../mwworld/ptr.hpp"
@@ -59,6 +61,15 @@ namespace MWAccessibility
         /// selection so the user knows focus has returned to the scanner.
         void onSearchCancelled();
 
+        /// Called by the WindowManager when the "drop note" prompt (N) is
+        /// confirmed. Places a map note (custom marker) with \p text at the
+        /// player's current position and announces it.
+        void onWaypointNoteEntered(const std::string& text);
+
+        /// Called when the "drop note" prompt is cancelled; announces that no
+        /// note was placed.
+        void onWaypointNoteCancelled();
+
     private:
         // Update the proximity audio cue to follow the current selection.
         // Call whenever the selected target changes (cycle, clear, reset).
@@ -67,6 +78,11 @@ namespace MWAccessibility
         void cycleCategory(int delta);
         void cycleTarget(int delta);
         void cycleSubcategory(int delta);
+        // Whether \p cat should be offered when cycling categories. All the
+        // record-type categories are always available; Detected is hidden
+        // unless the player's active Detect effects currently reveal at least
+        // one object, so the player only meets it when it's useful.
+        bool isCategoryAvailable(Category cat) const;
         // Directly activate the selected target via the normal engine
         // activation path, bypassing the camera crosshair (which a blind
         // player cannot aim at small items). Returns true if it handled the
@@ -78,12 +94,19 @@ namespace MWAccessibility
         // Open the text-input prompt to set/refine the current category's name
         // filter (see applySearchFilter). Seeds it with the active filter.
         void openSearch();
+        // Open the "drop note" text prompt (see onWaypointNoteEntered). Bound to
+        // N: places a map note at the player's current position.
+        void openDropNote();
         void repeatAnnouncement();
         void clearSelection();
         void resetToFirst();
         // Announce the player's current location (cell name), e.g. "Seyda
         // Neen, Census and Excise Office". A quick orientation aid bound to L.
         void announceLocation();
+        // Announce the player's current facing as an absolute compass point
+        // (e.g. "Facing northeast"). A quick orientation aid bound to Shift+L,
+        // complementing L (where am I) with which-way-am-I-looking.
+        void announceFacing();
 
         void rebuildCurrentList();
         // Compute stable A/B/C suffixes for same-named objects in the active
@@ -107,11 +130,42 @@ namespace MWAccessibility
         // Returns empty Ptr when nothing is selected (or the list is empty).
         MWWorld::Ptr currentTarget();
 
+        // A scanner waypoint: a bare world position with a spoken name. Used by
+        // the Waypoints category, whose members (player map notes and the Mark
+        // spell location) are positions, not world objects, so they can't live
+        // in the Ptr-based mObjects list. Navigated via the position-based
+        // AutoWalker / ProximityCue overloads.
+        struct Waypoint
+        {
+            std::string mName;
+            osg::Vec3f mPosition;
+        };
+
+        // --- Waypoints category helpers ----------------------------------
+        // True when the active category is Waypoints (position-based, so the
+        // Ptr-based action paths must defer to the waypoint equivalents).
+        bool isWaypointCategory() const { return mCategory == Category::Waypoints; }
+        // Size of the active category's list (objects or waypoints).
+        size_t currentListSize() const;
+        // The currently-selected waypoint, or nullptr if none / not in the
+        // Waypoints category.
+        const Waypoint* currentWaypoint() const;
+        // Gather the player's waypoints (map notes in the current cell plus the
+        // Mark spell location) into \p out, nearest first.
+        void collectWaypoints(std::vector<Waypoint>& out) const;
+        // Announce the currently-selected waypoint (name, distance, bearing,
+        // N of M) -- the waypoint analogue of announceCurrent().
+        void announceCurrentWaypoint();
+
         Category mCategory = Category::Npcs;
 
         struct CategoryState
         {
             std::vector<MWWorld::Ptr> mObjects;
+            // Parallel list used only by the Waypoints category (mObjects stays
+            // empty there). mIndex / mFilter / cycling all operate on whichever
+            // of the two lists is active for the current category.
+            std::vector<Waypoint> mWaypoints;
             int mIndex = -1; // -1 = nothing selected yet
             int mSubIndex = 0; // 0 = "All"; secondary filter within category
             bool mDirty = true;

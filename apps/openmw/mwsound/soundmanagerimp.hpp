@@ -240,6 +240,11 @@ namespace MWSound
             Type type, PlayMode mode, float offset = 0) override;
         ///< Play a 3D sound at \a initialPos. If the sound should be moving, it must be updated using
         ///< Sound::setPosition.
+
+        Sound* playSound3D(const osg::Vec3f& initialPos, VFS::Path::NormalizedView fileName, float volume, float pitch,
+            Type type, PlayMode mode, float offset = 0) override;
+        ///< Play a 3D sound from a VFS file at \a initialPos (no backing object). Used by the accessibility waypoint
+        ///< beacon. If the sound should be moving, it must be updated using Sound::setPosition.
         ///< @param offset Number of seconds into the sound to start playback.
 
         void stopSound(Sound* sound) override;

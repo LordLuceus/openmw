@@ -10,6 +10,8 @@
 
 #include "windowpinnablebase.hpp"
 
+#include "accessibility/screen.hpp"
+
 #include <components/esm3/custommarkerstate.hpp>
 #include <components/misc/constants.hpp>
 
@@ -235,6 +237,14 @@ namespace MWGui
 
         void setCellName(const std::string& cellName);
 
+        /// Accessibility: place a map note (custom marker) with the given text
+        /// at the player's current world position and cell. This is the
+        /// keyboard-driven equivalent of double-clicking a spot on the map to
+        /// drop a note, used by the scanner's "drop note" (N) feature so a blind
+        /// player can mark waypoints without aiming the mouse. Returns false (and
+        /// places nothing) if there is no player/cell or the text is empty.
+        bool addNoteAtPlayerPosition(const std::string& text);
+
         void setAlpha(float alpha) override;
         void setVisible(bool visible) override;
 
@@ -253,6 +263,7 @@ namespace MWGui
         void ensureGlobalMapLoaded();
 
         void onOpen() override;
+        void onClose() override;
 
         void onFrame(float dt) override;
 
@@ -340,6 +351,30 @@ namespace MWGui
         void notifyPlayerUpdate() override;
 
         void centerView() override;
+
+        // --- Screen-reader accessibility ---------------------------------
+        // The map is a spatial image with no navigable widget list, so this is
+        // a virtual-focus screen (an invisible anchor holds key focus). It
+        // exposes the map's native textual data rather than the picture:
+        //  - the current location (cell/region) name, announced first;
+        //  - player-placed note markers, as an expandable submenu.
+        // Each note reads its text plus a compass direction and distance in
+        // metres from the player, since the player can't see where it sits.
+        // (Live Detect-spell radar lives in the scanner's "Detected" category,
+        // not here.) Shown alongside Stats/Inventory/Magic; switched to via Tab
+        // through the A11y::PaneGroup (Map = pane 3).
+        A11y::Screen mA11y;
+        MyGUI::Widget* mA11yAnchor = nullptr;
+
+        // Build the spoken option list (Location, Notes, Detected).
+        void buildAccessibility();
+        // The current location name (window title text), or a fallback.
+        std::string a11yLocationName() const;
+        // Submenu items for player note markers in the current cell(s).
+        std::vector<A11y::SubItem> a11yNoteItems() const;
+        // Format "<name>, <direction>, <distance> metres" for a world position
+        // relative to the player.
+        std::string a11yBearingLabel(const std::string& name, float worldX, float worldY) const;
     };
 }
 #endif

@@ -12,10 +12,12 @@
 
 #include <MyGUI_LanguageManager.h>
 
+#include <components/misc/constants.hpp>
 #include <components/misc/strings/algorithm.hpp>
 
 #include <components/accessibility/accessibilitymanager.hpp>
 #include <components/esm3/loadacti.hpp>
+#include <components/esm3/loadcell.hpp>
 #include <components/esm3/loadalch.hpp>
 #include <components/esm3/loadappa.hpp>
 #include <components/esm3/loadarmo.hpp>
@@ -41,6 +43,7 @@
 #include "../mwbase/windowmanager.hpp"
 #include "../mwbase/world.hpp"
 
+#include "../mwworld/cell.hpp"
 #include "../mwworld/cellref.hpp"
 #include "../mwworld/cellstore.hpp"
 #include "../mwworld/class.hpp"
@@ -68,6 +71,28 @@ namespace
         return buf;
     }
 
+    // Describe vertical offset of a target relative to the player, e.g.
+    // "2 metres up" / "3 metres down". Returns "" when within roughly one
+    // floor-step of level, so we don't clutter announcements for things on the
+    // same level. \p dzUnits is target.z - player.z in world units (positive =
+    // target is higher).
+    std::string formatElevation(float dzUnits)
+    {
+        // ~0.75 m dead-band: a single stair step is well under this, so minor
+        // height differences on the "same" level stay silent.
+        constexpr float kLevelDeadBand = 52.5f; // ~0.75 m
+        if (std::abs(dzUnits) <= kLevelDeadBand)
+            return std::string();
+        const float metres = std::abs(dzUnits) / kUnitsPerMetre;
+        char buf[32];
+        if (metres < 10.0f)
+            std::snprintf(buf, sizeof(buf), "%.1f metres %s", metres, dzUnits > 0.0f ? "up" : "down");
+        else
+            std::snprintf(buf, sizeof(buf), "%d metres %s", static_cast<int>(metres + 0.5f),
+                dzUnits > 0.0f ? "up" : "down");
+        return buf;
+    }
+
     // Player position-vector "forward" is along +Y in OpenMW's coordinate
     // system, and yaw rotates around Z. A target bearing relative to the
     // player is computed as the angle between (target - player) and the
@@ -87,6 +112,10 @@ namespace
                 return "Items";
             case MWAccessibility::Category::Activators:
                 return "Activators";
+            case MWAccessibility::Category::Detected:
+                return "Detected";
+            case MWAccessibility::Category::Waypoints:
+                return "Waypoints";
             case MWAccessibility::Category::Count:
                 break;
         }
@@ -195,6 +224,18 @@ namespace
         { "Creatures", &isCreatureActor },
     };
 
+    // Subcategories for the Detected category mirror the three Detect effects.
+    // Their predicates are null because membership comes from the engine's
+    // detection query (per type), not a Ptr test -- the filtering is done in
+    // rebuildCurrentList's Detected branch keyed on the subcategory index, in
+    // this order: 0 = All, 1 = Creatures, 2 = Keys, 3 = Enchantments.
+    constexpr Subcategory kDetectedSubs[] = {
+        { "All", nullptr },
+        { "Creatures", nullptr },
+        { "Keys", nullptr },
+        { "Enchantments", nullptr },
+    };
+
     // Returns the subcategory table for a category. Empty span (size 0) means
     // the category has no subcategories beyond the implicit "All".
     std::pair<const Subcategory*, size_t> subcategoriesFor(MWAccessibility::Category cat)
@@ -205,6 +246,8 @@ namespace
                 return { kItemSubs, std::size(kItemSubs) };
             case MWAccessibility::Category::Npcs:
                 return { kNpcSubs, std::size(kNpcSubs) };
+            case MWAccessibility::Category::Detected:
+                return { kDetectedSubs, std::size(kDetectedSubs) };
             default:
                 return { nullptr, 0 };
         }
@@ -297,6 +340,35 @@ namespace
         std::string text = objectDisplayName(ptr);
         appendDoorDestination(ptr, text);
         return MyGUI::LanguageManager::getInstance().replaceTags(text).asUTF8();
+    }
+
+    // Collect the objects revealed by the player's active Detect effects into
+    // \p out. \p subIndex selects which Detect type(s) to include, matching the
+    // kDetectedSubs order (0 = All, 1 = Creatures, 2 = Keys, 3 = Enchantments).
+    // Each detection type is queried independently by the engine and is empty
+    // unless the corresponding effect is active, so with nothing detected this
+    // leaves \p out empty.
+    void collectDetectedObjects(int subIndex, std::vector<MWWorld::Ptr>& out)
+    {
+        MWBase::World* world = MWBase::Environment::get().getWorld();
+        const MWWorld::Ptr player = world->getPlayerPtr();
+        if (player.isEmpty())
+            return;
+
+        const std::pair<int, MWBase::World::DetectionType> types[] = {
+            { 1, MWBase::World::Detect_Creature },
+            { 2, MWBase::World::Detect_Key },
+            { 3, MWBase::World::Detect_Enchantment },
+        };
+
+        for (const auto& [sub, type] : types)
+        {
+            if (subIndex != 0 && subIndex != sub)
+                continue;
+            std::vector<MWWorld::Ptr> refs;
+            world->listDetectedReferences(player, refs, type);
+            out.insert(out.end(), refs.begin(), refs.end());
+        }
     }
 }
 
@@ -440,8 +512,12 @@ namespace MWAccessibility
                 repeatAnnouncement();
                 return true;
             case SDL_SCANCODE_L:
-                // Announce the player's current location (cell name).
-                announceLocation();
+                // L announces the player's location (cell name); Shift+L
+                // announces which way they're facing (compass point).
+                if (shift)
+                    announceFacing();
+                else
+                    announceLocation();
                 return true;
             case SDL_SCANCODE_SLASH:
                 // Open the search prompt to filter the current category by
@@ -451,6 +527,12 @@ namespace MWAccessibility
                     applySearchFilter(std::string());
                 else
                     openSearch();
+                return true;
+            case SDL_SCANCODE_N:
+                // Drop a map note (waypoint) at the player's current position.
+                // Opens a text prompt to name it; the marker is placed on
+                // confirm (see onWaypointNoteEntered).
+                openDropNote();
                 return true;
             case SDL_SCANCODE_END:
                 clearSelection();
@@ -473,22 +555,56 @@ namespace MWAccessibility
         }
     }
 
+    bool Scanner::isCategoryAvailable(Category cat) const
+    {
+        if (cat == Category::Detected)
+        {
+            // Available only while something is actually detected. Query
+            // directly (subIndex 0 = all types) rather than trusting the
+            // possibly-stale cached list, so the category appears/disappears the
+            // moment a Detect effect starts or ends.
+            std::vector<MWWorld::Ptr> refs;
+            collectDetectedObjects(0, refs);
+            return !refs.empty();
+        }
+        if (cat == Category::Waypoints)
+        {
+            // Available only when the player has at least one waypoint in the
+            // current cell (a dropped map note or a Mark set here), so it's
+            // skipped when cycling otherwise -- just like Detected.
+            std::vector<Waypoint> wps;
+            collectWaypoints(wps);
+            return !wps.empty();
+        }
+        return true;
+    }
+
     void Scanner::cycleCategory(int delta)
     {
         int n = static_cast<int>(Category::Count);
         int cur = static_cast<int>(mCategory);
-        cur = ((cur + delta) % n + n) % n;
+        // Step in the requested direction, skipping any category that isn't
+        // currently available (today only Detected, which is hidden unless a
+        // Detect effect is revealing something). Bounded to one full loop so we
+        // can't spin forever if nothing is available.
+        for (int steps = 0; steps < n; ++steps)
+        {
+            cur = ((cur + delta) % n + n) % n;
+            if (isCategoryAvailable(static_cast<Category>(cur)))
+                break;
+        }
         mCategory = static_cast<Category>(cur);
         // Force a rebuild of the new category's list and announce its
         // size, then auto-select the first entry.
         auto& state = mLists[static_cast<size_t>(mCategory)];
         state.mDirty = true;
         rebuildCurrentList();
-        state.mIndex = state.mObjects.empty() ? -1 : 0;
+        const size_t count = currentListSize();
+        state.mIndex = count == 0 ? -1 : 0;
         std::string msg = std::string("Category: ") + categoryName(mCategory)
-            + ". " + std::to_string(state.mObjects.size()) + " in range.";
+            + ". " + std::to_string(count) + " in range.";
         speak(msg);
-        if (!state.mObjects.empty())
+        if (count > 0)
             announceCurrent();
         updateProximityCue();
     }
@@ -525,7 +641,8 @@ namespace MWAccessibility
         auto& state = mLists[static_cast<size_t>(mCategory)];
         if (state.mDirty)
             rebuildCurrentList();
-        if (state.mObjects.empty())
+        const int count = static_cast<int>(currentListSize());
+        if (count == 0)
         {
             speak(std::string("No ") + categoryName(mCategory) + " in range.");
             return;
@@ -533,24 +650,42 @@ namespace MWAccessibility
         if (state.mIndex < 0)
             state.mIndex = 0;
         else
-            state.mIndex = (state.mIndex + delta) % static_cast<int>(state.mObjects.size());
+            state.mIndex = (state.mIndex + delta) % count;
         if (state.mIndex < 0)
-            state.mIndex += static_cast<int>(state.mObjects.size());
+            state.mIndex += count;
         announceCurrent();
         updateProximityCue();
     }
 
     void Scanner::focusCamera()
     {
+        MWBase::World* world = MWBase::Environment::get().getWorld();
+        MWWorld::Ptr player = world->getPlayerPtr();
+        osg::Vec3f playerPos = player.getRefData().getPosition().asVec3();
+
+        // Waypoints: face the fixed position (no object to name).
+        if (isWaypointCategory())
+        {
+            const Waypoint* wp = currentWaypoint();
+            if (!wp)
+            {
+                speak("No target selected.");
+                return;
+            }
+            osg::Vec3f d = wp->mPosition - playerPos;
+            float horizW = std::sqrt(d.x() * d.x() + d.y() * d.y());
+            osg::Vec3f rotW(-std::atan2(d.z(), horizW), 0.0f, std::atan2(d.x(), d.y()));
+            world->rotateObject(player, rotW, MWBase::RotationFlag_none);
+            speak("Facing " + wp->mName + ".");
+            return;
+        }
+
         MWWorld::Ptr target = currentTarget();
         if (target.isEmpty())
         {
             speak("No target selected.");
             return;
         }
-        MWBase::World* world = MWBase::Environment::get().getWorld();
-        MWWorld::Ptr player = world->getPlayerPtr();
-        osg::Vec3f playerPos = player.getRefData().getPosition().asVec3();
         osg::Vec3f targetPos = target.getRefData().getPosition().asVec3();
         osg::Vec3f delta = targetPos - playerPos;
         float horiz = std::sqrt(delta.x() * delta.x() + delta.y() * delta.y());
@@ -598,6 +733,28 @@ namespace MWAccessibility
 
     void Scanner::walkToTarget()
     {
+        MWBase::World* world = MWBase::Environment::get().getWorld();
+        osg::Vec3f playerPos = world->getPlayerPtr().getRefData().getPosition().asVec3();
+
+        // Waypoints: walk to the fixed position via the position-based path.
+        if (isWaypointCategory())
+        {
+            const Waypoint* wp = currentWaypoint();
+            if (!wp)
+            {
+                speak("No target selected.");
+                return;
+            }
+            if (mAutoWalker.start(wp->mPosition, wp->mName))
+            {
+                float dist = (wp->mPosition - playerPos).length();
+                speak("Walking to " + wp->mName + ", " + formatDistance(dist) + ".");
+            }
+            else
+                speak("Cannot reach " + wp->mName + ".");
+            return;
+        }
+
         MWWorld::Ptr target = currentTarget();
         if (target.isEmpty())
         {
@@ -606,8 +763,6 @@ namespace MWAccessibility
         }
         if (mAutoWalker.start(target))
         {
-            MWBase::World* world = MWBase::Environment::get().getWorld();
-            osg::Vec3f playerPos = world->getPlayerPtr().getRefData().getPosition().asVec3();
             osg::Vec3f targetPos = target.getRefData().getPosition().asVec3();
             float dist = (targetPos - playerPos).length();
             speak("Walking to " + objectDisplayName(target)
@@ -621,6 +776,14 @@ namespace MWAccessibility
 
     void Scanner::openSearch()
     {
+        // The Waypoints category isn't name-filterable (its members are the
+        // handful of map notes / Mark in the current cell), so don't open the
+        // filter prompt there.
+        if (isWaypointCategory())
+        {
+            speak("Waypoints cannot be filtered.");
+            return;
+        }
         // Hand off to the WindowManager, which shows the text-input prompt
         // (GM_ScannerSearch) seeded with the current filter and calls back into
         // applySearchFilter() / onSearchCancelled().
@@ -676,9 +839,39 @@ namespace MWAccessibility
             announceCurrent();
     }
 
+    void Scanner::openDropNote()
+    {
+        // Hand off to the WindowManager, which shows the text-input prompt
+        // (GM_WaypointNote) and calls back into onWaypointNoteEntered() /
+        // onWaypointNoteCancelled().
+        MWBase::Environment::get().getWindowManager()->openWaypointNote();
+    }
+
+    void Scanner::onWaypointNoteEntered(const std::string& text)
+    {
+        // The MapWindow owns the custom-marker collection and the cell/grid
+        // know-how, so it does the actual placement at the player's position.
+        const bool placed = MWBase::Environment::get().getWindowManager()->dropPlayerMapNote(text);
+        if (placed)
+        {
+            // Invalidate the Waypoints list so the new note appears next time
+            // the player cycles to / through that category.
+            mLists[static_cast<size_t>(Category::Waypoints)].mDirty = true;
+            speak(std::string("Note placed: ") + text + ".");
+        }
+        else
+            speak("Could not place note.");
+    }
+
+    void Scanner::onWaypointNoteCancelled()
+    {
+        speak("Cancelled.");
+    }
+
     void Scanner::repeatAnnouncement()
     {
-        if (currentTarget().isEmpty())
+        const bool hasSelection = isWaypointCategory() ? (currentWaypoint() != nullptr) : !currentTarget().isEmpty();
+        if (!hasSelection)
         {
             speak("No target selected.");
             return;
@@ -701,7 +894,7 @@ namespace MWAccessibility
         auto& state = mLists[static_cast<size_t>(mCategory)];
         if (state.mDirty)
             rebuildCurrentList();
-        if (state.mObjects.empty())
+        if (currentListSize() == 0)
         {
             speak(std::string("No ") + categoryName(mCategory) + " in range.");
             return;
@@ -731,10 +924,26 @@ namespace MWAccessibility
             speak(std::string(name));
     }
 
+    void Scanner::announceFacing()
+    {
+        MWBase::World* world = MWBase::Environment::get().getWorld();
+        MWWorld::Ptr player = world->getPlayerPtr();
+        if (player.isEmpty())
+            return;
+
+        // rot[2] is the player's yaw about the vertical axis, in the same
+        // absolute frame compassLabel expects (0 = facing +Y = north, angle
+        // increasing toward +X = east), so it maps directly to a compass point
+        // -- the same vocabulary used for target bearings.
+        const float yaw = player.getRefData().getPosition().rot[2];
+        speak(std::string("Facing ") + compassLabel(yaw) + ".");
+    }
+
     void Scanner::rebuildCurrentList()
     {
         auto& state = mLists[static_cast<size_t>(mCategory)];
         state.mObjects.clear();
+        state.mWaypoints.clear();
         state.mIndex = -1;
         state.mDirty = false;
 
@@ -742,6 +951,70 @@ namespace MWAccessibility
         MWWorld::Ptr player = world->getPlayerPtr();
         if (player.isEmpty())
             return;
+
+        // The Waypoints category is position-based (map notes + Mark), not a
+        // cell scan of world objects: build its parallel list and stop here.
+        // collectWaypoints already sorts nearest-first.
+        if (mCategory == Category::Waypoints)
+        {
+            collectWaypoints(state.mWaypoints);
+            return;
+        }
+
+        // The Detected category doesn't scan loaded cells: its membership is
+        // whatever the player's active Detect Creature/Key/Enchantment effects
+        // currently reveal (which can be outside the loaded grid). Build it from
+        // the engine's detection query and skip the cell-scan path below.
+        if (mCategory == Category::Detected)
+        {
+            collectDetectedObjects(state.mSubIndex, state.mObjects);
+
+            // The same object can be reported by more than one Detect type (an
+            // enchanted creature shows under both Creatures and Enchantments),
+            // so drop duplicates by stable RefNum before sorting/announcing.
+            std::sort(state.mObjects.begin(), state.mObjects.end(),
+                [](const MWWorld::Ptr& a, const MWWorld::Ptr& b) {
+                    return a.getCellRef().getRefNum() < b.getCellRef().getRefNum();
+                });
+            state.mObjects.erase(std::unique(state.mObjects.begin(), state.mObjects.end(),
+                                     [](const MWWorld::Ptr& a, const MWWorld::Ptr& b) {
+                                         return a.getCellRef().getRefNum() == b.getCellRef().getRefNum();
+                                     }),
+                state.mObjects.end());
+
+            // Apply the active name filter, same as the cell-scan path.
+            if (!state.mFilter.empty())
+            {
+                std::erase_if(state.mObjects, [&](const MWWorld::Ptr& ptr) {
+                    return Misc::StringUtils::ciFind(objectSearchText(ptr), state.mFilter)
+                        == std::string_view::npos;
+                });
+            }
+
+            osg::Vec3f pp = player.getRefData().getPosition().asVec3();
+            std::sort(state.mObjects.begin(), state.mObjects.end(),
+                [&pp](const MWWorld::Ptr& a, const MWWorld::Ptr& b) {
+                    float da = (a.getRefData().getPosition().asVec3() - pp).length2();
+                    float db = (b.getRefData().getPosition().asVec3() - pp).length2();
+                    return da < db;
+                });
+
+            if (state.mSelectedRef.isSet())
+            {
+                for (size_t i = 0; i < state.mObjects.size(); ++i)
+                {
+                    if (state.mObjects[i].getCellRef().getRefNum() == state.mSelectedRef)
+                    {
+                        state.mIndex = static_cast<int>(i);
+                        break;
+                    }
+                }
+            }
+
+            assignDisambiguationLabels();
+            return;
+        }
+
         // Scan every active cell, not just the player's own. In an exterior
         // (e.g. a town like Balmora) OpenMW keeps a whole grid of cells loaded
         // around the player; scanning only player.getCell() hid everything in
@@ -917,6 +1190,13 @@ namespace MWAccessibility
 
     void Scanner::announceCurrent()
     {
+        // Waypoints are position-based, so they have their own announcer.
+        if (isWaypointCategory())
+        {
+            announceCurrentWaypoint();
+            return;
+        }
+
         MWWorld::Ptr target = currentTarget();
         if (target.isEmpty())
             return;
@@ -945,10 +1225,13 @@ namespace MWAccessibility
 
         // Direction is the absolute compass heading -- a fixed frame the
         // player can use to remember where a thing is regardless of which way
-        // they're facing. Positional "N of M" stays at the very end (project
-        // convention).
+        // they're facing. Elevation (if the target is meaningfully above or
+        // below us) follows the bearing; positional "N of M" stays at the very
+        // end (project convention).
+        std::string elevation = formatElevation(delta.z());
         std::string msg = name + ". " + formatDistance(dist)
             + ", " + compassLabel(targetYaw) + ". "
+            + (elevation.empty() ? "" : elevation + ". ")
             + std::to_string(state.mIndex + 1) + " of "
             + std::to_string(state.mObjects.size()) + ".";
 
@@ -996,15 +1279,126 @@ namespace MWAccessibility
         return state.mObjects[state.mIndex];
     }
 
+    size_t Scanner::currentListSize() const
+    {
+        const auto& state = mLists[static_cast<size_t>(mCategory)];
+        return isWaypointCategory() ? state.mWaypoints.size() : state.mObjects.size();
+    }
+
+    const Scanner::Waypoint* Scanner::currentWaypoint() const
+    {
+        if (!isWaypointCategory())
+            return nullptr;
+        const auto& state = mLists[static_cast<size_t>(mCategory)];
+        if (state.mIndex < 0 || state.mIndex >= static_cast<int>(state.mWaypoints.size()))
+            return nullptr;
+        return &state.mWaypoints[state.mIndex];
+    }
+
+    void Scanner::collectWaypoints(std::vector<Waypoint>& out) const
+    {
+        MWBase::World* world = MWBase::Environment::get().getWorld();
+        const MWWorld::Ptr player = world->getPlayerPtr();
+        if (player.isEmpty())
+            return;
+        const MWWorld::CellStore* cellStore = player.getCell();
+        if (!cellStore || !cellStore->getCell())
+            return;
+
+        // Player map notes live in the same cell-keyed collection the map
+        // window draws. Scope to the player's current cell so distances and
+        // auto-walk stay meaningful (you can't path across a cell you're not
+        // in). The cell id is derived the same way a dropped note's is.
+        const MWWorld::Cell* cell = cellStore->getCell();
+        const osg::Vec3f playerPos = player.getRefData().getPosition().asVec3();
+
+        ESM::RefId cellId;
+        if (cell->isExterior())
+        {
+            const int cellX = static_cast<int>(std::floor(playerPos.x() / Constants::CellSizeInUnits));
+            const int cellY = static_cast<int>(std::floor(playerPos.y() / Constants::CellSizeInUnits));
+            cellId = ESM::Cell::generateIdForCell(true, {}, cellX, cellY);
+        }
+        else
+            cellId = cell->getId();
+
+        const auto notes = MWBase::Environment::get().getWindowManager()->getPlayerMapNotes(cellId);
+        for (const auto& note : notes)
+        {
+            // Map notes only carry an XY world position; use the player's Z as a
+            // reasonable height for bearing/240 audio (they're on the same floor
+            // in practice, and the pathfinder snaps to navmesh height anyway).
+            Waypoint wp;
+            wp.mName = note.mText.empty() ? std::string("Note") : note.mText;
+            wp.mPosition = osg::Vec3f(note.mWorldX, note.mWorldY, playerPos.z());
+            out.push_back(std::move(wp));
+        }
+
+        // The Mark spell location, but only when it's in the player's current
+        // cell (a single global location; including a cross-cell mark would give
+        // a misleading bearing and an unreachable auto-walk target).
+        MWWorld::CellStore* markedCell = nullptr;
+        ESM::Position markedPos;
+        world->getPlayer().getMarkedPosition(markedCell, markedPos);
+        if (markedCell && markedCell == cellStore)
+        {
+            Waypoint wp;
+            wp.mName = "Mark";
+            wp.mPosition = markedPos.asVec3();
+            out.push_back(std::move(wp));
+        }
+
+        // Nearest first, matching the object categories' distance sort.
+        std::sort(out.begin(), out.end(), [&playerPos](const Waypoint& a, const Waypoint& b) {
+            return (a.mPosition - playerPos).length2() < (b.mPosition - playerPos).length2();
+        });
+    }
+
+    void Scanner::announceCurrentWaypoint()
+    {
+        const Waypoint* wp = currentWaypoint();
+        if (!wp)
+            return;
+
+        MWBase::World* world = MWBase::Environment::get().getWorld();
+        MWWorld::Ptr player = world->getPlayerPtr();
+        osg::Vec3f playerPos = player.getRefData().getPosition().asVec3();
+        osg::Vec3f delta = wp->mPosition - playerPos;
+        float dist = delta.length();
+        float targetYaw = std::atan2(delta.x(), delta.y());
+
+        const auto& state = mLists[static_cast<size_t>(mCategory)];
+        std::string elevation = formatElevation(delta.z());
+        std::string msg = wp->mName + ". " + formatDistance(dist)
+            + ", " + compassLabel(targetYaw) + ". "
+            + (elevation.empty() ? "" : elevation + ". ")
+            + std::to_string(state.mIndex + 1) + " of "
+            + std::to_string(state.mWaypoints.size()) + ".";
+        speak(msg);
+    }
+
     void Scanner::updateProximityCue()
     {
         // Point the proximity cue at whatever is currently selected (an empty
-        // Ptr silences it). onFrame() then handles approach-loop vs arrival
+        // target silences it). onFrame() then handles approach-loop vs arrival
         // audio. A single sound pair is used for all categories.
         //
         // The beacon is opt-in: when disabled, keep the cue silenced
         // regardless of selection so it never sounds unbidden.
-        mProximityCue.setTarget(mBeaconEnabled ? currentTarget() : MWWorld::Ptr());
+        if (!mBeaconEnabled)
+        {
+            mProximityCue.stop();
+            return;
+        }
+        if (isWaypointCategory())
+        {
+            if (const Waypoint* wp = currentWaypoint())
+                mProximityCue.setTarget(wp->mPosition);
+            else
+                mProximityCue.stop();
+            return;
+        }
+        mProximityCue.setTarget(currentTarget());
     }
 
     void Scanner::toggleBeacon()

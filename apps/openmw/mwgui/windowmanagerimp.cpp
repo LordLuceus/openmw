@@ -117,6 +117,7 @@
 #include "repair.hpp"
 #include "resourceskin.hpp"
 #include "scannersearchdialog.hpp"
+#include "waypointnotedialog.hpp"
 #include "screenfader.hpp"
 #include "scrollwindow.hpp"
 #include "settingswindow.hpp"
@@ -457,6 +458,13 @@ namespace MWGui
         mScannerSearchDialog->eventCancelled += MyGUI::newDelegate(this, &WindowManager::onScannerSearchCancelled);
         mGuiModeStates[GM_ScannerSearch] = GuiModeState(mScannerSearchDialog);
         mWindows.push_back(std::move(scannerSearchDialog));
+
+        auto waypointNoteDialog = std::make_unique<WaypointNoteDialog>();
+        mWaypointNoteDialog = waypointNoteDialog.get();
+        mWaypointNoteDialog->eventAccepted += MyGUI::newDelegate(this, &WindowManager::onWaypointNoteAccepted);
+        mWaypointNoteDialog->eventCancelled += MyGUI::newDelegate(this, &WindowManager::onWaypointNoteCancelled);
+        mGuiModeStates[GM_WaypointNote] = GuiModeState(mWaypointNoteDialog);
+        mWindows.push_back(std::move(waypointNoteDialog));
 
         auto enchantingDialog = std::make_unique<EnchantingDialog>();
         mGuiModeStates[GM_Enchanting] = GuiModeState(enchantingDialog.get());
@@ -1499,6 +1507,48 @@ namespace MWGui
         // Filter left unchanged on cancel; just let the scanner know the prompt
         // closed so it can re-announce the current state.
         MWAccessibility::Scanner::instance().onSearchCancelled();
+    }
+
+    void WindowManager::openWaypointNote()
+    {
+        // Fresh empty prompt each time, then push the dedicated GUI mode (pausing
+        // the world and routing keystrokes to the edit box).
+        mWaypointNoteDialog->setNoteText({});
+        pushGuiMode(GM_WaypointNote);
+    }
+
+    void WindowManager::onWaypointNoteAccepted(WindowBase* /*sender*/)
+    {
+        const std::string text = mWaypointNoteDialog->getNoteText();
+        if (containsMode(GM_WaypointNote))
+            removeGuiMode(GM_WaypointNote);
+        // Hand the typed text to the scanner, which places the marker at the
+        // player's position and announces the result.
+        MWAccessibility::Scanner::instance().onWaypointNoteEntered(text);
+    }
+
+    void WindowManager::onWaypointNoteCancelled(WindowBase* /*sender*/)
+    {
+        if (containsMode(GM_WaypointNote))
+            removeGuiMode(GM_WaypointNote);
+        MWAccessibility::Scanner::instance().onWaypointNoteCancelled();
+    }
+
+    bool WindowManager::dropPlayerMapNote(const std::string& text)
+    {
+        return mMap && mMap->addNoteAtPlayerPosition(text);
+    }
+
+    std::vector<MWBase::WindowManager::MapNote> WindowManager::getPlayerMapNotes(const ESM::RefId& cellId) const
+    {
+        std::vector<MapNote> out;
+        const auto range = mCustomMarkers.getMarkers(cellId);
+        for (auto it = range.first; it != range.second; ++it)
+        {
+            const ESM::CustomMarker& marker = it->second;
+            out.push_back({ marker.mNote, marker.mWorldX, marker.mWorldY });
+        }
+        return out;
     }
 
     void WindowManager::setCullMask(uint32_t mask)

@@ -31,8 +31,12 @@
 #include "../mwrender/globalmap.hpp"
 #include "../mwrender/localmap.hpp"
 
+#include "accessibility/panegroup.hpp"
+#include "accessibility/speech.hpp"
+
 #include "confirmationdialog.hpp"
 
+#include <cmath>
 #include <numeric>
 
 namespace
@@ -859,6 +863,14 @@ namespace MWGui
         mGlobalMap->setVisible(global);
         mLocalMap->setVisible(!global);
 
+        // Screen-reader setup: the map is a spatial image, so navigation is
+        // virtual-focus (an invisible anchor holds key focus) and we expose the
+        // map's native text instead -- see the header for the option list.
+        mA11yAnchor = mMainWidget->createWidget<MyGUI::Widget>(
+            {}, MyGUI::IntCoord(0, 0, 1, 1), MyGUI::Align::Default);
+        mA11yAnchor->setNeedKeyFocus(true);
+        mA11y.setVirtualFocus(mA11yAnchor);
+
         if (Settings::gui().mControllerMenus)
         {
             mControllerButtons.mB = "#{Interface:Back}";
@@ -1085,6 +1097,138 @@ namespace MWGui
         setTitle("#{sCell=" + cellName + "}");
     }
 
+    bool MapWindow::addNoteAtPlayerPosition(const std::string& text)
+    {
+        if (text.empty())
+            return false;
+
+        MWBase::World* world = MWBase::Environment::get().getWorld();
+        const MWWorld::Ptr player = world->getPlayerPtr();
+        if (player.isEmpty())
+            return false;
+
+        // Derive the cell from the player directly (not the map window's
+        // mActiveCell, which may be stale/null while the map is closed -- this
+        // is called from gameplay via the scanner's N key).
+        const MWWorld::CellStore* cellStore = player.getCell();
+        if (!cellStore)
+            return false;
+        const MWWorld::Cell* cell = cellStore->getCell();
+        if (!cell)
+            return false;
+
+        const osg::Vec3f pos = player.getRefData().getPosition().asVec3();
+
+        ESM::CustomMarker marker;
+        marker.mNote = text;
+        marker.mWorldX = pos.x();
+        marker.mWorldY = pos.y();
+
+        // The marker is keyed to the cell it sits in. For an interior that's the
+        // cell's own id; for an exterior we derive the grid coordinates from the
+        // world position (matching onMapDoubleClicked, which converts a clicked
+        // pixel back to a cell via the same cellSize division).
+        if (cell->isExterior())
+        {
+            const int cellX = static_cast<int>(std::floor(pos.x() / cellSize));
+            const int cellY = static_cast<int>(std::floor(pos.y() / cellSize));
+            marker.mCell = getCellIdInWorldSpace(*cell, cellX, cellY);
+        }
+        else
+            marker.mCell = cell->getId();
+
+        mCustomMarkers.addMarker(marker);
+        return true;
+    }
+
+    std::string MapWindow::a11yLocationName() const
+    {
+        std::string name{ MWBase::Environment::get().getWorld()->getCellName() };
+        if (name.empty())
+            return "Unknown location";
+        return name;
+    }
+
+    std::string MapWindow::a11yBearingLabel(const std::string& name, float worldX, float worldY) const
+    {
+        const osg::Vec3f playerPos
+            = MWBase::Environment::get().getWorld()->getPlayerPtr().getRefData().getPosition().asVec3();
+        const float dx = worldX - playerPos.x();
+        const float dy = worldY - playerPos.y();
+
+        std::string line = name;
+
+        const float dist = std::sqrt(dx * dx + dy * dy);
+        // Within ~2 metres, a direction is meaningless -- say "here".
+        if (dist < 2.f * Constants::UnitsPerMeter)
+        {
+            line += ", here";
+            return line;
+        }
+
+        // Compass bearing from the player. In Morrowind world space +Y is north
+        // and +X is east, so the bearing measured clockwise from north is
+        // atan2(east, north) = atan2(dx, dy). Map to one of 8 points.
+        float deg = std::atan2(dx, dy) * 180.f / static_cast<float>(osg::PI);
+        if (deg < 0.f)
+            deg += 360.f;
+        static const char* const dirs[]
+            = { "north", "northeast", "east", "southeast", "south", "southwest", "west", "northwest" };
+        const int sector = static_cast<int>(std::round(deg / 45.f)) % 8;
+        line += ", ";
+        line += dirs[sector];
+
+        // Distance in metres, matching the scanner's convention.
+        const int metres = static_cast<int>(std::round(dist / Constants::UnitsPerMeter));
+        line += ", " + std::to_string(metres) + " metres";
+        return line;
+    }
+
+    std::vector<A11y::SubItem> MapWindow::a11yNoteItems() const
+    {
+        std::vector<A11y::SubItem> items;
+        if (!mActiveCell)
+            return items;
+
+        auto collect = [&](CustomMarkerCollection::RangeType markers) {
+            for (auto it = markers.first; it != markers.second; ++it)
+            {
+                const ESM::CustomMarker& marker = it->second;
+                A11y::SubItem item;
+                item.label = a11yBearingLabel(marker.mNote, marker.mWorldX, marker.mWorldY);
+                items.push_back(std::move(item));
+            }
+        };
+
+        if (mActiveCell->isExterior())
+        {
+            for (int x = mGrid.left; x <= mGrid.right; ++x)
+                for (int y = mGrid.top; y <= mGrid.bottom; ++y)
+                    collect(mCustomMarkers.getMarkers(getCellIdInWorldSpace(*mActiveCell, x, y)));
+        }
+        else
+            collect(mCustomMarkers.getMarkers(mActiveCell->getId()));
+
+        return items;
+    }
+
+    void MapWindow::buildAccessibility()
+    {
+        mA11y.clear();
+
+        // Location first, so focusing the Map pane announces where the player
+        // is. Its value is recomputed each time focus lands on it.
+        mA11y.add({ .widget = nullptr, .label = "Location",
+            .value = [this] { return a11yLocationName(); } });
+
+        // Player-placed notes, as an expandable submenu (recomputed on open).
+        // (Detect-spell references live in the scanner's conditional "Detected"
+        // category, not here -- the scanner is the single home for the live,
+        // navigable radar with its beacon/auto-walk.)
+        mA11y.add({ .widget = nullptr, .label = "Notes",
+            .children = [this] { return a11yNoteItems(); } });
+    }
+
     MyGUI::IntCoord MapWindow::createMarkerCoords(float x, float y, float agregatedWeight) const
     {
         float worldX, worldY;
@@ -1169,6 +1313,13 @@ namespace MWGui
     {
         LocalMapBase::onFrame(dt);
         NoDrop::onFrame(dt);
+
+        // Let the PaneGroup activate this pane if it's the one to land on, then
+        // tick the screen.
+        if (A11y::PaneGroup::instance().contains(&mA11y))
+            A11y::PaneGroup::instance().maybeActivateInitial(&mA11y);
+
+        mA11y.onFrame(dt);
     }
 
     void MapWindow::setGlobalMapMarkerTooltip(MyGUI::Widget* markerWidget, int x, int y)
@@ -1286,6 +1437,20 @@ namespace MWGui
         ensureGlobalMapLoaded();
 
         globalMapUpdatePlayer();
+
+        // Shown alongside Stats/Inventory/Magic; enrol as PaneGroup pane 3 so
+        // Tab reaches the map. Build the spoken option list now.
+        buildAccessibility();
+        // No GMST names the map window ("sWorld"/"sLocal" name the toggle
+        // button states, not the pane), so use a literal as other a11y strings
+        // do.
+        A11y::PaneGroup::instance().enrol(&mA11y, "Map", 3);
+    }
+
+    void MapWindow::onClose()
+    {
+        A11y::PaneGroup::instance().withdraw(&mA11y);
+        mA11y.deactivate();
     }
 
     void MapWindow::globalMapUpdatePlayer()

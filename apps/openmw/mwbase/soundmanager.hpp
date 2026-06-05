@@ -192,6 +192,13 @@ namespace MWBase
         ///< Play a 3D sound at \a initialPos. If the sound should be moving, it must be updated using
         ///< Sound::setPosition.
 
+        virtual Sound* playSound3D(const osg::Vec3f& initialPos, VFS::Path::NormalizedView fileName, float volume,
+            float pitch, Type type = Type::Sfx, PlayMode mode = PlayMode::Normal, float offset = 0)
+            = 0;
+        ///< Play a 3D sound from a VFS file at \a initialPos (a fixed point with no backing object). Used by the
+        ///< accessibility scanner's waypoint beacon, whose targets (map notes / the Mark spot) are bare positions.
+        ///< If the sound should be moving, it must be updated using Sound::setPosition.
+
         virtual void stopSound(Sound* sound) = 0;
         ///< Stop the given sound from playing
 

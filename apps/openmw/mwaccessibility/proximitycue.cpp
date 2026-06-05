@@ -58,12 +58,13 @@ namespace MWAccessibility
     {
         // Unchanged target: nothing to do (keeps the loop running smoothly
         // instead of restarting it every selection refresh).
-        if (target == mTarget)
+        if (mHasPtrTarget && target == mTarget)
             return;
 
         // Switching away from the old target: silence whatever it was playing.
         stopApproachLoop();
 
+        mHasPtrTarget = true;
         mTarget = target;
         mState = target.isEmpty() ? State::Idle : State::Approaching;
 
@@ -72,9 +73,23 @@ namespace MWAccessibility
         // keeps all the distance logic in one place.
     }
 
+    void ProximityCue::setTarget(const osg::Vec3f& position)
+    {
+        // Always (re)arm for a position target: positions compare by value and
+        // the caller only sets this when the selection actually changed.
+        stopApproachLoop();
+
+        mHasPtrTarget = false;
+        mTarget = MWWorld::Ptr();
+        mPosTarget = position;
+        mState = State::Approaching;
+    }
+
     void ProximityCue::onFrame(float /*dt*/)
     {
-        if (mTarget.isEmpty() || mState == State::Idle)
+        if (mState == State::Idle)
+            return;
+        if (mHasPtrTarget && mTarget.isEmpty())
             return;
 
         MWBase::World* world = MWBase::Environment::get().getWorld();
@@ -82,8 +97,9 @@ namespace MWAccessibility
         if (player.isEmpty())
             return;
 
-        // Target gone (deleted / cell unloaded): stop cleanly.
-        if (mTarget.getCellRef().getCount() <= 0)
+        // Ptr target gone (deleted / cell unloaded): stop cleanly. Position
+        // targets never disappear.
+        if (mHasPtrTarget && mTarget.getCellRef().getCount() <= 0)
         {
             stop();
             return;
@@ -94,7 +110,12 @@ namespace MWAccessibility
         // rapidly toggle between approach and arrival.
         const float reEnterApproachDist = activateDist * 1.25f;
 
-        const float dist = horizontalDistance(player, mTarget);
+        const osg::Vec3f playerPos = player.getRefData().getPosition().asVec3();
+        const osg::Vec3f targetPos
+            = mHasPtrTarget ? mTarget.getRefData().getPosition().asVec3() : mPosTarget;
+        const float ddx = targetPos.x() - playerPos.x();
+        const float ddy = targetPos.y() - playerPos.y();
+        const float dist = std::sqrt(ddx * ddx + ddy * ddy);
 
         switch (mState)
         {
@@ -102,14 +123,18 @@ namespace MWAccessibility
             {
                 // Make sure the loop is actually playing (it may have been
                 // stopped externally, e.g. cell change), then check arrival.
+                // For a Ptr target we can query by object; for a position
+                // target we track the handle ourselves (mPosSound).
                 MWBase::SoundManager* snd = MWBase::Environment::get().getSoundManager();
-                if (!snd->getSoundPlaying(mTarget, kApproachSound))
+                const bool playing
+                    = mHasPtrTarget ? snd->getSoundPlaying(mTarget, kApproachSound) : (mPosSound != nullptr);
+                if (!playing)
                     startApproachLoop();
 
                 if (dist <= activateDist)
                 {
                     stopApproachLoop();
-                    playArrivalSound();
+                    playArrivalSound(targetPos);
                     mState = State::Arrived;
                 }
                 break;
@@ -134,40 +159,70 @@ namespace MWAccessibility
     {
         stopApproachLoop();
         mTarget = MWWorld::Ptr();
+        mHasPtrTarget = true;
         mState = State::Idle;
     }
 
     void ProximityCue::startApproachLoop()
     {
-        if (mTarget.isEmpty())
-            return;
         MWBase::SoundManager* snd = MWBase::Environment::get().getSoundManager();
-        // Already playing? Don't stack a second copy.
-        if (snd->getSoundPlaying(mTarget, kApproachSound))
+
+        if (mHasPtrTarget)
+        {
+            if (mTarget.isEmpty())
+                return;
+            // Already playing? Don't stack a second copy.
+            if (snd->getSoundPlaying(mTarget, kApproachSound))
+                return;
+            // 3D, looping, attached to the target so it tracks the object's
+            // position and is HRTF-spatialised every frame. NoEnv so reverb/
+            // water filters don't muddy a navigation cue we want to stay legible.
+            snd->playSound3D(mTarget, kApproachSound, /*volume=*/1.0f, /*pitch=*/1.0f,
+                MWSound::Type::Sfx, MWSound::PlayMode::LoopNoEnv);
             return;
-        // 3D, looping, attached to the target so it tracks the object's
-        // position and is HRTF-spatialised every frame. NoEnv so reverb/water
-        // filters don't muddy a navigation cue we want to stay legible.
-        snd->playSound3D(mTarget, kApproachSound, /*volume=*/1.0f, /*pitch=*/1.0f,
+        }
+
+        // Position target: no object to attach to, so play a static-position 3D
+        // loop and keep the handle so we can stop it. (A waypoint never moves,
+        // so a fixed position is exactly right.)
+        if (mPosSound)
+            return;
+        mPosSound = snd->playSound3D(mPosTarget, kApproachSound, /*volume=*/1.0f, /*pitch=*/1.0f,
             MWSound::Type::Sfx, MWSound::PlayMode::LoopNoEnv);
     }
 
     void ProximityCue::stopApproachLoop()
     {
-        if (mTarget.isEmpty())
-            return;
         MWBase::SoundManager* snd = MWBase::Environment::get().getSoundManager();
-        snd->stopSound3D(mTarget, kApproachSound);
+        if (mHasPtrTarget)
+        {
+            if (mTarget.isEmpty())
+                return;
+            snd->stopSound3D(mTarget, kApproachSound);
+            return;
+        }
+        if (mPosSound)
+        {
+            snd->stopSound(mPosSound);
+            mPosSound = nullptr;
+        }
     }
 
-    void ProximityCue::playArrivalSound()
+    void ProximityCue::playArrivalSound(const osg::Vec3f& targetPos)
     {
-        if (mTarget.isEmpty())
-            return;
         MWBase::SoundManager* snd = MWBase::Environment::get().getSoundManager();
-        // One-shot, 3D so it still comes from the object's direction, NoEnv to
-        // keep it crisp.
-        snd->playSound3D(mTarget, kArrivalSound, /*volume=*/1.0f,
+        if (mHasPtrTarget)
+        {
+            if (mTarget.isEmpty())
+                return;
+            // One-shot, 3D so it still comes from the object's direction, NoEnv
+            // to keep it crisp.
+            snd->playSound3D(mTarget, kArrivalSound, /*volume=*/1.0f,
+                /*pitch=*/1.0f, MWSound::Type::Sfx, MWSound::PlayMode::NoEnv);
+            return;
+        }
+        // Position target: one-shot at the fixed point.
+        snd->playSound3D(targetPos, kArrivalSound, /*volume=*/1.0f,
             /*pitch=*/1.0f, MWSound::Type::Sfx, MWSound::PlayMode::NoEnv);
     }
 }

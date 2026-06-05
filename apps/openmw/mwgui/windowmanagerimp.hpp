@@ -97,6 +97,7 @@ namespace MWGui
     struct JournalWindow;
     class TextInputDialog;
     class ScannerSearchDialog;
+    class WaypointNoteDialog;
     class InfoBoxDialog;
     class SettingsWindow;
     class AlchemyWindow;
@@ -169,6 +170,9 @@ namespace MWGui
         bool isInteractiveMessageBoxActive() const override;
 
         void openScannerSearch(const std::string& currentText) override;
+        void openWaypointNote() override;
+        bool dropPlayerMapNote(const std::string& text) override;
+        std::vector<MapNote> getPlayerMapNotes(const ESM::RefId& cellId) const override;
 
         void toggleVisible(GuiWindow wnd) override;
 
@@ -466,6 +470,7 @@ namespace MWGui
         LoadingScreen* mLoadingScreen;
         WaitDialog* mWaitDialog;
         ScannerSearchDialog* mScannerSearchDialog;
+        WaypointNoteDialog* mWaypointNoteDialog;
         std::unique_ptr<SoulgemDialog> mSoulgemDialog;
         MyGUI::ImageBox* mVideoBackground;
         VideoWidget* mVideoWidget;
@@ -607,6 +612,10 @@ namespace MWGui
         // Scanner search prompt (GM_ScannerSearch) confirm / cancel handlers.
         void onScannerSearchAccepted(WindowBase* sender);
         void onScannerSearchCancelled(WindowBase* sender);
+
+        // Waypoint "drop note" prompt (GM_WaypointNote) confirm / cancel handlers.
+        void onWaypointNoteAccepted(WindowBase* sender);
+        void onWaypointNoteCancelled(WindowBase* sender);
 
         void createTextures();
         void createCursors();

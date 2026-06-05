@@ -635,6 +635,46 @@ namespace MWSound
         return result;
     }
 
+    Sound* SoundManager::playSound3D(const osg::Vec3f& initialPos, VFS::Path::NormalizedView fileName, float volume,
+        float pitch, Type type, PlayMode mode, float offset)
+    {
+        if (!mOutput->isInitialized())
+            return nullptr;
+
+        // Load the buffer from the VFS file (the accessibility cue WAVs) rather
+        // than an ESM sound record, then play it at a fixed position with no
+        // backing object -- the rest mirrors the ESM-RefId position overload.
+        if (!mVFS->exists(fileName))
+            return nullptr;
+
+        SoundBuffer* sfx = mSoundBuffers.load(fileName);
+        if (!sfx)
+            return nullptr;
+
+        const float squaredDist = (mListenerPos - initialPos).length2();
+
+        SoundPtr sound = getSoundRef();
+        sound->init([&] {
+            SoundParams params;
+            params.mPos = initialPos;
+            params.mVolume = volume * sfx->getVolume();
+            params.mBaseVolume = volumeFromType(type);
+            params.mFadeVolume = initialFadeVolume(squaredDist, sfx, type, mode);
+            params.mPitch = pitch;
+            params.mMinDistance = sfx->getMinDist();
+            params.mMaxDistance = sfx->getMaxDist();
+            params.mFlags = mode | type | Play_3D;
+            return params;
+        }());
+        if (!mOutput->playSound3D(sound.get(), sfx->getHandle(), offset))
+            return nullptr;
+
+        Sound* result = sound.get();
+        mActiveSounds[nullptr].mList.emplace_back(std::move(sound), sfx);
+        mSoundBuffers.use(*sfx);
+        return result;
+    }
+
     void SoundManager::stopSound(Sound* sound)
     {
         if (sound)

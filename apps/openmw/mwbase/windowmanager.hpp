@@ -146,6 +146,30 @@ namespace MWBase
         /// into MWAccessibility::Scanner with the result.
         virtual void openScannerSearch(const std::string& currentText) = 0;
 
+        /// Accessibility: open the "drop note" prompt (GM_WaypointNote). On
+        /// confirm with non-empty text, a map note (custom marker) is placed at
+        /// the player's current position with the typed text.
+        virtual void openWaypointNote() = 0;
+
+        /// Accessibility: place a map note (custom marker) with \p text at the
+        /// player's current world position. Returns false if it couldn't be
+        /// placed (no player/cell, or empty text). Delegates to the map window.
+        virtual bool dropPlayerMapNote(const std::string& text) = 0;
+
+        /// Accessibility: a single player map note exposed to the scanner's
+        /// Waypoints category -- its text and world position.
+        struct MapNote
+        {
+            std::string mText;
+            float mWorldX = 0.f;
+            float mWorldY = 0.f;
+        };
+
+        /// Accessibility: return the player's map notes (custom markers) that
+        /// belong to the cell identified by \p cellId. Used by the scanner to
+        /// build the Waypoints category. Delegates to the marker collection.
+        virtual std::vector<MapNote> getPlayerMapNotes(const ESM::RefId& cellId) const = 0;
+
         virtual void toggleVisible(MWGui::GuiWindow wnd) = 0;
 
         virtual void forceHide(MWGui::GuiWindow wnd) = 0;
