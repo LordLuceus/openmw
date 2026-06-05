@@ -2,6 +2,8 @@
 
 #include <algorithm>
 
+#include <MyGUI_InputManager.h>
+
 #include "screen.hpp"
 #include "speech.hpp"
 
@@ -56,6 +58,13 @@ namespace MWGui::A11y
     void PaneGroup::maybeActivateInitial(Screen* screen)
     {
         if (mPanes.empty())
+            return;
+        // A modal dialog (e.g. a spell-delete confirmation) opened over our
+        // panes owns input and has suspended the pane underneath. Don't grab
+        // focus back while it's up, or we'd steal keys from the modal and the
+        // pane would start re-announcing behind it. The modal resumes the pane
+        // itself on close.
+        if (MyGUI::InputManager::getInstance().isModalAny())
             return;
         // If some pane is already active (the user has started navigating),
         // don't steal focus.

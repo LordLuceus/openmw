@@ -26,6 +26,13 @@
 #include "../mwmechanics/spells.hpp"
 #include "../mwmechanics/spellutil.hpp"
 
+#include <components/esm3/loadspel.hpp>
+
+#include "accessibility/itemtext.hpp"
+#include "accessibility/panegroup.hpp"
+#include "accessibility/speech.hpp"
+#include "accessibility/spelltext.hpp"
+
 #include "confirmationdialog.hpp"
 #include "spellicons.hpp"
 #include "spellview.hpp"
@@ -58,6 +65,33 @@ namespace MWGui
         // Adjust the spell filtering widget size because of MyGUI limitations.
         int filterWidth = mSpellView->getSize().width - deleteButton->getSize().width - 3;
         mFilterEdit->setSize(filterWidth, mFilterEdit->getSize().height);
+
+        // Screen-reader setup: an invisible anchor holds key focus while the
+        // spell list is navigated by index (the rows are drawn by the custom
+        // SpellView, not as individual widgets), as in the inventory window.
+        mA11yAnchor = mMainWidget->createWidget<MyGUI::Widget>(
+            {}, MyGUI::IntCoord(0, 0, 1, 1), MyGUI::Align::Default);
+        mA11yAnchor->setNeedKeyFocus(true);
+        mA11y.setVirtualFocus(mA11yAnchor);
+        mA11yFilterEdit.attach(mFilterEdit);
+        mA11yFilterEdit.setActive(false);
+        // Extra key on the spell list: Delete asks to delete the selected spell
+        // (the native Shift+click delete; powers/racial/sign spells are
+        // protected, matching vanilla rules).
+        mA11y.setExtraKeyHandler([this](MyGUI::KeyCode key) -> bool {
+            if (key == MyGUI::KeyCode::Delete)
+            {
+                const size_t cur = mA11y.currentIndex();
+                if (cur != A11y::Screen::npos && cur >= mA11yItemBase && mSpellView->getModel())
+                {
+                    const int index = static_cast<int>(cur - mA11yItemBase);
+                    if (index < static_cast<int>(mSpellView->getModel()->getItemCount()))
+                        a11yDeleteSpell(index);
+                }
+                return true;
+            }
+            return false;
+        });
 
         if (Settings::gui().mControllerMenus)
         {
@@ -93,6 +127,20 @@ namespace MWGui
             MWBase::Environment::get().getWindowManager()->setKeyFocusWidget(nullptr);
 
         updateSpells();
+
+        // Screen reader: in the standalone inventory the Magic window is shown
+        // next to Stats/Inventory/Map, so enrol in the PaneGroup (Magic = pane
+        // 2) and let Tab switch between them. updateSpells() has rebuilt the
+        // model, so build the spoken list from it now.
+        buildAccessibility();
+        A11y::PaneGroup::instance().enrol(&mA11y,
+            std::string(MWBase::Environment::get().getWindowManager()->getGameSettingString("sMagic", "Magic")), 2);
+    }
+
+    void SpellWindow::onClose()
+    {
+        A11y::PaneGroup::instance().withdraw(&mA11y);
+        mA11y.deactivate();
     }
 
     void SpellWindow::onFrame(float dt)
@@ -108,6 +156,23 @@ namespace MWGui
         // Update effects if the time is unpaused for any reason (e.g. the window is pinned)
         if (!MWBase::Environment::get().getWorld()->getTimeManager()->isPaused())
             mSpellIcons->updateWidgets(mEffectBox, false);
+
+        mA11yFilterEdit.onFrame();
+
+        // When the user finishes editing the name filter, the matching set of
+        // spells has changed: rebuild the spoken list (the on-screen SpellView
+        // is already kept current by onFilterChanged). Defer until edit mode
+        // ends so we don't churn the list on every keystroke.
+        const bool editing = mA11y.editing();
+        if (mA11yWasEditing && !editing && mA11y.isActive())
+            a11yRebuildKeepingCursor();
+        mA11yWasEditing = editing;
+
+        // Let the PaneGroup activate this pane if it's the one to land on.
+        if (A11y::PaneGroup::instance().contains(&mA11y))
+            A11y::PaneGroup::instance().maybeActivateInitial(&mA11y);
+
+        mA11y.onFrame(dt);
     }
 
     void SpellWindow::updateSpells()
@@ -241,6 +306,181 @@ namespace MWGui
         spells.remove(mSpellToDelete);
 
         updateSpells();
+
+        // Refresh the spoken list now the spell is gone, keeping the cursor on
+        // the same row (which now holds the next spell, or the name filter if
+        // the list emptied). The confirmation dialog was modal over our virtual
+        // screen, which stays active, so no re-activation is needed.
+        if (mA11y.isActive())
+            a11yRebuildKeepingCursor();
+    }
+
+    std::string SpellWindow::a11ySpellLabel(const Spell& spell) const
+    {
+        MWBase::WindowManager* winMgr = MWBase::Environment::get().getWindowManager();
+        std::string label = spell.mName;
+        if (spell.mType == Spell::Type_EnchantedItem && spell.mCount > 1)
+            label += " (" + std::to_string(spell.mCount) + ")";
+
+        // Surface the key extra signal for this row: which spell is readied, and
+        // (for enchanted items) whether the item is equipped.
+        if (spell.mSelected)
+            label += ", " + std::string(winMgr->getGameSettingString("sSelect", "Selected"));
+        if (spell.mType == Spell::Type_EnchantedItem && spell.mActive)
+            label += ", " + std::string(winMgr->getGameSettingString("sEquip", "Equipped"));
+        return label;
+    }
+
+    std::string SpellWindow::a11ySpellSection(const Spell& spell) const
+    {
+        MWBase::WindowManager* winMgr = MWBase::Environment::get().getWindowManager();
+        switch (spell.mType)
+        {
+            case Spell::Type_Power:
+                return std::string(winMgr->getGameSettingString("sPowers", "Powers"));
+            case Spell::Type_EnchantedItem:
+                return std::string(winMgr->getGameSettingString("sMagicItem", "Magic Item"));
+            default:
+                return std::string(winMgr->getGameSettingString("sSpells", "Spells"));
+        }
+    }
+
+    std::vector<std::string> SpellWindow::a11ySpellTooltip(const Spell& spell) const
+    {
+        std::vector<std::string> lines;
+        MWBase::WindowManager* winMgr = MWBase::Environment::get().getWindowManager();
+
+        // Enchanted items: defer to the shared item tooltip helper (weight,
+        // value, enchantment effects), same as the inventory/container lists.
+        if (spell.mType == Spell::Type_EnchantedItem)
+        {
+            if (!spell.mItem.isEmpty())
+                lines = A11y::itemTooltipLines(spell.mItem, spell.mCount);
+            // The cost/charge column is item-specific extra info shown in the
+            // list; surface it up front.
+            if (!spell.mCostColumn.empty())
+                lines.insert(lines.begin(),
+                    std::string(winMgr->getGameSettingString("sCostCharge", "Cost/Charge")) + ": "
+                        + spell.mCostColumn);
+            return lines;
+        }
+
+        // Powers and spells: cost/chance, then each magic effect, mirroring the
+        // on-screen Spell tooltip (see ToolTips::createToolTip "Spell" branch).
+        const ESM::Spell* esmSpell
+            = MWBase::Environment::get().getESMStore()->get<ESM::Spell>().search(spell.mId);
+        if (!esmSpell)
+            return lines;
+
+        if (spell.mType == Spell::Type_Spell && !spell.mCostColumn.empty())
+            lines.push_back(
+                std::string(winMgr->getGameSettingString("sCostChance", "Cost/Chance")) + ": " + spell.mCostColumn);
+
+        const bool isConstant = (esmSpell->mData.mType == ESM::Spell::ST_Ability);
+        for (const ESM::IndexedENAMstruct& effect : esmSpell->mEffects.mList)
+            lines.push_back(A11y::formatSpellEffectLine(effect, isConstant));
+
+        return lines;
+    }
+
+    void SpellWindow::buildAccessibility()
+    {
+        mA11y.clear();
+
+        MWBase::WindowManager* winMgr = MWBase::Environment::get().getWindowManager();
+
+        // Leading option: the name-filter field.
+        mA11y.add({ .widget = nullptr,
+            .label = std::string(winMgr->getGameSettingString("sName", "Name")),
+            .value =
+                [this] {
+                    const std::string text = mFilterEdit->getOnlyText().asUTF8();
+                    return text.empty() ? std::string("blank") : text;
+                },
+            .edit = &mA11yFilterEdit });
+
+        mA11yItemBase = 1;
+
+        // One option per power/spell/enchanted item, grouped into sections
+        // (Powers / Spells / Magic Items) exactly as the visual list groups
+        // them. Enter selects/equips; Delete (extra-key handler) deletes.
+        SpellModel* model = mSpellView->getModel();
+        if (model)
+        {
+            for (size_t i = 0; i < model->getItemCount(); ++i)
+            {
+                const int index = static_cast<int>(i);
+                const Spell spell = model->getItem(index);
+                mA11y.add({ .widget = nullptr,
+                    .label = a11ySpellLabel(spell),
+                    .section = a11ySpellSection(spell),
+                    .tooltips = [this, spell] { return a11ySpellTooltip(spell); },
+                    .activate = [this, index] { a11yActivateSpell(index); } });
+            }
+        }
+    }
+
+    void SpellWindow::a11yRebuildKeepingCursor()
+    {
+        const size_t cursor = mA11y.currentIndex();
+        buildAccessibility();
+        SpellModel* model = mSpellView->getModel();
+        const size_t itemCount = model ? model->getItemCount() : 0;
+        if (cursor == A11y::Screen::npos)
+            mA11y.focusFirst(/*announce=*/true);
+        else if (cursor < mA11yItemBase)
+            mA11y.selectIndex(cursor, /*announce=*/true); // stayed on the name filter
+        else if (itemCount == 0)
+            mA11y.selectIndex(mA11yItemBase - 1, /*announce=*/true); // no spells: land on name filter
+        else
+        {
+            const size_t item = std::min(cursor - mA11yItemBase, itemCount - 1);
+            mA11y.selectIndex(mA11yItemBase + item, /*announce=*/true);
+        }
+    }
+
+    void SpellWindow::a11yActivateSpell(int modelIndex)
+    {
+        SpellModel* model = mSpellView->getModel();
+        if (!model || modelIndex < 0 || modelIndex >= static_cast<int>(model->getItemCount()))
+            return;
+
+        // Drive the same path a click would (select spell / equip-select an
+        // enchanted item). This re-readies the spell but does NOT reorder the
+        // list, so we just rebuild in place and keep the cursor on the row,
+        // which now reports the new "Selected"/"Equipped" state.
+        const Spell spell = model->getItem(modelIndex);
+        if (spell.mType == Spell::Type_EnchantedItem)
+            onEnchantedItemSelected(spell.mItem, spell.mActive);
+        else
+            onSpellSelected(spell.mId);
+
+        a11yRebuildKeepingCursor();
+    }
+
+    void SpellWindow::a11yDeleteSpell(int modelIndex)
+    {
+        SpellModel* model = mSpellView->getModel();
+        if (!model || modelIndex < 0 || modelIndex >= static_cast<int>(model->getItemCount()))
+            return;
+
+        const Spell spell = model->getItem(modelIndex);
+        // Enchanted items aren't spells and can't be "deleted" here (matches the
+        // visual delete button, which ignores them).
+        if (spell.mType == Spell::Type_EnchantedItem)
+        {
+            A11y::say(MWBase::Environment::get().getWindowManager()->getGameSettingString(
+                          "sDeleteSpellError", "You cannot delete this."),
+                /*interrupt=*/true);
+            return;
+        }
+
+        // Routes through the native confirmation dialog (already accessible):
+        // protected powers/racial/sign spells show an error instead. After the
+        // dialog's OK runs onDeleteSpellAccept -> updateSpells, the spoken list
+        // is rebuilt on the next edit/selection; rebuild here too so a deletion
+        // confirmed via the dialog leaves the cursor sensible.
+        askDeleteSpell(spell.mId);
     }
 
     void SpellWindow::cycle(bool next)
