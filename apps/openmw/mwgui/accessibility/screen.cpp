@@ -608,6 +608,40 @@ namespace MWGui::A11y
         announceSubItem(0, /*withSection=*/true);
     }
 
+    void Screen::refreshSubmenu(bool announce)
+    {
+        if (!mSubOpen)
+            return;
+        const Element* element = current();
+        if (!element || !element->children)
+        {
+            closeSubmenu(announce);
+            return;
+        }
+        mSubItems = element->children();
+        if (mSubItems.empty())
+        {
+            // Nothing left to show (e.g. the last note was deleted): fall back
+            // to the parent option on the main screen.
+            closeSubmenu(announce);
+            return;
+        }
+        // Tooltip snapshot is keyed by index and now stale; invalidate it.
+        mSubTooltipItem = npos;
+        mSubTooltipLines.clear();
+        // Clamp the selection to the resized list, then re-announce where we
+        // landed (with its section prefix, since the surrounding items may have
+        // shifted).
+        size_t index = mSubCurrent;
+        if (index == npos || index >= mSubItems.size())
+            index = mSubItems.size() - 1;
+        mSubCurrent = npos; // force announceSubItem to treat this as a fresh land
+        if (announce)
+            announceSubItem(index, /*withSection=*/true);
+        else
+            mSubCurrent = index;
+    }
+
     void Screen::closeSubmenu(bool announceParent)
     {
         if (!mSubOpen)
@@ -1074,6 +1108,17 @@ namespace MWGui::A11y
                     break;
                 case MyGUI::KeyCode::ArrowLeft:
                     closeSubmenu();
+                    break;
+                case MyGUI::KeyCode::Return:
+                case MyGUI::KeyCode::NumpadEnter:
+                case MyGUI::KeyCode::Space:
+                    // Activate the focused sub-item, if it offers an action
+                    // (e.g. a map note opening its edit dialog). Read-only items
+                    // simply have no activate callback.
+                    if (mSubCurrent < mSubItems.size() && mSubItems[mSubCurrent].activate)
+                        mSubItems[mSubCurrent].activate();
+                    else
+                        mKeyConsumed = false;
                     break;
                 default:
                     mKeyConsumed = false;

@@ -3,6 +3,7 @@
 #include <osg/Texture2D>
 
 #include <MyGUI_Button.h>
+#include <MyGUI_EditBox.h>
 #include <MyGUI_FactoryManager.h>
 #include <MyGUI_Gui.h>
 #include <MyGUI_ImageBox.h>
@@ -33,6 +34,7 @@
 
 #include "accessibility/panegroup.hpp"
 #include "accessibility/speech.hpp"
+#include "accessibility/uimanager.hpp"
 
 #include "confirmationdialog.hpp"
 
@@ -883,7 +885,8 @@ namespace MWGui
 
     void MapWindow::onNoteEditOk()
     {
-        if (mEditNoteDialog.getDeleteButtonShown())
+        const bool edited = mEditNoteDialog.getDeleteButtonShown();
+        if (edited)
             mCustomMarkers.updateMarker(mEditingMarker, mEditNoteDialog.getText());
         else
         {
@@ -891,7 +894,10 @@ namespace MWGui
             mCustomMarkers.addMarker(mEditingMarker);
         }
 
+        // Hiding the dialog resumes the Map pane (its onClose). Refresh the open
+        // Notes submenu afterwards so it reflects the edited text.
         mEditNoteDialog.setVisible(false);
+        a11yAfterNoteDialog(edited ? "Note updated." : std::string());
     }
 
     void MapWindow::onNoteEditDelete()
@@ -908,6 +914,7 @@ namespace MWGui
         mCustomMarkers.deleteMarker(mEditingMarker);
 
         mEditNoteDialog.setVisible(false);
+        a11yAfterNoteDialog("Note deleted.");
     }
 
     void MapWindow::onCustomMarkerDoubleClicked(MyGUI::Widget* sender)
@@ -916,6 +923,33 @@ namespace MWGui
         mEditNoteDialog.setText(mEditingMarker.mNote);
         mEditNoteDialog.showDeleteButton(true);
         mEditNoteDialog.setVisible(true);
+    }
+
+    void MapWindow::a11yOpenNoteEditor(const ESM::CustomMarker& marker)
+    {
+        // Keyboard equivalent of double-clicking a note marker: edit its text or
+        // delete it via the (now accessible) Edit Note dialog.
+        mEditingMarker = marker;
+        mEditNoteDialog.setText(marker.mNote);
+        mEditNoteDialog.showDeleteButton(true);
+        mEditNoteDialog.setVisible(true);
+    }
+
+    void MapWindow::a11yAfterNoteDialog(const std::string& feedback)
+    {
+        // Only meaningful when the Notes submenu (the keyboard entry point) is
+        // open; a mouse-driven edit has no submenu to refresh.
+        if (!mA11y.submenuOpen())
+            return;
+        // Speak the outcome first (interrupting the stale row the resumed pane
+        // may have re-read), then re-snapshot the submenu against the current
+        // markers and announce where we land -- so the user hears e.g.
+        // "Note updated." followed by the new bearing label, or "Note deleted."
+        // followed by the next note (or the collapsed "Notes" option if that was
+        // the last one).
+        if (!feedback.empty())
+            A11y::say(feedback, /*interrupt=*/true);
+        mA11y.refreshSubmenu(/*announce=*/true);
     }
 
     void MapWindow::onMapDoubleClicked(MyGUI::Widget* /*sender*/)
@@ -1184,7 +1218,7 @@ namespace MWGui
         return line;
     }
 
-    std::vector<A11y::SubItem> MapWindow::a11yNoteItems() const
+    std::vector<A11y::SubItem> MapWindow::a11yNoteItems()
     {
         std::vector<A11y::SubItem> items;
         if (!mActiveCell)
@@ -1196,6 +1230,10 @@ namespace MWGui
                 const ESM::CustomMarker& marker = it->second;
                 A11y::SubItem item;
                 item.label = a11yBearingLabel(marker.mNote, marker.mWorldX, marker.mWorldY);
+                // Enter on a note opens the accessible Edit Note dialog for it
+                // (edit the text, or Delete / Cancel). Capture the marker by
+                // value -- the underlying collection can be reordered by edits.
+                item.activate = [this, marker] { a11yOpenNoteEditor(marker); };
                 items.push_back(std::move(item));
             }
         };
@@ -1673,11 +1711,39 @@ namespace MWGui
         mOkButton->eventMouseButtonClick += MyGUI::newDelegate(this, &EditNoteDialog::onOkButtonClicked);
         mDeleteButton->eventMouseButtonClick += MyGUI::newDelegate(this, &EditNoteDialog::onDeleteButtonClicked);
 
+        // Screen reader: the note text is an editable field with spoken
+        // editing feedback; the option list (text + buttons) is built per open.
+        mEditField.attach(mTextEdit);
+        mEditField.setActive(false);
+
         if (Settings::gui().mControllerMenus)
         {
             mControllerButtons.mA = "#{Interface:OK}";
             mControllerButtons.mB = "#{Interface:Cancel}";
         }
+    }
+
+    void EditNoteDialog::buildA11y()
+    {
+        mA11y.clear();
+        // The multi-line note box is an editable text field; arrow Down reaches
+        // the buttons. Enter on the field begins editing (Escape leaves edit
+        // mode); Enter on a button activates it. Built fresh each open since the
+        // Delete option only exists when editing an existing note.
+        mA11y.add({ .widget = mTextEdit, .label = "Note text",
+            .value =
+                [this] {
+                    const std::string text = getText();
+                    return text.empty() ? std::string("blank") : text;
+                },
+            .edit = &mEditField });
+        if (getDeleteButtonShown())
+            mA11y.add({ .widget = mDeleteButton, .label = mDeleteButton->getCaption().asUTF8(),
+                .activate = [this] { onDeleteButtonClicked(mDeleteButton); } });
+        mA11y.add({ .widget = mOkButton, .label = mOkButton->getCaption().asUTF8(),
+            .activate = [this] { onOkButtonClicked(mOkButton); } });
+        mA11y.add({ .widget = mCancelButton, .label = mCancelButton->getCaption().asUTF8(),
+            .activate = [this] { onCancelButtonClicked(mCancelButton); } });
     }
 
     void EditNoteDialog::showDeleteButton(bool show)
@@ -1706,6 +1772,23 @@ namespace MWGui
         center();
         MWBase::Environment::get().getWindowManager()->setKeyFocusWidget(mTextEdit);
 
+        // Screen reader: suspend whatever screen was active underneath (the Map
+        // pane that opened us) so it stops handling keys while we're up; we
+        // resume it on close. Then build our option list (the Delete option's
+        // presence depends on showDeleteButton, set just before this), land on
+        // the text field and baseline the edit field. We do NOT auto-enter edit
+        // mode (unlike the class description dialog): the user usually wants to
+        // read the existing note / pick Delete first, and can press Enter on
+        // the field to start editing.
+        mA11yPrev = A11y::UiManager::instance().active();
+        if (mA11yPrev)
+            mA11yPrev->suspend();
+        buildA11y();
+        mA11y.activate(mTextEdit);
+        mEditField.sync();
+        A11y::say("Edit note. Arrow down for options.", /*interrupt=*/true);
+        mEditField.announceContents("Note text");
+
         if (Settings::gui().mControllerMenus)
         {
             mControllerFocus = getDeleteButtonShown() ? 1 : 0;
@@ -1714,9 +1797,47 @@ namespace MWGui
         }
     }
 
+    void EditNoteDialog::onClose()
+    {
+        mA11y.deactivate();
+        a11yRestorePrevious();
+        WindowModal::onClose();
+    }
+
+    void EditNoteDialog::a11yRestorePrevious()
+    {
+        // Resume the screen we covered (the Map pane) so it handles keys again.
+        // The owner's eventOk/eventDelete/eventCancel callback then refreshes
+        // and announces, so don't re-announce here (avoids a stale-then-fresh
+        // pair). Guard against double-resume (onClose can run more than once).
+        if (mA11yPrev)
+        {
+            mA11yPrev->resume();
+            mA11yPrev = nullptr;
+        }
+    }
+
+    void EditNoteDialog::onFrame(float dt)
+    {
+        mEditField.onFrame();
+        mA11y.onFrame(dt);
+    }
+
+    bool EditNoteDialog::exit()
+    {
+        // An Escape that merely leaves text-edit mode must not also dismiss the
+        // dialog (the note box would be uneditable and OK unreachable). Swallow
+        // exactly that Escape; an Escape while navigating cancels as usual.
+        if (mA11y.inEditMode() || mA11y.consumeEditModeEscape())
+            return false;
+        onCancelButtonClicked(mCancelButton);
+        return true;
+    }
+
     void EditNoteDialog::onCancelButtonClicked(MyGUI::Widget* /*sender*/)
     {
         setVisible(false);
+        eventCancelClicked();
     }
 
     void EditNoteDialog::onOkButtonClicked(MyGUI::Widget* /*sender*/)

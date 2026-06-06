@@ -10,6 +10,7 @@
 
 #include "windowpinnablebase.hpp"
 
+#include "accessibility/editfield.hpp"
 #include "accessibility/screen.hpp"
 
 #include <components/esm3/custommarkerstate.hpp>
@@ -201,6 +202,9 @@ namespace MWGui
         EditNoteDialog();
 
         void onOpen() override;
+        void onClose() override;
+        void onFrame(float dt) override;
+        bool exit() override;
 
         void showDeleteButton(bool show);
         bool getDeleteButtonShown();
@@ -211,6 +215,9 @@ namespace MWGui
 
         EventHandle_Void eventDeleteClicked;
         EventHandle_Void eventOkClicked;
+        /// Accessibility: fired when the dialog is dismissed via Cancel / Escape
+        /// (no edit, no delete), so the owner can resume the covered screen.
+        EventHandle_Void eventCancelClicked;
 
         ControllerButtons* getControllerButtons() override;
 
@@ -219,13 +226,29 @@ namespace MWGui
         void onOkButtonClicked(MyGUI::Widget* sender);
         void onDeleteButtonClicked(MyGUI::Widget* sender);
 
-        MyGUI::TextBox* mTextEdit;
+        MyGUI::EditBox* mTextEdit;
         MyGUI::Button* mOkButton;
         MyGUI::Button* mCancelButton;
         MyGUI::Button* mDeleteButton;
 
         bool onControllerButtonEvent(const SDL_ControllerButtonEvent& arg) override;
         size_t mControllerFocus = 0;
+
+        // --- Screen-reader accessibility ---------------------------------
+        // Real-focus modal (the dialog is itself modal), modelled on the class
+        // DescriptionDialog: the note text is an editable field, followed by
+        // Delete (when shown) / OK / Cancel options navigated with Up/Down.
+        // Built fresh each open() since the Delete option's presence varies.
+        A11y::Screen mA11y;
+        A11y::EditField mEditField;
+        // The screen that was active when this dialog opened (e.g. the Map
+        // pane). Suspended on open, resumed on close -- mirrors
+        // ConfirmationDialog, and is necessary because once this dialog becomes
+        // the active screen the covered one's onFrame early-returns and can't
+        // reclaim input on its own.
+        A11y::Screen* mA11yPrev = nullptr;
+        void buildA11y();
+        void a11yRestorePrevious();
     };
 
     class MapWindow : public MWGui::WindowPinnableBase, public LocalMapBase, public NoDrop
@@ -370,8 +393,19 @@ namespace MWGui
         void buildAccessibility();
         // The current location name (window title text), or a fallback.
         std::string a11yLocationName() const;
-        // Submenu items for player note markers in the current cell(s).
-        std::vector<A11y::SubItem> a11yNoteItems() const;
+        // Submenu items for player note markers in the current cell(s). Each
+        // item's activate opens the (accessible) Edit Note dialog for its
+        // marker, so non-const.
+        std::vector<A11y::SubItem> a11yNoteItems();
+        // Open the accessible Edit Note dialog for an existing marker (Enter on
+        // a note in the Notes submenu). Sets mEditingMarker and shows the
+        // dialog with its Delete option.
+        void a11yOpenNoteEditor(const ESM::CustomMarker& marker);
+        // Called after the Edit Note dialog closes (edit / delete / cancel) to
+        // refresh the open Notes submenu against the now-current markers and
+        // speak \p feedback first (e.g. "Note updated"). Empty feedback just
+        // re-reads the current item.
+        void a11yAfterNoteDialog(const std::string& feedback);
         // Format "<name>, <direction>, <distance> metres" for a world position
         // relative to the player.
         std::string a11yBearingLabel(const std::string& name, float worldX, float worldY) const;

@@ -31,6 +31,12 @@ namespace MWGui::A11y
         /// Optional tooltip lines for this item, cycled with T / Shift+T while
         /// the submenu is open. Recomputed on demand.
         std::function<std::vector<std::string>()> tooltips;
+
+        /// Enter / Space activation handler for this submenu item. Optional;
+        /// leave empty for a read-only item. Lets a submenu offer per-item
+        /// actions (e.g. a map note opening its edit dialog) without the
+        /// framework needing to know what the item is.
+        std::function<void()> activate;
     };
 
     /// Declarative description of one navigable option on an accessible screen.

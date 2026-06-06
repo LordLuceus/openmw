@@ -17,6 +17,9 @@ Newest changes are listed first. (OpenMW's own engine changelog lives in
 - **Elevation cues.** Scanner and waypoint announcements now tell you when a
   target is above or below you (for example, "3 metres up"), so multi-level
   areas are easier to navigate.
+- **Edit and delete map notes.** In the map's Notes list, press Enter on a note
+  to open it: change its text, or delete it (with a confirmation), all narrated
+  by the screen reader.
 
 ## 2026-06-05
 

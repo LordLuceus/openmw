@@ -118,6 +118,19 @@ namespace MWGui::A11y
         /// Re-announce the current option's label + value.
         void announceCurrent();
 
+        /// If an expandable submenu is currently open, re-snapshot its child
+        /// items from the parent option's children() closure (so live data
+        /// changes are reflected), clamp the selection to the new size, and --
+        /// when \p announce is true -- re-announce the now-current item. If the
+        /// list became empty the submenu collapses back to its parent option.
+        /// No-op when no submenu is open. Use after an action mutates the data
+        /// behind an open submenu (e.g. editing or deleting a map note).
+        void refreshSubmenu(bool announce = true);
+
+        /// True while an expandable submenu is open. Lets an owner decide
+        /// whether to refresh the submenu or the top-level list after a change.
+        bool submenuOpen() const { return mSubOpen; }
+
         /// The current option's label, or empty if nothing is selected. Useful
         /// for preserving selection across a clear()/rebuild of a dynamic
         /// screen whose options have no backing widget to refocus.
