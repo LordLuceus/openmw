@@ -24,6 +24,9 @@
 #include "../mwmechanics/actorutil.hpp"
 #include "../mwmechanics/creaturestats.hpp"
 
+#include "accessibility/itemtext.hpp"
+#include "accessibility/panegroup.hpp"
+#include "accessibility/speech.hpp"
 #include "containeritemmodel.hpp"
 #include "countdialog.hpp"
 #include "inventorywindow.hpp"
@@ -148,6 +151,16 @@ namespace MWGui
         getWidget(mItemView, "ItemView");
         mItemView->eventItemClicked += MyGUI::newDelegate(this, &TradeWindow::onItemSelected);
 
+        // Screen reader: the merchant's items are model-backed (drawn by the
+        // ItemView, not per-item widgets), so navigate them virtually by index
+        // like the container window. An invisible anchor holds key focus; the
+        // option list is rebuilt by a11yBuild().
+        mA11yAnchor = mMainWidget->createWidget<MyGUI::Widget>(
+            {}, MyGUI::IntCoord(0, 0, 1, 1), MyGUI::Align::Default);
+        mA11yAnchor->setNeedKeyFocus(true);
+        mA11y.setVirtualFocus(mA11yAnchor);
+        mA11y.setExtraKeyHandler([this](MyGUI::KeyCode key) { return a11yHandleBalanceKey(key); });
+
         mFilterAll->setStateSelected(true);
 
         mFilterAll->eventMouseButtonClick += MyGUI::newDelegate(this, &TradeWindow::onFilterChanged);
@@ -231,6 +244,17 @@ namespace MWGui
         // Cycle to the buy window if it's not active.
         if (Settings::gui().mControllerMenus && !mActiveControllerWindow)
             MWBase::Environment::get().getWindowManager()->cycleActiveControllerWindow(true);
+
+        // Screen reader: barter shows the merchant's goods here next to the
+        // player's inventory window. Enrol both as panes (merchant = 0, the
+        // inventory enrols itself as 1) so Tab switches between buying and
+        // selling. Build our option list now; the PaneGroup decides which pane
+        // claims focus first (the lowest order, i.e. the merchant).
+        mA11yLastSig = -1; // force a rebuild on the first barter frame
+        a11yBuild();
+        // Label the merchant pane with the trader's name (the window title), so
+        // Tabbing to it announces e.g. "Arrille's goods" vs "Inventory".
+        A11y::PaneGroup::instance().enrol(&mA11y, std::string(actor.getClass().getName(actor)), 0);
     }
 
     void TradeWindow::onFrame(float dt)
@@ -246,6 +270,56 @@ namespace MWGui
             updateOffer();
             mUpdateNextFrame = false;
         }
+
+        // Screen reader: rebuild the spoken list whenever the merchant's items
+        // change -- an item bought (moves to the player's pane as on-offer), a
+        // borrowed item returned, or a partial-stack offer. Driven off a content
+        // signature rather than mUpdateNextFrame because a buy updates the model
+        // synchronously without firing onInventoryUpdate, and the initial -1
+        // forces a rebuild on the first barter frame (after which the labels are
+        // valid). Preserve the cursor position silently.
+        if (A11y::PaneGroup::instance().contains(&mA11y))
+        {
+            const long long sig = a11yTradeSignature();
+            if (sig != mA11yLastSig)
+            {
+                // The very first build (seed -1) sets up labels silently; later
+                // changes are user-driven, so announce the item the cursor lands
+                // on -- but only when this pane is the active one (the other
+                // pane shouldn't speak when the user acts here).
+                const bool announce = mA11yLastSig != -1 && mA11y.isActive();
+                mA11yLastSig = sig;
+                const size_t cursor = mA11y.currentIndex();
+                a11yBuild();
+                const size_t count = mSortModel ? mSortModel->getItemCount() : 0;
+                if (cursor != A11y::Screen::npos && count > 0)
+                    mA11y.selectIndex(std::min(cursor, count - 1), announce);
+            }
+
+            // Let the PaneGroup claim focus for the pane the user should land on.
+            A11y::PaneGroup::instance().maybeActivateInitial(&mA11y);
+        }
+
+        mA11y.onFrame(dt);
+    }
+
+    long long TradeWindow::a11yTradeSignature() const
+    {
+        // Fold the merchant list's size and each stack's count + barter state
+        // into a cheap rolling hash. Any borrow/return/partial-offer changes it.
+        if (!mSortModel)
+            return 0;
+        long long sig = 1469598103934665603LL; // FNV offset basis
+        const auto mix = [&sig](long long v) { sig = (sig ^ v) * 1099511628211LL; };
+        const size_t count = mSortModel->getItemCount();
+        mix(static_cast<long long>(count));
+        for (size_t i = 0; i < count; ++i)
+        {
+            const ItemStack item = mSortModel->getItem(static_cast<int>(i));
+            mix(static_cast<long long>(item.mCount));
+            mix(static_cast<long long>(item.mType));
+        }
+        return sig;
     }
 
     void TradeWindow::onNameFilterChanged(MyGUI::EditBox* sender)
@@ -668,9 +742,16 @@ namespace MWGui
 
     void TradeWindow::onClose()
     {
+        // Screen reader: leave the pane group and release key focus. Done even
+        // when only temporarily hidden (a sub-mode like a count dialog) -- it
+        // re-enrols on the next setPtr / onFrame.
+        A11y::PaneGroup::instance().withdraw(&mA11y);
+        mA11y.deactivate();
+
         // Make sure the window was actually closed and not temporarily hidden.
         if (MWBase::Environment::get().getWindowManager()->containsMode(GM_Barter))
             return;
+        A11y::PaneGroup::instance().resetMemory();
         resetReference();
     }
 
@@ -774,5 +855,156 @@ namespace MWGui
     {
         if (mTradeModel && mTradeModel->usesContainer(ptr))
             mUpdateNextFrame = true;
+    }
+
+    // --- Screen-reader accessibility -------------------------------------
+
+    std::string TradeWindow::a11yItemLabel(const ItemStack& item)
+    {
+        std::string label = std::string(item.mBase.getClass().getName(item.mBase));
+        if (item.mCount > 1)
+            label += " (" + std::to_string(item.mCount) + ")";
+
+        // Most rows are the merchant's goods, priced at what the player would PAY
+        // to buy them. But a Type_Barter row here is one of the player's own
+        // items, lent to the merchant as a pending sale -- so it carries the
+        // SELLING price instead, matching its contribution to the balance.
+        const bool onOffer = item.mType == ItemStack::Type_Barter;
+        const int basePrice = getEffectiveValue(item.mBase, static_cast<int>(item.mCount));
+        const int cap = static_cast<int>(std::max(1.f, 0.75f * basePrice));
+        int price;
+        if (onOffer)
+        {
+            const int sellingPrice
+                = MWBase::Environment::get().getMechanicsManager()->getBarterOffer(mPtr, basePrice, false);
+            price = mPtr.getClass().isNpc() ? std::min(cap, sellingPrice) : sellingPrice;
+        }
+        else
+        {
+            const int buyingPrice
+                = MWBase::Environment::get().getMechanicsManager()->getBarterOffer(mPtr, basePrice, true);
+            price = std::max(cap, buyingPrice);
+        }
+
+        MWBase::WindowManager* winMgr = MWBase::Environment::get().getWindowManager();
+        label += ", " + std::string(winMgr->getGameSettingString("sValue", "Value")) + " " + std::to_string(price);
+
+        // Items the player has put up for sale are lent to the merchant and show
+        // here marked Type_Barter. Enter on such a row retracts the offer
+        // (returns the item), so flag the state for the user. No vanilla GMST
+        // means "on offer", so use a bare literal like the other a11y labels.
+        if (onOffer)
+            label += ", on offer";
+        return label;
+    }
+
+    void TradeWindow::a11yBuild()
+    {
+        mA11y.clear();
+        if (!mSortModel)
+            return;
+
+        for (size_t i = 0; i < mSortModel->getItemCount(); ++i)
+        {
+            const int index = static_cast<int>(i);
+            const ItemStack item = mSortModel->getItem(index);
+            mA11y.add({ .widget = nullptr,
+                .label = a11yItemLabel(item),
+                .tooltips = [base = item.mBase, count = item.mCount]
+                { return A11y::itemTooltipLines(base, static_cast<int>(count)); },
+                .activate = [this, index] { a11yBuyItem(index); } });
+        }
+    }
+
+    void TradeWindow::a11yBuyItem(int sortIndex)
+    {
+        if (!mSortModel || sortIndex < 0 || sortIndex >= static_cast<int>(mSortModel->getItemCount()))
+            return;
+
+        // onItemSelected already does the right thing for a click: it borrows
+        // the item to the player (or opens a count picker for a stack), updating
+        // the offer. Reuse it so buying stays consistent with the mouse path.
+        onItemSelected(sortIndex);
+    }
+
+    void TradeWindow::a11yAnnounceBalance(bool interrupt)
+    {
+        MWBase::WindowManager* winMgr = MWBase::Environment::get().getWindowManager();
+        const int balance = std::abs(mCurrentBalance);
+        // mCurrentBalance < 0 means the player pays (total cost); >= 0 means the
+        // player receives (total sold).
+        const std::string label = mCurrentBalance < 0
+            ? std::string(winMgr->getGameSettingString("sTotalCost", "Total cost"))
+            : std::string(winMgr->getGameSettingString("sTotalSold", "Total sold"));
+        A11y::say(label + ": " + std::to_string(balance), interrupt);
+    }
+
+    void TradeWindow::a11yAdjustBalance(int delta)
+    {
+        // Reuse the increase/decrease button logic so clamping/sign handling
+        // stays identical to the mouse path, then announce the new balance.
+        if (delta > 0)
+            for (int i = 0; i < delta; ++i)
+                onIncreaseButtonTriggered();
+        else
+            for (int i = 0; i < -delta; ++i)
+                onDecreaseButtonTriggered();
+        a11yAnnounceBalance(/*interrupt=*/true);
+    }
+
+    void TradeWindow::a11yOfferCountDialog()
+    {
+        // Mirror the controller X-button path: a count dialog to type an exact
+        // offer amount. No-op when nothing has been added to the trade.
+        if (mCurrentBalance == 0)
+        {
+            a11yAnnounceBalance(/*interrupt=*/true);
+            return;
+        }
+
+        CountDialog* dialog = MWBase::Environment::get().getWindowManager()->getCountDialog();
+        if (mCurrentBalance < 0)
+        {
+            dialog->openCountDialog("#{sTotalcost}:", "#{sOffer}", -mCurrentMerchantOffer);
+            dialog->setCount(-mCurrentBalance);
+        }
+        else
+        {
+            dialog->openCountDialog("#{sTotalsold}:", "#{sOffer}", getMerchantGold());
+            dialog->setCount(mCurrentBalance);
+        }
+        dialog->eventOkClicked.clear();
+        dialog->eventOkClicked += MyGUI::newDelegate(this, &TradeWindow::onOfferSubmitted);
+    }
+
+    void TradeWindow::a11ySubmitOffer()
+    {
+        onOfferButtonClicked(mOfferButton);
+    }
+
+    bool TradeWindow::a11yHandleBalanceKey(MyGUI::KeyCode key)
+    {
+        switch (key.getValue())
+        {
+            case MyGUI::KeyCode::B:
+                a11yAnnounceBalance(/*interrupt=*/true);
+                return true;
+            case MyGUI::KeyCode::Equals:
+            case MyGUI::KeyCode::Add:
+                a11yAdjustBalance(MyGUI::InputManager::getInstance().isShiftPressed() ? 100 : 1);
+                return true;
+            case MyGUI::KeyCode::Minus:
+            case MyGUI::KeyCode::Subtract:
+                a11yAdjustBalance(MyGUI::InputManager::getInstance().isShiftPressed() ? -100 : -1);
+                return true;
+            case MyGUI::KeyCode::C:
+                a11yOfferCountDialog();
+                return true;
+            case MyGUI::KeyCode::O:
+                a11ySubmitOffer();
+                return true;
+            default:
+                return false;
+        }
     }
 }

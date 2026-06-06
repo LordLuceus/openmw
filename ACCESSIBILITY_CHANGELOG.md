@@ -6,6 +6,14 @@ Newest changes are listed first. (OpenMW's own engine changelog lives in
 
 ## 2026-06-06
 
+- **Bartering.** Trading with a merchant is now screen-reader accessible. Tab
+  and Shift+Tab switch between the merchant's goods and your own inventory; each
+  item announces its name, how many, and its barter price. Press Enter to add an
+  item to the deal (buy from the merchant, or sell from your inventory) and Enter
+  again on an item marked "on offer" to take it back off the table. Adjust the
+  running deal with the balance keys: B reads the current total, plus and minus
+  change it by one (hold Shift for 100), C types in an exact amount, and O makes
+  the offer.
 - **Waypoints.** Drop a map note anywhere with the N key, then scan, face, and
   walk to your dropped notes, Marked locations, and existing map notes in the
   current area. The audio beacon works with waypoints too.

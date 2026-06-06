@@ -178,6 +178,15 @@ namespace MWGui
                 A11y::say(a11yEncumbranceValue(), /*interrupt=*/true);
                 return true;
             }
+            // In barter, the balance/offer keys are shared with the merchant
+            // pane: forward them so the player can read and adjust the running
+            // total and submit the offer from the inventory side too.
+            if (mTrading)
+            {
+                TradeWindow* trade = MWBase::Environment::get().getWindowManager()->getTradeWindow();
+                if (trade && trade->a11yHandleBalanceKey(key))
+                    return true;
+            }
             return false;
         });
 
@@ -327,16 +336,73 @@ namespace MWGui
 
     std::string InventoryWindow::a11yItemLabel(const ItemStack& item) const
     {
+        MWBase::WindowManager* winMgr = MWBase::Environment::get().getWindowManager();
         std::string label = std::string(item.mBase.getClass().getName(item.mBase));
         if (item.mCount > 1)
             label += " (" + std::to_string(item.mCount) + ")";
         // Surface the equipped state, which is the inventory's key extra signal
         // over a plain container list.
         if (item.mType == ItemStack::Type_Equipped)
-            label += ", "
-                + std::string(MWBase::Environment::get().getWindowManager()->getGameSettingString(
-                    "sEquip", "Equipped"));
+            label += ", " + std::string(winMgr->getGameSettingString("sEquip", "Equipped"));
+        // In barter mode, append the barter price for this stack so the player
+        // can judge it without adding it to the offer first. Most rows are the
+        // player's own goods, priced at what the merchant would PAY for them
+        // (selling price). But a Type_Barter row here is a merchant item the
+        // player is buying (lent to us, pending purchase) -- so it carries the
+        // BUYING price instead, matching its contribution to the balance.
+        const bool onOffer = item.mType == ItemStack::Type_Barter;
+        if (mTrading && !mPtr.isEmpty())
+        {
+            float price = static_cast<float>(item.mBase.getClass().getValue(item.mBase));
+            if (item.mBase.getClass().hasItemHealth(item.mBase))
+                price *= item.mBase.getClass().getItemNormalizedHealth(item.mBase);
+            const int basePrice = static_cast<int>(price * item.mCount);
+            const MWWorld::Ptr merchant = winMgr->getTradeWindow()->mPtr;
+            int shownPrice = basePrice;
+            if (!merchant.isEmpty())
+            {
+                const int cap = static_cast<int>(std::max(1.f, 0.75f * basePrice));
+                if (onOffer)
+                {
+                    const int buyingPrice
+                        = MWBase::Environment::get().getMechanicsManager()->getBarterOffer(merchant, basePrice, true);
+                    shownPrice = std::max(cap, buyingPrice);
+                }
+                else
+                {
+                    const int offer
+                        = MWBase::Environment::get().getMechanicsManager()->getBarterOffer(merchant, basePrice, false);
+                    shownPrice = merchant.getClass().isNpc() ? std::min(cap, offer) : offer;
+                }
+            }
+            label += ", " + std::string(winMgr->getGameSettingString("sValue", "Value")) + " "
+                + std::to_string(shownPrice);
+        }
+        // Items bought from the merchant (not yet paid for) are lent to the
+        // player and show here marked Type_Barter. Enter retracts the purchase.
+        if (mTrading && onOffer)
+            label += ", on offer";
         return label;
+    }
+
+    long long InventoryWindow::a11yTradeSignature() const
+    {
+        // Fold the item list's size and each stack's count + barter state into a
+        // cheap rolling hash. Any sale/purchase/retraction changes it. Mirrors
+        // TradeWindow::a11yTradeSignature.
+        if (!mSortModel)
+            return 0;
+        long long sig = 1469598103934665603LL; // FNV offset basis
+        const auto mix = [&sig](long long v) { sig = (sig ^ v) * 1099511628211LL; };
+        const size_t count = mSortModel->getItemCount();
+        mix(static_cast<long long>(count));
+        for (size_t i = 0; i < count; ++i)
+        {
+            const ItemStack item = mSortModel->getItem(static_cast<int>(i));
+            mix(static_cast<long long>(item.mCount));
+            mix(static_cast<long long>(item.mType));
+        }
+        return sig;
     }
 
     std::string InventoryWindow::a11yCategoryName() const
@@ -465,6 +531,20 @@ namespace MWGui
             mSelectedItem = sourceIndex;
             dropItem(nullptr, count);
             a11yStartFollowing(item);
+            return;
+        }
+
+        // In barter mode, Enter sells (borrows the item to the merchant)
+        // instead of equipping. onItemSelectedFromSourceModel runs the same
+        // trade path the mouse uses: it validates the item is sellable and
+        // opens the accessible count picker for a stack, otherwise sells one.
+        // Don't use the equip-follow mechanism here: borrowing fires no
+        // onInventoryUpdate, so the spoken list is instead rebuilt off the trade
+        // signature in onFrame (which also catches the deferred count-dialog
+        // confirm). Keep the cursor where it is.
+        if (mTrading)
+        {
+            onItemSelectedFromSourceModel(sourceIndex);
             return;
         }
 
@@ -852,11 +932,13 @@ namespace MWGui
 
         // Screen reader: in the standalone inventory the window is shown next to
         // Stats/Spells/Map, so enrol in the PaneGroup (Inventory = pane 1) and
-        // let Tab switch between them. In trade/container/companion modes the
-        // inventory shares the screen with a different window and the a11y flow
-        // is driven from there, so don't enrol here.
-        if (mGuiMode == GM_Inventory)
+        // let Tab switch between them. In barter mode it's shown next to the
+        // merchant's TradeWindow (which enrols itself as pane 0), so enrol here
+        // too -- selling happens in this pane. Container/companion modes are
+        // driven from the other window, so don't enrol there.
+        if (mGuiMode == GM_Inventory || mGuiMode == GM_Barter)
         {
+            mA11yLastTradeSig = -1; // force a barter rebuild on the first frame
             buildAccessibility();
             A11y::PaneGroup::instance().enrol(&mA11y,
                 std::string(
@@ -1149,6 +1231,39 @@ namespace MWGui
         mA11yFilterEdit.onFrame();
 
         a11yUpdateFollow(contentUpdated, dt);
+
+        // Barter: rebuild the spoken list when the trade contents change (a sale,
+        // a retracted purchase, a partial-stack offer). Selling borrows the item
+        // to the merchant, which fires no onInventoryUpdate, and the count-dialog
+        // confirm lands several frames later -- so poll a content signature here
+        // rather than relying on contentUpdated or the equip-follow path. The -1
+        // seed forces a rebuild on the first barter frame, after setTrading() has
+        // run, fixing prices/labels that were built before mTrading was set.
+        if (mTrading && A11y::PaneGroup::instance().contains(&mA11y))
+        {
+            const long long sig = a11yTradeSignature();
+            if (sig != mA11yLastTradeSig)
+            {
+                // First build (seed -1) is silent; later changes are user-driven,
+                // so announce the item the cursor lands on -- but only when this
+                // pane is the active one (a sale here also mutates the merchant
+                // pane, which must stay silent).
+                const bool announce = mA11yLastTradeSig != -1 && mA11y.isActive();
+                mA11yLastTradeSig = sig;
+                const size_t cursor = mA11y.currentIndex();
+                buildAccessibility();
+                const size_t itemCount = mSortModel ? mSortModel->getItemCount() : 0;
+                if (cursor != A11y::Screen::npos)
+                {
+                    if (cursor < mA11yItemBase)
+                        mA11y.selectIndex(cursor, announce);
+                    else if (itemCount > 0)
+                        mA11y.selectIndex(mA11yItemBase + std::min(cursor - mA11yItemBase, itemCount - 1), announce);
+                    else
+                        mA11y.selectIndex(mA11yItemBase - 1, announce); // no items: category row
+                }
+            }
+        }
 
         // When the user finishes editing the name filter, the matching set of
         // items has changed: rebuild the spoken list (the on-screen ItemView is
