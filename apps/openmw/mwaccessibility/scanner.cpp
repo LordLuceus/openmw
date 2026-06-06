@@ -395,6 +395,16 @@ namespace MWAccessibility
 
     void Scanner::onFrame(float dt)
     {
+        // Re-arm the cell-name baseline whenever no game is loaded, so the
+        // first cell of a freshly-loaded save / new game is recorded silently
+        // (the player already knows where they start). This keys on the running
+        // state -- NOT isGameplayActive(), which is also false during menus and
+        // dialogue; we must stay primed across those so closing a menu doesn't
+        // re-announce the current cell.
+        if (MWBase::Environment::get().getStateManager()->getState()
+            != MWBase::StateManager::State_Running)
+            mCellNamePrimed = false;
+
         if (!isGameplayActive())
             return;
 
@@ -433,6 +443,11 @@ namespace MWAccessibility
                 s.mIndex = -1;
                 s.mDirty = true;
             }
+
+            // Speak the new cell's name on entry, but only when it differs from
+            // the last announced one -- cities span many same-named cells, so
+            // we don't want "Balmora" repeated as the player walks across it.
+            announceCellChange();
         }
 
         // Prune objects that have left the world (e.g. an item the player just
@@ -922,6 +937,47 @@ namespace MWAccessibility
             speak("Unknown location.");
         else
             speak(std::string(name));
+    }
+
+    void Scanner::announceCellChange()
+    {
+        MWBase::World* world = MWBase::Environment::get().getWorld();
+        MWWorld::Ptr player = world->getPlayerPtr();
+        if (player.isEmpty())
+            return;
+        MWWorld::CellStore* cell = player.getCell();
+        if (!cell)
+            return;
+
+        // getCellName resolves to the interior name or the exterior
+        // region/named-cell string; it may contain a #{...} tag. Resolve tags
+        // first so the comparison (and the spoken text) uses the final display
+        // string -- two differently-tagged names that resolve identically
+        // shouldn't be re-announced.
+        std::string_view raw = world->getCellName(cell);
+        if (raw.empty())
+        {
+            // An unnamed exterior wilderness cell: don't announce, and don't
+            // disturb the last-named location, so leaving and re-entering a
+            // named place still re-announces it correctly.
+            return;
+        }
+
+        std::string name = MyGUI::LanguageManager::getInstance().replaceTags(std::string(raw)).asUTF8();
+        if (name.empty() || name == mLastAnnouncedCellName)
+            return;
+
+        // First cell of this game session: record it silently. The player knows
+        // where they just loaded in; only announce subsequent transitions.
+        if (!mCellNamePrimed)
+        {
+            mCellNamePrimed = true;
+            mLastAnnouncedCellName = name;
+            return;
+        }
+
+        mLastAnnouncedCellName = name;
+        speak(name);
     }
 
     void Scanner::announceFacing()

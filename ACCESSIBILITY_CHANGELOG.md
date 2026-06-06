@@ -20,6 +20,10 @@ Newest changes are listed first. (OpenMW's own engine changelog lives in
 - **Edit and delete map notes.** In the map's Notes list, press Enter on a note
   to open it: change its text, or delete it (with a confirmation), all narrated
   by the screen reader.
+- **Location announcements.** The name of a new area is spoken automatically as
+  you enter it. It won't repeat as you move between the cells that make up a
+  single city (so you won't hear "Balmora" over and over), and it stays quiet
+  when you first load a save.
 
 ## 2026-06-05
 

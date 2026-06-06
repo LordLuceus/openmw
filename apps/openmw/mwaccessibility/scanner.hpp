@@ -198,6 +198,23 @@ namespace MWAccessibility
         // moves to a new cell.
         const void* mLastCellId = nullptr;
 
+        // The last cell name we announced on entry. Cities span several cells
+        // that all share one name (e.g. every Balmora exterior cell is named
+        // "Balmora"), so we announce only when the resolved name actually
+        // changes -- not on every cell-grid shift. Empty until the first
+        // announcement. Stores the resolved (tag-substituted) display string so
+        // the comparison matches what the player hears.
+        std::string mLastAnnouncedCellName;
+        // False until the cell name has been baselined for the current game
+        // session. The first cell entered after a save load / new game (when
+        // the player already knows where they are) is recorded silently rather
+        // than announced; reset to false whenever no game is running so each
+        // freshly-loaded game is primed afresh.
+        bool mCellNamePrimed = false;
+        // Announce the player's current cell name if it differs from the last
+        // one announced (see mLastAnnouncedCellName). Called on cell change.
+        void announceCellChange();
+
         AutoWalker mAutoWalker;
         ProximityCue mProximityCue;
 
