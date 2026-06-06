@@ -17,6 +17,8 @@
 #include "../mwbase/journal.hpp"
 #include "../mwbase/windowmanager.hpp"
 
+#include "accessibility/screen.hpp"
+#include "accessibility/speech.hpp"
 #include "bookpage.hpp"
 #include "journalbooks.hpp"
 #include "journalviewmodel.hpp"
@@ -59,6 +61,33 @@ namespace
         bool mOptionsMode;
         bool mTopicsMode;
         bool mAllQuests;
+
+        // Screen reader: which of the two visible pages (the spread) is current
+        // for reading. false = left, true = right. Up/Down turn the whole
+        // spread (resetting this to the left page); Left/Right move between the
+        // spread's two pages, reading each. See a11yReadCurrentPage.
+        bool mA11yRightPage = false;
+        // Virtual-focus accessibility screen. The journal's page text isn't a
+        // list of navigable options, so this registers NO elements: the anchor
+        // merely captures keys (so the engine's button-focus navigation can't
+        // hijack the arrows) which we route through the extra-key handler. It
+        // also gives us the framework's built-in R reread for free. Mirrors the
+        // ScrollWindow / BookWindow pattern.
+        MWGui::A11y::Screen mA11y;
+        MyGUI::Widget* mA11yAnchor = nullptr;
+
+        // Which screen-reader view is active. Reading = the entry pages (no
+        // navigable options; arrows turn pages via the extra-key handler). The
+        // others register one widget-less option per list item and let the
+        // framework navigate them; Enter opens the selected item.
+        enum class A11yView
+        {
+            Reading,    // journal/topic/quest entry pages
+            TopicIndex, // the A-Z letter grid
+            TopicList,  // topics starting with a chosen letter
+            Quests,     // quest names (active or all, per mAllQuests)
+        };
+        A11yView mA11yView = A11yView::Reading;
 
         template <typename T>
         T* getWidget(std::string_view name)
@@ -234,6 +263,84 @@ namespace
             mAllQuests = false;
             mOptionsMode = false;
             mTopicsMode = false;
+
+            // Screen-reader setup: an invisible, non-Button anchor holds key
+            // focus so the engine's spatial button navigation can't steal the
+            // arrow keys (which made Left/Right flaky). We register no options;
+            // all page navigation is handled in the extra-key handler, and R
+            // reread is provided by the framework.
+            mA11yAnchor = mMainWidget->createWidget<MyGUI::Widget>(
+                {}, MyGUI::IntCoord(0, 0, 1, 1), MyGUI::Align::Default);
+            mA11yAnchor->setNeedKeyFocus(true);
+            mA11y.setVirtualFocus(mA11yAnchor);
+            mA11y.setExtraKeyHandler([this](MyGUI::KeyCode key) { return a11yHandleKey(key); });
+        }
+
+        // Extra-key handler for the screen reader. Returns true if the key was
+        // consumed (so the framework's own navigation doesn't also act on it).
+        //
+        // In the Reading view the page text isn't a list of options, so we
+        // drive paging ourselves: Up/Down turn a two-page spread, Left/Right
+        // step single pages. T opens the Topics browser, Q the Quests list.
+        //
+        // In the list views (TopicIndex / TopicList / Quests) navigation and
+        // Enter are handled by the framework (the items are real options); here
+        // we only add Tab/Shift+Tab to switch between the Topics and Quests
+        // browsers (mirroring the stats/options menus) and Escape/Backspace to
+        // step back out.
+        bool a11yHandleKey(MyGUI::KeyCode key)
+        {
+            if (mA11yView == A11yView::Reading)
+            {
+                switch (key.getValue())
+                {
+                    case MyGUI::KeyCode::ArrowUp:
+                        a11ySpreadPrev(mA11yAnchor);
+                        return true;
+                    case MyGUI::KeyCode::ArrowDown:
+                        a11ySpreadNext(mA11yAnchor);
+                        return true;
+                    case MyGUI::KeyCode::ArrowLeft:
+                        a11yPageLeft(mA11yAnchor);
+                        return true;
+                    case MyGUI::KeyCode::ArrowRight:
+                        a11yPageRight(mA11yAnchor);
+                        return true;
+                    case MyGUI::KeyCode::T:
+                        a11yOpenTopics();
+                        return true;
+                    case MyGUI::KeyCode::Q:
+                        a11yOpenQuests(/*allQuests=*/false);
+                        return true;
+                    default:
+                        return false;
+                }
+            }
+
+            // List views.
+            switch (key.getValue())
+            {
+                case MyGUI::KeyCode::Tab:
+                {
+                    // Tab / Shift+Tab cycle between the two browsers (Topics and
+                    // Quests), like switching tabs in the stats/options menus.
+                    const bool shift = MyGUI::InputManager::getInstance().isShiftPressed();
+                    a11yCycleBrowser(shift ? -1 : 1);
+                    return true;
+                }
+                case MyGUI::KeyCode::Backspace:
+                    // Step back: a chosen letter's topic list returns to the
+                    // index; the index / quest list returns to reading.
+                    a11yBackOut();
+                    return true;
+                case MyGUI::KeyCode::Escape:
+                    // Let a top-level Escape close the window as usual, but from
+                    // a list view first step back to reading.
+                    a11yBackOut();
+                    return true;
+                default:
+                    return false;
+            }
         }
 
         void onOpen() override
@@ -263,11 +370,20 @@ namespace
             if (Settings::gui().mControllerMenus)
                 setControllerFocusedQuest(0);
 
-            MWBase::Environment::get().getWindowManager()->setKeyFocusWidget(getWidget<MyGUI::Widget>(CloseBTN));
+            // Screen reader: take input via the virtual anchor (no options
+            // registered) so arrows reach our extra-key handler instead of the
+            // engine's button navigation, then read the page we opened on (the
+            // most recent entries). Up/Down turn spreads, Left/Right step pages.
+            mA11y.activate();
+            mA11yView = A11yView::Reading;
+            mA11yRightPage = false;
+            a11yReadCurrentPage();
         }
 
         void onClose() override
         {
+            mA11y.deactivate();
+            MWGui::A11y::clearReread();
             mModel->unload();
 
             getPage(LeftBookPage)->showPage({}, 0);
@@ -278,6 +394,8 @@ namespace
 
             mTopicIndexBook.reset();
         }
+
+        void onFrame(float dt) override { mA11y.onFrame(dt); }
 
         void setVisible(bool newValue) override { WindowBase::setVisible(newValue); }
 
@@ -412,12 +530,316 @@ namespace
             MWBase::Environment::get().getWindowManager()->updateControllerButtonsOverlay();
         }
 
+        // --- Screen-reader page reading ----------------------------------
+        // Speak the page currently selected for reading (left or right of the
+        // visible spread), as a rereadable announcement so R repeats it. The
+        // page number is spoken last, per the positional-info-at-the-end
+        // convention. No-op outside book mode (the options / topic-index
+        // screens aren't read here).
+        void a11yReadCurrentPage()
+        {
+            if (mOptionsMode || mStates.empty())
+                return;
+            const std::shared_ptr<MWGui::TypesetBook>& book = mStates.top().mBook;
+            if (!book)
+                return;
+            const size_t pageCount = book->pageCount();
+            const size_t page = mStates.top().mPage + (mA11yRightPage ? 1 : 0);
+            if (page >= pageCount)
+                return;
+
+            std::string text = book->getPageText(page);
+            if (text.empty())
+                text = "Blank page";
+            text += "\nPage ";
+            text += std::to_string(page + 1);
+            text += " of ";
+            text += std::to_string(pageCount);
+            text += '.';
+            MWGui::A11y::sayRereadable(text, /*interrupt=*/true);
+        }
+
+        // Up/Down turn a whole two-page spread (the native behaviour), landing
+        // on its left page; Left/Right step one page at a time within and
+        // across spreads. Each reads the page it lands on.
+        void a11ySpreadNext(MyGUI::Widget* sender)
+        {
+            notifyNextPage(sender);
+            mA11yRightPage = false;
+            a11yReadCurrentPage();
+        }
+
+        void a11ySpreadPrev(MyGUI::Widget* sender)
+        {
+            notifyPrevPage(sender);
+            mA11yRightPage = false;
+            a11yReadCurrentPage();
+        }
+
+        void a11yPageRight(MyGUI::Widget* sender)
+        {
+            if (mOptionsMode || mStates.empty())
+                return;
+            const std::shared_ptr<MWGui::TypesetBook>& book = mStates.top().mBook;
+            const size_t base = mStates.top().mPage;
+            const size_t pageCount = book ? book->pageCount() : 0;
+            if (!mA11yRightPage && base + 1 < pageCount)
+                mA11yRightPage = true; // right page of the current spread
+            else if (mA11yRightPage && base + 2 < pageCount)
+            {
+                notifyNextPage(sender); // first page of the next spread
+                mA11yRightPage = false;
+            }
+            // else: already on the last page -- re-read it.
+            a11yReadCurrentPage();
+        }
+
+        void a11yPageLeft(MyGUI::Widget* sender)
+        {
+            if (mOptionsMode || mStates.empty())
+                return;
+            const size_t base = mStates.top().mPage;
+            if (mA11yRightPage)
+                mA11yRightPage = false; // left page of the current spread
+            else if (base >= 2)
+            {
+                notifyPrevPage(sender); // second page of the previous spread
+                mA11yRightPage = true;
+            }
+            // else: already on the very first page -- re-read it.
+            a11yReadCurrentPage();
+        }
+
         void notifyKeyPress(MyGUI::Widget* sender, MyGUI::KeyCode key, MyGUI::Char character)
         {
             if (key == MyGUI::KeyCode::ArrowUp)
-                notifyPrevPage(sender);
+                a11ySpreadPrev(sender);
             else if (key == MyGUI::KeyCode::ArrowDown)
-                notifyNextPage(sender);
+                a11ySpreadNext(sender);
+            else if (key == MyGUI::KeyCode::ArrowLeft)
+                a11yPageLeft(sender);
+            else if (key == MyGUI::KeyCode::ArrowRight)
+                a11yPageRight(sender);
+        }
+
+        // --- Screen-reader list views (Topics / Quests) ------------------
+        // Build the framework option list for the current mA11yView and
+        // announce a short header so the user knows which browser they're in.
+        // The Reading view registers no options (paging is handled separately).
+        void a11yBuildView(bool announceHeader)
+        {
+            mA11y.clear();
+
+            switch (mA11yView)
+            {
+                case A11yView::Reading:
+                    return;
+
+                case A11yView::TopicIndex:
+                {
+                    // The A-Z letter grid. Only offer letters that actually have
+                    // topics, so the user isn't wading through dead entries.
+                    const bool isRussian = (mEncoding == ToUTF8::WINDOWS_1251);
+                    if (isRussian)
+                    {
+                        // Cyrillic capital A = U+0410; 32 letters, skipping the
+                        // two (indices 26 and 28) that can't start a word.
+                        for (int i = 0; i < 32; ++i)
+                        {
+                            if (i == 26 || i == 28)
+                                continue;
+                            a11yAddIndexLetter(static_cast<Utf8Stream::UnicodeChar>(0x0410 + i));
+                        }
+                    }
+                    else
+                    {
+                        for (char c = 'A'; c <= 'Z'; ++c)
+                            a11yAddIndexLetter(static_cast<Utf8Stream::UnicodeChar>(c));
+                    }
+                    if (announceHeader)
+                        MWGui::A11y::say("Topics. Choose a letter.", /*interrupt=*/true);
+                    break;
+                }
+
+                case A11yView::TopicList:
+                {
+                    Gui::MWList* list = getWidget<Gui::MWList>(TopicsList);
+                    for (size_t i = 0; i < list->getItemCount(); ++i)
+                    {
+                        const std::string name = list->getItemNameAt(i);
+                        if (name.empty())
+                            continue;
+                        mA11y.add({ .widget = nullptr, .label = name,
+                            .activate = [this, name] { a11yActivateTopic(name); } });
+                    }
+                    if (announceHeader)
+                        MWGui::A11y::say("Topics.", /*interrupt=*/true);
+                    break;
+                }
+
+                case A11yView::Quests:
+                {
+                    // Collect the names of finished quests so we can mark them
+                    // "completed" (the native UI greys them out instead). Only
+                    // relevant in the "all quests" tab -- the active tab excludes
+                    // finished quests entirely.
+                    std::set<std::string, Misc::StringUtils::CiComp> finished;
+                    if (mAllQuests)
+                    {
+                        mModel->visitQuestNames(/*activeOnly=*/false,
+                            [&](std::string_view name, bool isFinished) {
+                                if (isFinished)
+                                    finished.emplace(name);
+                            });
+                    }
+
+                    Gui::MWList* list = getWidget<Gui::MWList>(QuestsList);
+                    for (size_t i = 0; i < list->getItemCount(); ++i)
+                    {
+                        const std::string name = list->getItemNameAt(i);
+                        if (name.empty())
+                            continue;
+                        std::string label = name;
+                        if (finished.find(name) != finished.end())
+                            label += ", completed";
+                        mA11y.add({ .widget = nullptr, .label = std::move(label),
+                            .activate = [this, name] { a11yActivateQuest(name); } });
+                    }
+                    if (announceHeader)
+                        MWGui::A11y::say(mAllQuests ? "All quests." : "Active quests.", /*interrupt=*/true);
+                    break;
+                }
+            }
+
+            // Land on the first item, announcing it after the header.
+            mA11y.focusFirst(/*announce=*/true);
+        }
+
+        // Register one letter of the topic index, but only if at least one
+        // topic starts with it. The label is just the letter; activation drills
+        // into that letter's topic list.
+        void a11yAddIndexLetter(Utf8Stream::UnicodeChar ch)
+        {
+            bool any = false;
+            mModel->visitTopicNamesStartingWith(ch, [&](std::string_view) { any = true; });
+            if (!any)
+                return;
+
+            // Build the spoken label for the letter (UTF-8 encode the codepoint).
+            std::string label;
+            if (ch < 0x80)
+                label = std::string(1, static_cast<char>(ch));
+            else if (ch < 0x800)
+            {
+                label += static_cast<char>(0xC0 | (ch >> 6));
+                label += static_cast<char>(0x80 | (ch & 0x3F));
+            }
+            mA11y.add({ .widget = nullptr, .label = label,
+                .activate = [this, ch] { a11yChooseIndexLetter(ch); } });
+        }
+
+        // Open the Topics browser (the A-Z index) from the reading view.
+        void a11yOpenTopics()
+        {
+            mQuestMode = false;
+            setOptionsMode();
+            if (!mTopicIndexBook)
+                mTopicIndexBook = createTopicIndexBook();
+            mA11yView = A11yView::TopicIndex;
+            a11yBuildView(/*announceHeader=*/true);
+        }
+
+        // Open the Quests list from the reading view. \p allQuests selects the
+        // "all quests" tab (including completed) vs the "active quests" tab.
+        void a11yOpenQuests(bool allQuests)
+        {
+            mQuestMode = true;
+            mAllQuests = allQuests;
+            setOptionsMode(); // populates the QuestsList per mAllQuests
+            mA11yView = A11yView::Quests;
+            a11yBuildView(/*announceHeader=*/true);
+        }
+
+        // Drill from the index into the topics that start with the chosen
+        // letter (mirrors the native notifyIndexLinkClicked path).
+        void a11yChooseIndexLetter(Utf8Stream::UnicodeChar ch)
+        {
+            notifyIndexLinkClicked(ch);
+            mA11yView = A11yView::TopicList;
+            a11yBuildView(/*announceHeader=*/true);
+        }
+
+        void a11yActivateTopic(const std::string& name)
+        {
+            notifyTopicSelected(name, 0);
+            // notifyTopicClicked pushed/replaced the topic book and left options
+            // mode; return to reading so the topic's entries can be read.
+            mA11yView = A11yView::Reading;
+            mA11yRightPage = false;
+            a11yBuildView(/*announceHeader=*/false);
+            a11yReadCurrentPage();
+        }
+
+        void a11yActivateQuest(const std::string& name)
+        {
+            notifyQuestClicked(name, 0);
+            mA11yView = A11yView::Reading;
+            mA11yRightPage = false;
+            a11yBuildView(/*announceHeader=*/false);
+            a11yReadCurrentPage();
+        }
+
+        // Tab / Shift+Tab cycle between three tabs, like the stats/options
+        // menus: Topics -> Active Quests -> All Quests -> (wrap) Topics.
+        // delta>0 = next, <0 = previous. From a drilled-in topic list the
+        // current tab is treated as Topics (Tab leaves the sublist).
+        void a11yCycleBrowser(int delta)
+        {
+            // Identify the current tab index: 0 Topics, 1 Active Quests, 2 All.
+            int tab;
+            if (mA11yView == A11yView::Quests)
+                tab = mAllQuests ? 2 : 1;
+            else
+                tab = 0; // TopicIndex or TopicList
+
+            tab = (tab + (delta > 0 ? 1 : 2)) % 3; // +1 or -1 (mod 3)
+
+            switch (tab)
+            {
+                case 0:
+                    a11yOpenTopics();
+                    break;
+                case 1:
+                    a11yOpenQuests(/*allQuests=*/false);
+                    break;
+                case 2:
+                    a11yOpenQuests(/*allQuests=*/true);
+                    break;
+            }
+        }
+
+        // Step back one level: a letter's topic list returns to the index;
+        // the index or the quest list returns to the reading view.
+        void a11yBackOut()
+        {
+            switch (mA11yView)
+            {
+                case A11yView::TopicList:
+                    // Back to the letter index.
+                    notifyTopics(getWidget<MyGUI::Widget>(TopicsList));
+                    mA11yView = A11yView::TopicIndex;
+                    a11yBuildView(/*announceHeader=*/true);
+                    break;
+                case A11yView::TopicIndex:
+                case A11yView::Quests:
+                    // Leave the options overlay and return to the entry pages.
+                    setBookMode();
+                    mA11yView = A11yView::Reading;
+                    a11yReadCurrentPage();
+                    break;
+                case A11yView::Reading:
+                    break;
+            }
         }
 
         void notifyTopicClicked(const MWDialogue::Topic& topic)

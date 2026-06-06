@@ -24,6 +24,14 @@ Newest changes are listed first. (OpenMW's own engine changelog lives in
   you enter it. It won't repeat as you move between the cells that make up a
   single city (so you won't hear "Balmora" over and over), and it stays quiet
   when you first load a save.
+- **Reading the journal.** Open the journal to hear your most recent entries
+  read aloud. Use Up and Down to turn between two-page spreads, Left and Right
+  to move one page at a time, and R to reread the current page.
+- **Browsing topics and quests.** From the journal, press T to browse topics
+  (pick a letter, then a topic) or Q to browse your active quests. Tab and
+  Shift+Tab cycle between the Topics, Active Quests, and All Quests tabs. Press
+  Enter on a topic or quest to read its entries, and Backspace or Escape to step
+  back out. Completed quests are announced as "completed" in the All Quests tab.
 
 ## 2026-06-05
 
