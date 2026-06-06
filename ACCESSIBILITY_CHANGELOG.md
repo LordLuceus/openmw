@@ -24,6 +24,9 @@ Newest changes are listed first. (OpenMW's own engine changelog lives in
   you enter it. It won't repeat as you move between the cells that make up a
   single city (so you won't hear "Balmora" over and over), and it stays quiet
   when you first load a save.
+- **Reading the journal.** Open the journal to hear your most recent entries
+  read aloud. Use Up and Down to turn between two-page spreads, Left and Right
+  to move one page at a time, and R to reread the current page.
 
 ## 2026-06-05
 

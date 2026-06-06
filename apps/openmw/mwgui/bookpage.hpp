@@ -8,6 +8,7 @@
 #include <cstdint>
 #include <functional>
 #include <memory>
+#include <string>
 #include <vector>
 
 #include <components/settings/values.hpp>
@@ -34,6 +35,14 @@ namespace MWGui
 
         /// Used to highlight journal indices
         virtual void setColour(size_t section, size_t line, size_t run, const MyGUI::Colour& colour) const = 0;
+
+        /// Reconstruct the plain text laid out on page \p page, for
+        /// screen-reader output. Returns the visible text in reading order:
+        /// runs within a line are concatenated, lines are joined with spaces,
+        /// and sections (paragraphs) are separated by newlines. Formatting,
+        /// colours and links are dropped. Returns an empty string for an
+        /// out-of-range page.
+        virtual std::string getPageText(size_t page) const = 0;
 
         virtual ~TypesetBook() = default;
     };

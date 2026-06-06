@@ -17,6 +17,8 @@
 #include "../mwbase/journal.hpp"
 #include "../mwbase/windowmanager.hpp"
 
+#include "accessibility/screen.hpp"
+#include "accessibility/speech.hpp"
 #include "bookpage.hpp"
 #include "journalbooks.hpp"
 #include "journalviewmodel.hpp"
@@ -59,6 +61,20 @@ namespace
         bool mOptionsMode;
         bool mTopicsMode;
         bool mAllQuests;
+
+        // Screen reader: which of the two visible pages (the spread) is current
+        // for reading. false = left, true = right. Up/Down turn the whole
+        // spread (resetting this to the left page); Left/Right move between the
+        // spread's two pages, reading each. See a11yReadCurrentPage.
+        bool mA11yRightPage = false;
+        // Virtual-focus accessibility screen. The journal's page text isn't a
+        // list of navigable options, so this registers NO elements: the anchor
+        // merely captures keys (so the engine's button-focus navigation can't
+        // hijack the arrows) which we route through the extra-key handler. It
+        // also gives us the framework's built-in R reread for free. Mirrors the
+        // ScrollWindow / BookWindow pattern.
+        MWGui::A11y::Screen mA11y;
+        MyGUI::Widget* mA11yAnchor = nullptr;
 
         template <typename T>
         T* getWidget(std::string_view name)
@@ -234,6 +250,44 @@ namespace
             mAllQuests = false;
             mOptionsMode = false;
             mTopicsMode = false;
+
+            // Screen-reader setup: an invisible, non-Button anchor holds key
+            // focus so the engine's spatial button navigation can't steal the
+            // arrow keys (which made Left/Right flaky). We register no options;
+            // all page navigation is handled in the extra-key handler, and R
+            // reread is provided by the framework.
+            mA11yAnchor = mMainWidget->createWidget<MyGUI::Widget>(
+                {}, MyGUI::IntCoord(0, 0, 1, 1), MyGUI::Align::Default);
+            mA11yAnchor->setNeedKeyFocus(true);
+            mA11y.setVirtualFocus(mA11yAnchor);
+            mA11y.setExtraKeyHandler([this](MyGUI::KeyCode key) { return a11yHandleKey(key); });
+        }
+
+        // Page navigation for the screen reader. Returns true if the key was
+        // consumed. Up/Down turn a two-page spread; Left/Right step single
+        // pages; each reads the page landed on. Inert in the options / topic
+        // list screens (those aren't read here yet).
+        bool a11yHandleKey(MyGUI::KeyCode key)
+        {
+            if (mOptionsMode)
+                return false;
+            switch (key.getValue())
+            {
+                case MyGUI::KeyCode::ArrowUp:
+                    a11ySpreadPrev(mA11yAnchor);
+                    return true;
+                case MyGUI::KeyCode::ArrowDown:
+                    a11ySpreadNext(mA11yAnchor);
+                    return true;
+                case MyGUI::KeyCode::ArrowLeft:
+                    a11yPageLeft(mA11yAnchor);
+                    return true;
+                case MyGUI::KeyCode::ArrowRight:
+                    a11yPageRight(mA11yAnchor);
+                    return true;
+                default:
+                    return false;
+            }
         }
 
         void onOpen() override
@@ -263,11 +317,19 @@ namespace
             if (Settings::gui().mControllerMenus)
                 setControllerFocusedQuest(0);
 
-            MWBase::Environment::get().getWindowManager()->setKeyFocusWidget(getWidget<MyGUI::Widget>(CloseBTN));
+            // Screen reader: take input via the virtual anchor (no options
+            // registered) so arrows reach our extra-key handler instead of the
+            // engine's button navigation, then read the page we opened on (the
+            // most recent entries). Up/Down turn spreads, Left/Right step pages.
+            mA11y.activate();
+            mA11yRightPage = false;
+            a11yReadCurrentPage();
         }
 
         void onClose() override
         {
+            mA11y.deactivate();
+            MWGui::A11y::clearReread();
             mModel->unload();
 
             getPage(LeftBookPage)->showPage({}, 0);
@@ -278,6 +340,8 @@ namespace
 
             mTopicIndexBook.reset();
         }
+
+        void onFrame(float dt) override { mA11y.onFrame(dt); }
 
         void setVisible(bool newValue) override { WindowBase::setVisible(newValue); }
 
@@ -412,12 +476,96 @@ namespace
             MWBase::Environment::get().getWindowManager()->updateControllerButtonsOverlay();
         }
 
+        // --- Screen-reader page reading ----------------------------------
+        // Speak the page currently selected for reading (left or right of the
+        // visible spread), as a rereadable announcement so R repeats it. The
+        // page number is spoken last, per the positional-info-at-the-end
+        // convention. No-op outside book mode (the options / topic-index
+        // screens aren't read here).
+        void a11yReadCurrentPage()
+        {
+            if (mOptionsMode || mStates.empty())
+                return;
+            const std::shared_ptr<MWGui::TypesetBook>& book = mStates.top().mBook;
+            if (!book)
+                return;
+            const size_t pageCount = book->pageCount();
+            const size_t page = mStates.top().mPage + (mA11yRightPage ? 1 : 0);
+            if (page >= pageCount)
+                return;
+
+            std::string text = book->getPageText(page);
+            if (text.empty())
+                text = "Blank page";
+            text += "\nPage ";
+            text += std::to_string(page + 1);
+            text += " of ";
+            text += std::to_string(pageCount);
+            text += '.';
+            MWGui::A11y::sayRereadable(text, /*interrupt=*/true);
+        }
+
+        // Up/Down turn a whole two-page spread (the native behaviour), landing
+        // on its left page; Left/Right step one page at a time within and
+        // across spreads. Each reads the page it lands on.
+        void a11ySpreadNext(MyGUI::Widget* sender)
+        {
+            notifyNextPage(sender);
+            mA11yRightPage = false;
+            a11yReadCurrentPage();
+        }
+
+        void a11ySpreadPrev(MyGUI::Widget* sender)
+        {
+            notifyPrevPage(sender);
+            mA11yRightPage = false;
+            a11yReadCurrentPage();
+        }
+
+        void a11yPageRight(MyGUI::Widget* sender)
+        {
+            if (mOptionsMode || mStates.empty())
+                return;
+            const std::shared_ptr<MWGui::TypesetBook>& book = mStates.top().mBook;
+            const size_t base = mStates.top().mPage;
+            const size_t pageCount = book ? book->pageCount() : 0;
+            if (!mA11yRightPage && base + 1 < pageCount)
+                mA11yRightPage = true; // right page of the current spread
+            else if (mA11yRightPage && base + 2 < pageCount)
+            {
+                notifyNextPage(sender); // first page of the next spread
+                mA11yRightPage = false;
+            }
+            // else: already on the last page -- re-read it.
+            a11yReadCurrentPage();
+        }
+
+        void a11yPageLeft(MyGUI::Widget* sender)
+        {
+            if (mOptionsMode || mStates.empty())
+                return;
+            const size_t base = mStates.top().mPage;
+            if (mA11yRightPage)
+                mA11yRightPage = false; // left page of the current spread
+            else if (base >= 2)
+            {
+                notifyPrevPage(sender); // second page of the previous spread
+                mA11yRightPage = true;
+            }
+            // else: already on the very first page -- re-read it.
+            a11yReadCurrentPage();
+        }
+
         void notifyKeyPress(MyGUI::Widget* sender, MyGUI::KeyCode key, MyGUI::Char character)
         {
             if (key == MyGUI::KeyCode::ArrowUp)
-                notifyPrevPage(sender);
+                a11ySpreadPrev(sender);
             else if (key == MyGUI::KeyCode::ArrowDown)
-                notifyNextPage(sender);
+                a11ySpreadNext(sender);
+            else if (key == MyGUI::KeyCode::ArrowLeft)
+                a11yPageLeft(sender);
+            else if (key == MyGUI::KeyCode::ArrowRight)
+                a11yPageRight(sender);
         }
 
         void notifyTopicClicked(const MWDialogue::Topic& topic)

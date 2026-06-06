@@ -192,6 +192,36 @@ namespace MWGui
 
         virtual ~TypesetBookImpl() = default;
 
+        std::string getPageText(size_t page) const override
+        {
+            if (page >= mPages.size())
+                return {};
+
+            const int top = mPages[page].first;
+            const int bottom = mPages[page].second;
+
+            // Walk the laid-out runs within this page's vertical window in
+            // document order. Runs already store their source UTF-8 range, so
+            // we just copy the bytes out: concatenate runs on a line (they were
+            // split only by style/word boundaries, not semantics), join lines
+            // with a space, and separate sections (paragraphs) with a newline.
+            std::string result;
+            const Section* lastSection = nullptr;
+            const Line* lastLine = nullptr;
+            visitRuns(top, bottom, [&](const Section& section, const Line& line, const Run& run) {
+                if (lastSection && &section != lastSection)
+                    result += '\n';
+                else if (lastLine && &line != lastLine && !result.empty() && result.back() != '\n')
+                    result += ' ';
+                lastSection = &section;
+                lastLine = &line;
+                if (run.mRange.first && run.mRange.second)
+                    result.append(reinterpret_cast<const char*>(run.mRange.first),
+                        reinterpret_cast<const char*>(run.mRange.second));
+            });
+            return result;
+        }
+
         Range addContent(std::string_view text)
         {
             Content& content = mContents.emplace_back(text.begin(), text.end());
