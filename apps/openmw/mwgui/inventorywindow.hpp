@@ -238,6 +238,14 @@ namespace MWGui
         bool mA11yFollowWasEquipped = false;
         size_t mA11yFollowCount = 0;
         size_t mA11yFollowItemTotal = 0;
+
+        // In barter mode, selling borrows an item to the merchant, which fires
+        // no onInventoryUpdate; the follow poll above is also the wrong tool
+        // (the count-dialog confirm lands much later). Instead rebuild the
+        // spoken list whenever this content signature changes. -1 forces a
+        // rebuild on the first barter frame (after mTrading is set).
+        long long a11yTradeSignature() const;
+        long long mA11yLastTradeSig = -1;
     };
 }
 

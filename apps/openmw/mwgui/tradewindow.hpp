@@ -4,6 +4,8 @@
 #include "referenceinterface.hpp"
 #include "windowbase.hpp"
 
+#include "accessibility/screen.hpp"
+
 namespace Gui
 {
     class NumericEditBox;
@@ -19,6 +21,7 @@ namespace MWGui
     class ItemView;
     class SortFilterItemModel;
     class TradeItemModel;
+    struct ItemStack;
 
     class TradeWindow : public WindowBase, public ReferenceInterface
     {
@@ -49,8 +52,38 @@ namespace MWGui
         bool onControllerButtonEvent(const SDL_ControllerButtonEvent& arg) override;
         void setActiveControllerWindow(bool active) override;
 
+        // --- Screen-reader accessibility ---------------------------------
+        // Announce/adjust the running barter balance and submit the offer.
+        // These are shared by both barter panes (merchant + player inventory),
+        // so the inventory window forwards its balance keys here.
+        void a11yAnnounceBalance(bool interrupt);
+        void a11yAdjustBalance(int delta);
+        void a11yOfferCountDialog();
+        void a11ySubmitOffer();
+        MWGui::A11y::Screen& a11yScreen() { return mA11y; }
+
     private:
         friend class InventoryWindow;
+
+        // Rebuild the screen-reader option list (one option per merchant item).
+        void a11yBuild();
+        // Label for a merchant item: name, count, and buying price.
+        std::string a11yItemLabel(const ItemStack& item);
+        // Buy (borrow to the player) the merchant item at sort-model \p index.
+        void a11yBuyItem(int sortIndex);
+        // Common balance-key handling, shared with the inventory pane. Returns
+        // true if the key was consumed.
+        bool a11yHandleBalanceKey(MyGUI::KeyCode key);
+
+        // Signature of the merchant list's current contents, used to detect when
+        // the spoken list needs rebuilding (items borrowed/returned, partial
+        // offers). -1 forces a rebuild on the next frame (e.g. first barter
+        // frame, after mTrading/labels are valid).
+        long long a11yTradeSignature() const;
+
+        MWGui::A11y::Screen mA11y;
+        MyGUI::Widget* mA11yAnchor = nullptr;
+        long long mA11yLastSig = -1;
 
         ItemView* mItemView;
         SortFilterItemModel* mSortModel;
