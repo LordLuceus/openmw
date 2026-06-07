@@ -35,6 +35,8 @@
 
 #include "../mwrender/animation.hpp"
 
+#include "../mwaccessibility/scanner.hpp"
+
 #include "../mwbase/environment.hpp"
 #include "../mwbase/luamanager.hpp"
 #include "../mwbase/mechanicsmanager.hpp"
@@ -1733,6 +1735,22 @@ namespace MWMechanics
                 // TODO: this will only work for the player, and needs to be fixed if NPCs should ever use
                 // lockpicks/probes.
                 MWWorld::Ptr target = world->getFocusObject();
+
+                // [a11y] When the screen-reader scanner is locked onto an object,
+                // use that as the pick/probe target instead of the camera ray.
+                // A blind player can't aim the crosshair, and even with the
+                // body/camera aimed dead at a chest the ray can be blocked by
+                // furniture in front of it (table edge, plates), so getFocusObject
+                // returns a static, not the container. The explicit lock is the
+                // object the player actually selected, so it's the right target.
+                // Only the player uses lockpicks/probes, so gating on the lock
+                // (which only the player sets) is safe.
+                if (mPtr == getPlayer())
+                {
+                    MWWorld::Ptr locked = MWAccessibility::Scanner::instance().lockTarget();
+                    if (!locked.isEmpty())
+                        target = locked;
+                }
 
                 if (!target.isEmpty())
                 {

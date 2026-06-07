@@ -57,6 +57,8 @@
 
 #include <components/settings/values.hpp>
 
+#include "../mwaccessibility/scanner.hpp"
+
 #include "../mwbase/environment.hpp"
 #include "../mwbase/luamanager.hpp"
 #include "../mwbase/mechanicsmanager.hpp"
@@ -2929,6 +2931,28 @@ namespace MWWorld
                     const MWRender::RenderingManager::RayResult result = mRendering->castRay(origin, dest, true, true);
                     if (result.mHit)
                         target = result.mHitObject;
+                }
+            }
+
+            // [a11y] If the player has the screen-reader scanner locked onto a
+            // world OBJECT (e.g. a chest for the Open spell) and the camera/cone
+            // resolution above still hasn't found a usable object target, fall
+            // back to the locked object. A blind player can't aim the crosshair,
+            // and even aimed dead-on the camera ray can be blocked by furniture
+            // in front of the container (the same problem the lockpick path had).
+            // Scoped to NON-ACTOR locks within activation distance, mirroring
+            // activate/lockpick: actor touch spells already resolve robustly via
+            // the melee cone above (which also keeps their proper short reach),
+            // so we deliberately don't override those here.
+            if (casterIsPlayer && (target.isEmpty() || !target.getClass().hasToolTip(target)))
+            {
+                MWWorld::Ptr locked = MWAccessibility::Scanner::instance().lockTarget();
+                if (!locked.isEmpty() && !locked.getClass().isActor() && locked.getClass().hasToolTip(locked))
+                {
+                    const osg::Vec3f delta
+                        = locked.getRefData().getPosition().asVec3() - actor.getRefData().getPosition().asVec3();
+                    if (delta.length() <= getMaxActivationDistance())
+                        target = locked;
                 }
             }
         }

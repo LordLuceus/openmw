@@ -51,6 +51,15 @@ namespace MWAccessibility
 
         AutoWalker& autoWalker() { return mAutoWalker; }
 
+        /// The object the player is currently locked onto (see toggleLockOn),
+        /// or an empty Ptr when not locked. Exposed so engine interaction paths
+        /// that normally resolve their target from the camera crosshair -- which
+        /// a blind player cannot aim, and which can be blocked by furniture in
+        /// front of the real target -- can use the explicit lock instead. Today
+        /// the lockpick/probe path (CharacterController) consults this so picking
+        /// a chest works even when the camera ray is obstructed.
+        MWWorld::Ptr lockTarget() const { return mLockedOn ? mLockTarget : MWWorld::Ptr(); }
+
         /// Called by the WindowManager when the search prompt is confirmed.
         /// \p query is the (possibly empty) name filter; an empty query clears
         /// the filter. Applies to the current category, persists across cell
@@ -91,6 +100,24 @@ namespace MWAccessibility
         bool activateTarget();
         void focusCamera();
         void walkToTarget();
+
+        // --- Combat / interaction lock-on --------------------------------
+        // Toggle a persistent "lock-on" to the currently-selected target. While
+        // locked, updateLockOn() re-aims the player at the target every frame
+        // (yaw + pitch), so the engine's facing-direction based systems --
+        // melee getHitContact(), the getFocusObject() raycast used by
+        // lockpicks/probes, and spell/marksman launches -- all connect without
+        // the player needing to aim a crosshair they can't see. Works for any
+        // target type (an NPC to attack, or a chest/door to pick). Pressing the
+        // key again, selecting nothing, target death, or starting an auto-walk
+        // releases the lock.
+        void toggleLockOn();
+        // Per-frame re-aim while locked. No-op when not locked. Auto-releases
+        // (with an announcement) if the locked target dies or leaves the world.
+        void updateLockOn();
+        // Release the lock if held. \p announce speaks "Lock released." Safe to
+        // call when not locked (does nothing).
+        void releaseLockOn(bool announce);
         // Open the text-input prompt to set/refine the current category's name
         // filter (see applySearchFilter). Seeds it with the active filter.
         void openSearch();
@@ -220,6 +247,22 @@ namespace MWAccessibility
 
         // Whether the audio beacon is currently enabled. Off by default.
         bool mBeaconEnabled = false;
+
+        // --- Lock-on state ----------------------------------------------
+        // The actor/object the player is currently locked onto for combat or
+        // interaction, or empty when not locked. Held as a Ptr (refreshed each
+        // frame in updateLockOn) so we can re-aim at it; auto-released if it
+        // dies or unloads. Stored separately from the scanner cursor so the
+        // player can keep cycling/inspecting other targets without breaking the
+        // lock.
+        MWWorld::Ptr mLockTarget;
+        // Whether we are actively locked on (mLockTarget valid and being
+        // tracked). A separate flag rather than just testing mLockTarget so the
+        // intent is explicit and easy to gate updateLockOn() on.
+        bool mLockedOn = false;
+        // Spoken name of the locked target, captured at lock time so release /
+        // status messages read sensibly even if the Ptr later goes stale.
+        std::string mLockTargetName;
     };
 }
 

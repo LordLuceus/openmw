@@ -35,6 +35,8 @@
 #include <components/esm3/loadrepa.hpp>
 #include <components/esm3/loadweap.hpp>
 
+#include "../mwmechanics/creaturestats.hpp"
+
 #include "../mwgui/tooltips.hpp"
 
 #include "../mwbase/environment.hpp"
@@ -459,6 +461,7 @@ namespace MWAccessibility
 
         mAutoWalker.onFrame(dt);
         mProximityCue.onFrame(dt);
+        updateLockOn();
     }
 
     bool Scanner::handleKey(int scancode, int modState)
@@ -548,6 +551,12 @@ namespace MWAccessibility
                 // Opens a text prompt to name it; the marker is placed on
                 // confirm (see onWaypointNoteEntered).
                 openDropNote();
+                return true;
+            case SDL_SCANCODE_K:
+                // Toggle combat/interaction lock-on to the selected target.
+                // While locked, the player is kept aimed at it so melee,
+                // spells, and lockpicks/probes connect without manual aiming.
+                toggleLockOn();
                 return true;
             case SDL_SCANCODE_END:
                 clearSelection();
@@ -713,6 +722,119 @@ namespace MWAccessibility
         speak("Facing " + objectDisplayName(target) + ".");
     }
 
+    void Scanner::toggleLockOn()
+    {
+        // Already locked: pressing the key again releases.
+        if (mLockedOn)
+        {
+            releaseLockOn(/*announce=*/true);
+            return;
+        }
+
+        // Lock-on is for world objects (actors to fight, chests/doors to pick),
+        // not the position-based Waypoints category.
+        if (isWaypointCategory())
+        {
+            speak("Cannot lock onto a waypoint.");
+            return;
+        }
+
+        MWWorld::Ptr target = currentTarget();
+        if (target.isEmpty())
+        {
+            speak("No target selected.");
+            return;
+        }
+
+        // An auto-walk would fight the lock for control of the player's facing,
+        // so cancel it first.
+        if (mAutoWalker.isActive())
+            mAutoWalker.cancel();
+
+        mLockTarget = target;
+        mLockTargetName = objectDisplayName(target);
+        mLockedOn = true;
+        speak("Locked onto " + mLockTargetName + ".");
+        // Aim immediately so the first attack/use this frame already connects,
+        // rather than waiting for the next updateLockOn tick.
+        updateLockOn();
+    }
+
+    void Scanner::updateLockOn()
+    {
+        if (!mLockedOn)
+            return;
+
+        MWBase::World* world = MWBase::Environment::get().getWorld();
+        MWWorld::Ptr player = world->getPlayerPtr();
+        if (player.isEmpty())
+            return;
+
+        // Release if the target has left the world (picked up, unloaded) or
+        // died -- a corpse is no longer a meaningful combat lock, and the
+        // player will want to re-acquire.
+        if (mLockTarget.isEmpty() || mLockTarget.getCellRef().getCount() <= 0)
+        {
+            speak("Lost lock on " + mLockTargetName + ".");
+            releaseLockOn(/*announce=*/false);
+            return;
+        }
+        if (mLockTarget.getClass().isActor()
+            && mLockTarget.getClass().getCreatureStats(mLockTarget).isDead())
+        {
+            speak(mLockTargetName + " is dead.");
+            releaseLockOn(/*announce=*/false);
+            return;
+        }
+
+        // Re-aim the player at the target (yaw + pitch). The engine's combat/use
+        // systems all resolve their target from the player's facing direction,
+        // so holding this aim is what makes melee, spells, and lockpicks/probes
+        // connect. We set absolute orientation via rotateObject; with no mouse
+        // input there are no competing deltas, so the aim holds steady (same
+        // mechanism as focusCamera()). WASD movement stays relative to this
+        // facing, so the player can advance/strafe.
+        //
+        // CRITICAL: aim from the player's EYE, and at the target's CENTRE -- not
+        // foot-origin to foot-origin. The position vectors returned above are at
+        // each object's base (feet). But the lockpick/probe and activate code
+        // raycasts from the CAMERA (eye level, ~chest-to-head height up), and
+        // melee getHitContact() likewise measures from the actor's eye. If we
+        // pitch using foot-to-foot we badly under-aim downward targets: a chest
+        // on the floor a couple of metres away comes out almost level, so the
+        // camera ray sails over it and hits the wall/shelf behind (the "aimed at
+        // the plates above the chest" bug). Raising the origin to eye level and
+        // the aim point to the target's vertical centre makes the pitch match
+        // what the raycast actually needs.
+        const float playerEye = world->getHalfExtents(player, /*rendering=*/true).z() * 2.f * 0.85f;
+        osg::Vec3f playerPos = player.getRefData().getPosition().asVec3();
+        playerPos.z() += playerEye;
+        osg::Vec3f targetPos = mLockTarget.getRefData().getPosition().asVec3();
+        // Aim at the target's vertical centre (half its height up from its
+        // base), so we don't aim at an actor's feet or a container's floor edge.
+        targetPos.z() += world->getHalfExtents(mLockTarget, /*rendering=*/true).z();
+        const osg::Vec3f delta = targetPos - playerPos;
+        const float horiz = std::sqrt(delta.x() * delta.x() + delta.y() * delta.y());
+        // Degenerate case: target practically on top of us -- keep current yaw.
+        if (horiz < 1.0f && std::abs(delta.z()) < 1.0f)
+            return;
+        const float desiredYaw = std::atan2(delta.x(), delta.y());
+        const float desiredPitch = -std::atan2(delta.z(), horiz);
+        world->rotateObject(player, osg::Vec3f(desiredPitch, 0.0f, desiredYaw),
+            MWBase::RotationFlag_none);
+    }
+
+    void Scanner::releaseLockOn(bool announce)
+    {
+        if (!mLockedOn)
+            return;
+        mLockedOn = false;
+        mLockTarget = MWWorld::Ptr();
+        if (announce)
+            speak("Lock released.");
+        mLockTargetName.clear();
+    }
+
     bool Scanner::activateTarget()
     {
         MWWorld::Ptr target = currentTarget();
@@ -748,6 +870,11 @@ namespace MWAccessibility
 
     void Scanner::walkToTarget()
     {
+        // Auto-walk drives the player's facing toward path waypoints, which
+        // would fight a lock-on for control. Release the lock so the walk runs
+        // cleanly.
+        releaseLockOn(/*announce=*/false);
+
         MWBase::World* world = MWBase::Environment::get().getWorld();
         osg::Vec3f playerPos = world->getPlayerPtr().getRefData().getPosition().asVec3();
 
