@@ -47,11 +47,25 @@ namespace
     // a different room.
     constexpr float kNavMeshSnapRadius = 210.0f;
 
-    // Stuck-detection tuning. If we fail to get measurably closer to the goal
-    // for more than kStuckTimeout seconds, we conclude we're wedged and begin
-    // recovery (and eventually abort). We measure progress toward the goal, not
-    // raw movement -- see the detailed note at the stuck-detection site.
-    constexpr float kStuckTimeout = 1.5f; // seconds
+    // Stuck-detection tuning.
+    //
+    // kStuckTimeout: how long the body may stay physically wedged (commanding
+    // forward motion but not actually moving) before we trigger a recovery
+    // wiggle. This is a PHYSICAL-movement check, so a normal navmesh detour
+    // around a wall -- which still moves the body -- never trips it.
+    //
+    // kNoProgressTimeout: a much longer backstop on goal progress. If we're
+    // moving but never actually getting closer to the target (circling, path
+    // oscillation, a moving NPC we can't catch), give up after this. It's
+    // generous so that legitimate detours, which can spend several seconds not
+    // reducing goal distance, are never mistaken for being stuck.
+    constexpr float kStuckTimeout = 1.0f; // seconds wedged in place
+    constexpr float kNoProgressTimeout = 10.0f; // seconds without nearing goal
+
+    // Below this per-frame horizontal speed (units/sec) we consider the body
+    // "not moving". Running speed is many hundreds of units/sec, so this only
+    // catches a genuine wedge, not slow turning. ~30 u/s is well under a walk.
+    constexpr float kMinMoveSpeed = 30.0f;
 
     // Stuck-recovery tuning. Rather than abort the moment we detect we're
     // wedged, we try a few short "wiggle" manoeuvres first: jump while
@@ -166,6 +180,16 @@ namespace MWAccessibility
         mTimeSinceRepath = 0.0f;
         mBestDistToGoal = std::numeric_limits<float>::max();
         mTimeSinceProgress = 0.0f;
+        // Seed mLastPos from the player so the first frame's speed reading is
+        // sane (otherwise a zero-init mLastPos yields a huge bogus displacement).
+        MWBase::World* world = MWBase::Environment::get().getWorld();
+        if (world)
+        {
+            MWWorld::Ptr player = world->getPlayerPtr();
+            if (!player.isEmpty())
+                mLastPos = player.getRefData().getPosition().asVec3();
+        }
+        mTimeSinceMove = 0.0f;
         mRecoveryTimer = 0.0f;
         mRecoveryAttempts = 0;
         mRecoveryDir = 1.0f;
@@ -299,21 +323,59 @@ namespace MWAccessibility
             const float dy = p.y() - playerPos.y();
             return std::sqrt(dx * dx + dy * dy);
         };
+        // When the target is another actor (an NPC/creature), we can never
+        // reach its CENTRE: its collision capsule plus the player's keep us a
+        // body-width apart, so the player wedges ~60-90 units away and the tight
+        // 48-unit arrival never fires -- the walk then "sticks" right next to
+        // someone we're plainly standing beside. Widen the arrival threshold by
+        // both collision radii (plus a small margin) so "arrived" means "as
+        // close as two bodies can stand". For non-actor targets (doors, items,
+        // waypoints) keep the tight threshold.
+        float arrivalDist = kArrivalDistance;
+        if (mHasPtrTarget && !mTarget.isEmpty() && mTarget.getClass().isActor())
+        {
+            const osg::Vec3f playerHalf = world->getHalfExtents(player);
+            const osg::Vec3f targetHalf = world->getHalfExtents(mTarget);
+            // Horizontal radius = the larger of the capsule's x/y half-extents.
+            const float playerR = std::max(playerHalf.x(), playerHalf.y());
+            const float targetR = std::max(targetHalf.x(), targetHalf.y());
+            constexpr float kBodyMargin = 16.0f; // a little slack on top of the radii
+            arrivalDist = std::max(kArrivalDistance, playerR + targetR + kBodyMargin);
+        }
+
         const float horizDist = std::min(horizDistTo(targetPos), horizDistTo(mEffectiveTarget));
-        if (horizDist <= kArrivalDistance)
+        if (horizDist <= arrivalDist)
         {
             speakQueued("Arrived at " + mTargetName + ".");
             cancel();
             return;
         }
 
-        // Stuck detection based on PROGRESS TOWARD THE GOAL, not raw movement.
-        // We track the closest horizontal distance to the target we've ever
-        // achieved (mBestDistToGoal). Each frame that we beat it (by a small
-        // margin) we reset the timer and the recovery attempts; otherwise the
-        // timer accumulates. This is essential because the recovery wiggle
-        // (jump + strafe) IS movement -- a raw-movement check would see the
-        // hopping as "not stuck" and loop forever (the endless-acrobatics bug).
+        // --- Stuck detection -------------------------------------------------
+        //
+        // Two independent signals (see the header for the full rationale):
+        //
+        // (a) PHYSICAL movement drives the recovery wiggle. We measure how far
+        //     the body actually moved horizontally this frame. While we're
+        //     commanding forward motion (i.e. not mid-wiggle) yet the body is
+        //     barely moving, we're wedged against geometry -- THAT is when a
+        //     jump/strafe is warranted. A normal navmesh detour around a wall
+        //     still moves the body at full speed, so it never trips this, which
+        //     is what kills the spurious jumping on clean ground.
+        //
+        // (b) GOAL progress resets the recovery-attempt counter when we get
+        //     genuinely closer, and acts as a long backstop to abort if we're
+        //     moving but never nearing the target.
+        const float moved = horizDistTo(mLastPos); // horizontal displacement this frame
+        mLastPos = playerPos;
+        const float speed = (dt > 0.0f) ? moved / dt : 0.0f;
+        // Only count "not moving" while we're actually trying to walk forward
+        // (not during a recovery wiggle, which drives its own movement).
+        if (mRecoveryTimer <= 0.0f && speed < kMinMoveSpeed)
+            mTimeSinceMove += dt;
+        else
+            mTimeSinceMove = 0.0f;
+
         constexpr float kProgressEpsilon = 8.0f; // units of improvement that "counts"
         if (horizDist < mBestDistToGoal - kProgressEpsilon)
         {
@@ -326,10 +388,21 @@ namespace MWAccessibility
             mTimeSinceProgress += dt;
         }
 
-        // No progress for long enough: try a recovery wiggle, then (after a
-        // capped number of failed wiggles) give up. Don't start a new wiggle
+        // Backstop: moving but never getting closer for a long time -> give up.
+        if (mTimeSinceProgress >= kNoProgressTimeout)
+        {
+            if (mFinalApproach)
+                announceStoppedShort(player, targetPos, horizDistTo(targetPos));
+            else
+                speakQueued("Stuck. Cannot reach " + mTargetName + ".");
+            cancel();
+            return;
+        }
+
+        // Physically wedged for long enough: try a recovery wiggle, then (after
+        // a capped number of failed wiggles) give up. Don't start a new wiggle
         // while one is already running.
-        if (mTimeSinceProgress >= kStuckTimeout && mRecoveryTimer <= 0.0f)
+        if (mTimeSinceMove >= kStuckTimeout && mRecoveryTimer <= 0.0f)
         {
             if (mRecoveryAttempts >= kMaxRecoveryAttempts)
             {
@@ -351,7 +424,7 @@ namespace MWAccessibility
             ++mRecoveryAttempts;
             mRecoveryTimer = kRecoveryDuration;
             mRecoveryDir = -mRecoveryDir; // alternate sidestep each attempt
-            mTimeSinceProgress = 0.0f; // give the wiggle a chance before re-counting
+            mTimeSinceMove = 0.0f; // give the wiggle a chance before re-counting
             // Re-path too: the snag may have shifted us enough that a new
             // route opens up.
             rebuildPath();
@@ -451,6 +524,7 @@ namespace MWAccessibility
                 // Fresh progress budget for the straight-line leg.
                 mBestDistToGoal = std::numeric_limits<float>::max();
                 mTimeSinceProgress = 0.0f;
+                mTimeSinceMove = 0.0f;
                 mRecoveryAttempts = 0;
                 // Fall through to steering this frame.
             }

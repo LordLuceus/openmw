@@ -6,6 +6,13 @@ Newest changes are listed first. (OpenMW's own engine changelog lives in
 
 ## 2026-06-07
 
+- **Smoother auto-walk.** Auto-walk no longer hops around for no reason on a clear
+  path -- it now only does its little jump-and-sidestep recovery when the body is
+  genuinely wedged against something, not when the route simply curves around a
+  wall or corner. Walking to a person also works properly now: it announces you've
+  arrived as soon as you're standing beside them, instead of jostling into them
+  and then claiming it was stuck.
+
 - **Repairing items.** Both repair screens are now screen-reader accessible. At a
   smith's Repair service, Up and Down move through your damaged items (each read
   with its repair price) and Enter repairs the selected one. Using a repair tool

@@ -86,12 +86,27 @@ namespace MWAccessibility
         // moved meaningfully within mStuckWindow seconds, declare we
         // have arrived (or are unreachable, depending on distance to
         // target).
-        // Progress tracking drives stuck-detection. We measure progress toward
-        // the GOAL (smallest horizontal distance to target achieved so far),
-        // not raw movement -- otherwise the recovery wiggle (jump + strafe)
-        // counts as "movement" and resets the timer, producing an endless
-        // hop-in-place loop. mBestDistToGoal is the closest we've gotten;
-        // mTimeSinceProgress accumulates while we fail to beat it.
+        // Stuck-detection is split into two independent signals:
+        //
+        // 1. PHYSICAL movement (mLastPos / mTimeSinceMove): are we actually
+        //    moving through the world, or wedged against geometry? This drives
+        //    the recovery wiggle. We deliberately do NOT use distance-to-goal
+        //    for this: a legitimate navmesh detour around a wall moves the
+        //    player tangentially to -- or briefly away from -- the goal for a
+        //    second or two, and a goal-distance check mis-reads that as "stuck"
+        //    and fires a jump/strafe on otherwise clean terrain (the spurious-
+        //    jumping bug). Physical motion is the honest "am I wedged?" signal.
+        //    mLastPos is the previous frame's position; mTimeSinceMove counts
+        //    how long we've been commanding forward motion without the body
+        //    actually moving.
+        // 2. GOAL progress (mBestDistToGoal / mTimeSinceProgress): the closest
+        //    horizontal distance to the target we've achieved, and how long
+        //    we've failed to beat it. This resets the recovery-attempt counter
+        //    on genuine progress and acts as a long-timeout backstop that gives
+        //    up if we're moving but never actually getting closer (e.g. circling
+        //    / path oscillation) -- a case the physical check alone would miss.
+        osg::Vec3f mLastPos;
+        float mTimeSinceMove = 0.0f;
         float mBestDistToGoal = std::numeric_limits<float>::max();
         float mTimeSinceProgress = 0.0f;
 
