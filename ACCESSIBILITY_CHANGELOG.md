@@ -6,6 +6,9 @@ Newest changes are listed first. (OpenMW's own engine changelog lives in
 
 ## 2026-06-06
 
+- **Buying spells.** The spell merchant screen is now screen-reader accessible.
+  Up and Down move through the spells for sale, each read with its price; press T
+  to hear a spell's cost/chance and its magic effects, and Enter to buy it.
 - **Bartering.** Trading with a merchant is now screen-reader accessible. Tab
   and Shift+Tab switch between the merchant's goods and your own inventory; each
   item announces its name, how many, and its barter price. Press Enter to add an

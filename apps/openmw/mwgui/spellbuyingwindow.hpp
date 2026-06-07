@@ -3,6 +3,9 @@
 
 #include "referenceinterface.hpp"
 #include "windowbase.hpp"
+
+#include "accessibility/screen.hpp"
+
 #include <components/esm/refid.hpp>
 namespace ESM
 {
@@ -25,7 +28,8 @@ namespace MWGui
         void setPtr(const MWWorld::Ptr& actor) override;
         void setPtr(const MWWorld::Ptr& actor, int startOffset);
 
-        void onFrame(float dt) override { checkReferenceAvailable(); }
+        void onFrame(float dt) override;
+        void onClose() override;
         void clear() override { resetReference(); }
 
         void onResChange(int, int) override { center(); }
@@ -59,6 +63,14 @@ namespace MWGui
         static bool sortSpells(const ESM::Spell* left, const ESM::Spell* right);
         bool onControllerButtonEvent(const SDL_ControllerButtonEvent& arg) override;
         size_t mControllerFocus = 0;
+
+        // Screen-reader controller. Virtual focus via an invisible anchor; the
+        // spell buttons are widget-backed options rebuilt each setPtr().
+        A11y::Screen mA11y;
+        MyGUI::Widget* mA11yAnchor = nullptr;
+        void buildAccessibility();
+        // Tooltip lines (cost/chance + each effect) for one purchasable spell.
+        std::vector<std::string> a11ySpellTooltip(const ESM::Spell& spell) const;
     };
 }
 
