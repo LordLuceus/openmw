@@ -43,10 +43,24 @@ auto-walk, location announcements, and audio beacon (gameplay, not a screen).
 - [ ] **Death screen** — bespoke yes/no dialogue (differs from the usual one)
 - [ ] **Scripts tab** in options — within the otherwise-accessible settings window
 
-### Targeting-dependent (deferred until combat/targeting work)
-- [ ] **Combat** — needs target selection
-- [ ] **Lockpicking / probes** — using the tool alone didn't work; needs a target,
-      so slots in with combat/targeting
+### Targeting / combat (lock-on backbone landed)
+- [x] **Lock-on targeting** — press K to lock the scanner selection; player is
+      re-aimed (yaw + pitch, eye-to-centre) every frame so melee/spells/tools
+      connect. Releases on death, walk-away, or K again.
+- [x] **Lockpicking / probes** — now use the locked target directly, so they work
+      even when the camera ray is blocked by furniture in front of the container.
+- [x] **Touch-on-object spells** (e.g. Open) — same locked-target bypass.
+- [x] **Hostile actor list** — "Actors" category (renamed from NPCs) gained a
+      "Hostile" subcategory; actor list refreshes live so attackers appear at once
+      and stay distance-ordered. Fixed hostiles vanishing from the scanner the
+      moment they entered combat (hasToolTip() exception for actors).
+- [x] **Weapon/spell ready announcements** — draw state polled and announced.
+- [ ] **Out-of-range melee feedback** — tell the player when a locked target is
+      too far to hit (and ideally too high/low for the equipped weapon).
+- [ ] **Spell-cast announcements** — announce when a (nearby) actor casts a spell.
+- [ ] **Enemy health readout** — read the selected/locked actor's health (% only,
+      matching the native enemy health bar; magicka/fatigue not shown to sighted
+      players so not exposed).
 
 ## Notes
 - There are TWO repair windows: `GM_Repair` (own hammer) vs `GM_MerchantRepair`.

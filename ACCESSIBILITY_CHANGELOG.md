@@ -6,6 +6,27 @@ Newest changes are listed first. (OpenMW's own engine changelog lives in
 
 ## 2026-06-07
 
+- **Combat lock-on.** Press K to lock onto whatever the scanner has selected.
+  Your character keeps facing and aiming at that target every moment, so melee
+  swings, spells, and even lockpicks and probes connect without you having to
+  line up a crosshair you can't see. It also fixes aiming at things above or
+  below you, like a cliff racer overhead or a chest on the floor. Lock-on
+  releases automatically when the target dies or you walk away, or press K again
+  to release it yourself.
+- **Picking locks and casting on things you can't see directly.** With a target
+  locked on, lockpicks, probes, and touch spells like Open now work on it even
+  when furniture or clutter sits between you and it -- the action uses your
+  locked target instead of relying on a clear line of sight.
+- **Find what's attacking you.** The scanner's actor list (renamed from "NPCs"
+  to "Actors") has a new "Hostile" subcategory listing only the actors currently
+  in combat with you. Cycle to it with Shift+PageUp/PageDown. The actor list now
+  also refreshes while you're in it, so a new attacker appears right away and
+  distances stay accurate as everyone moves around during a fight.
+- **Weapon and spell readiness.** Drawing a weapon or readying a spell now
+  announces what you've readied -- for example "Iron Dagger ready", "Hand to
+  hand ready", or "Fireball ready" -- and you'll hear "Weapon sheathed" or
+  "Magic put away" when you lower it again.
+
 - **Smoother auto-walk.** Auto-walk no longer hops around for no reason on a clear
   path -- it now only does its little jump-and-sidestep recovery when the body is
   genuinely wedged against something, not when the route simply curves around a
