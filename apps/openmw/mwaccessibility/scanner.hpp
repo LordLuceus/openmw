@@ -260,6 +260,22 @@ namespace MWAccessibility
         // Poll the player's draw state and announce any change (see above).
         void announceDrawStateChange();
 
+        // --- Live refresh of the Actors list ----------------------------
+        // Actors move and change combat state continuously, so a list cached at
+        // selection time goes stale fast: a newly-hostile attacker won't appear
+        // in the Hostile subcategory, and distances/ordering drift as actors
+        // approach or flee. While the Actors category is active we silently
+        // rebuild its list on this cadence (seconds) so membership, distance
+        // order, and the proximity cue stay current. The rebuild re-pins the
+        // cursor onto the same object by RefNum, so the player doesn't lose
+        // their place. Other categories (doors, items, ...) are static, so they
+        // don't need this. Refresh does NOT announce -- the next explicit
+        // action speaks the up-to-date state.
+        float mActorRefreshTimer = 0.f;
+        // Silently rebuild the active category's list, preserving the current
+        // selection by RefNum. Used by the live-refresh path.
+        void refreshActiveListPreservingSelection();
+
         // --- Lock-on state ----------------------------------------------
         // The actor/object the player is currently locked onto for combat or
         // interaction, or empty when not locked. Held as a Ptr (refreshed each

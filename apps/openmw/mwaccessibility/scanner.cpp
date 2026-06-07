@@ -68,6 +68,12 @@ namespace
     // ~70 units per metre.
     constexpr float kUnitsPerMetre = 69.99f;
 
+    // How often (seconds) to silently rebuild the Actors list so combat state
+    // and distances stay current. Frequent enough that a newly-hostile attacker
+    // shows up promptly, but not every frame (the rebuild scans all active
+    // cells). See Scanner::announceDrawStateChange's sibling refresh path.
+    constexpr float kActorRefreshInterval = 0.5f;
+
     std::string formatDistance(float units)
     {
         float metres = units / kUnitsPerMetre;
@@ -497,6 +503,24 @@ namespace MWAccessibility
         mProximityCue.onFrame(dt);
         updateLockOn();
         announceDrawStateChange();
+
+        // Keep the Actors list live: actors move and turn hostile mid-fight, so
+        // a list cached at selection time goes stale (a new attacker won't
+        // appear under Hostile, distances drift). Rebuild it on a throttle while
+        // that category is active. Cheap categories of static objects (doors,
+        // items) don't need this. The refresh is silent and preserves the
+        // cursor, so it won't interrupt the player.
+        if (mCategory == Category::Npcs)
+        {
+            mActorRefreshTimer += dt;
+            if (mActorRefreshTimer >= kActorRefreshInterval)
+            {
+                mActorRefreshTimer = 0.f;
+                refreshActiveListPreservingSelection();
+            }
+        }
+        else
+            mActorRefreshTimer = 0.f;
     }
 
     bool Scanner::handleKey(int scancode, int modState)
@@ -868,6 +892,27 @@ namespace MWAccessibility
         if (announce)
             speak("Lock released.");
         mLockTargetName.clear();
+    }
+
+    void Scanner::refreshActiveListPreservingSelection()
+    {
+        auto& state = mLists[static_cast<size_t>(mCategory)];
+
+        // Capture the current selection's stable identity so the rebuild can
+        // re-pin the cursor onto the same physical object even though the list
+        // re-sorts by distance (and membership may change). If nothing is
+        // selected, clear the remembered ref so the rebuild doesn't resurrect a
+        // stale one.
+        if (state.mIndex >= 0 && state.mIndex < static_cast<int>(state.mObjects.size()))
+            state.mSelectedRef = state.mObjects[state.mIndex].getCellRef().getRefNum();
+        else
+            state.mSelectedRef = ESM::RefNum{};
+
+        state.mDirty = true;
+        rebuildCurrentList();
+
+        // Keep the audio beacon homing on the (possibly moved) selection.
+        updateProximityCue();
     }
 
     void Scanner::announceDrawStateChange()
@@ -1344,7 +1389,23 @@ namespace MWAccessibility
                 // this ever show a tooltip" predicate (for activators it is
                 // literally !getName().empty()), so this filters nameless
                 // engine plumbing without hiding any real interactable object.
-                if (!ptr.getClass().hasToolTip(ptr))
+                //
+                // EXCEPTION for actors: hasToolTip() returns false for an NPC
+                // (and creature) the moment it enters combat with you and isn't
+                // fleeing -- the engine suppresses the hover-tooltip on a hostile
+                // so you can't pickpocket mid-fight (see Npc::hasToolTip). If we
+                // honoured that here, an attacker would vanish from the Actors
+                // list at the exact instant it became dangerous -- the opposite
+                // of what a blind player needs. For actors, use "has a non-empty
+                // name" directly (the same test hasToolTip applies to activators)
+                // so hostiles stay listed; nameless helper actors, if any, are
+                // still dropped.
+                if (ptr.getClass().isActor())
+                {
+                    if (ptr.getClass().getName(ptr).empty())
+                        return true;
+                }
+                else if (!ptr.getClass().hasToolTip(ptr))
                     return true;
                 // Apply the active name filter (case-insensitive substring of
                 // the object's spoken identity -- name plus, for doors, their
