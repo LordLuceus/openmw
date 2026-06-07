@@ -18,6 +18,8 @@
 #include "../mwworld/containerstore.hpp"
 #include "../mwworld/esmstore.hpp"
 
+#include "accessibility/speech.hpp"
+
 namespace MWGui
 {
     MerchantRepair::MerchantRepair()
@@ -28,6 +30,13 @@ namespace MWGui
         getWidget(mGoldLabel, "PlayerGold");
 
         mOkButton->eventMouseButtonClick += MyGUI::newDelegate(this, &MerchantRepair::onOkButtonClick);
+
+        // Screen-reader setup: invisible anchor holds key focus; repair buttons
+        // are widget-backed options rebuilt by buildAccessibility().
+        mA11yAnchor = mMainWidget->createWidget<MyGUI::Widget>(
+            {}, MyGUI::IntCoord(0, 0, 1, 1), MyGUI::Align::Default);
+        mA11yAnchor->setNeedKeyFocus(true);
+        mA11y.setVirtualFocus(mA11yAnchor);
 
         if (Settings::gui().mControllerMenus)
         {
@@ -127,6 +136,48 @@ namespace MWGui
         mList->setVisibleVScroll(true);
 
         mGoldLabel->setCaptionWithReplacing("#{sGold}: " + MyGUI::utility::toString(playerGold));
+
+        // Rebuild the screen-reader option list. setPtr() is also called after
+        // each repair to refresh the list; only (re)activate and announce gold
+        // when first opening, so a repair doesn't re-announce gold over the
+        // repair sound.
+        const bool firstOpen = !mA11y.isActive();
+        buildAccessibility();
+        if (firstOpen)
+        {
+            A11y::say("#{sGold}: " + std::to_string(playerGold));
+            mA11y.activate();
+        }
+    }
+
+    void MerchantRepair::buildAccessibility()
+    {
+        mA11y.clear();
+
+        // Enumerate the repair buttons in creation (alphabetical) order. Each
+        // caption is the fully-resolved "Name  - NN gp" text the sighted player
+        // sees; read it verbatim via describe() (A11y::say resolves the #{sgp}
+        // tag), matching the travel/training/spell-buying merchant screens.
+        // Unaffordable items use a disabled skin but are not setEnabled(false)
+        // (that would drop their tooltip), so they stay navigable;
+        // onRepairButtonClick() itself no-ops on an item the player can't afford.
+        MyGUI::EnumeratorWidgetPtr widgets = mList->getEnumerator();
+        while (widgets.next())
+        {
+            MyGUI::Widget* widget = widgets.current();
+            MyGUI::Button* button = widget->castType<MyGUI::Button>(false);
+            if (!button)
+                continue;
+
+            mA11y.add({ .widget = button,
+                .describe = [button] { return std::string(button->getCaption()); },
+                .activate = [this, button] { onRepairButtonClick(button); } });
+        }
+
+        MWBase::WindowManager* winMgr = MWBase::Environment::get().getWindowManager();
+        mA11y.add({ .widget = mOkButton,
+            .label = std::string(winMgr->getGameSettingString("sOK", "OK")),
+            .activate = [this] { onOkButtonClick(mOkButton); } });
     }
 
     void MerchantRepair::onMouseWheel(MyGUI::Widget* /*sender*/, int rel)
@@ -142,6 +193,16 @@ namespace MWGui
         center();
         // Reset scrollbars
         mList->setViewOffset(MyGUI::IntPoint(0, 0));
+    }
+
+    void MerchantRepair::onClose()
+    {
+        mA11y.deactivate();
+    }
+
+    void MerchantRepair::onFrame(float dt)
+    {
+        mA11y.onFrame(dt);
     }
 
     void MerchantRepair::onRepairButtonClick(MyGUI::Widget* sender)

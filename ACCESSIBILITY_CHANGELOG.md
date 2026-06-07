@@ -4,6 +4,17 @@ A running log of screen-reader accessibility features added to this OpenMW fork.
 Newest changes are listed first. (OpenMW's own engine changelog lives in
 `CHANGELOG.md`.)
 
+## 2026-06-07
+
+- **Repairing items.** Both repair screens are now screen-reader accessible. At a
+  smith's Repair service, Up and Down move through your damaged items (each read
+  with its repair price) and Enter repairs the selected one. Using a repair tool
+  (hammer or prong) from your inventory opens the repair screen: the first option
+  is your repair tool, which reads its remaining uses and quality; press Enter on
+  it to open a picker and choose a different tool. Below the tool are your damaged
+  items, each read with its condition; press T for full details and Enter to
+  repair it with the current tool.
+
 ## 2026-06-06
 
 - **Buying spells.** The spell merchant screen is now screen-reader accessible.

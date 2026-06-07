@@ -5,6 +5,8 @@
 
 #include "windowbase.hpp"
 
+#include "accessibility/screen.hpp"
+
 #include "../mwmechanics/repair.hpp"
 
 namespace MWGui
@@ -20,6 +22,8 @@ namespace MWGui
         Repair();
 
         void onOpen() override;
+        void onClose() override;
+        void onFrame(float dt) override;
 
         void setPtr(const MWWorld::Ptr& item) override;
 
@@ -52,6 +56,16 @@ namespace MWGui
         void onCancel(MyGUI::Widget* sender);
 
         bool onControllerButtonEvent(const SDL_ControllerButtonEvent& arg) override;
+
+        // Screen-reader controller. Virtual focus via an invisible anchor. The
+        // option list is: the repair tool (Enter opens the item picker), then
+        // each damaged item (Enter repairs it), then Cancel. Rebuilt by
+        // buildAccessibility() whenever the view changes.
+        A11y::Screen mA11y;
+        MyGUI::Widget* mA11yAnchor = nullptr;
+        void buildAccessibility();
+        // Re-read the current option after a repair, keeping cursor position.
+        void a11yRebuildKeepingCursor();
     };
 
 }

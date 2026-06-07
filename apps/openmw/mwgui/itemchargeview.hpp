@@ -41,6 +41,10 @@ namespace MWGui
         /// Takes ownership of \a model
         void setModel(ItemModel* model);
 
+        /// The current model (may be null). Borrowed; ownership stays here. Used
+        /// by the screen reader to enumerate the displayed item stacks.
+        ItemModel* getModel() const { return mModel.get(); }
+
         void setDisplayMode(DisplayMode type);
 
         void update();

@@ -4,6 +4,8 @@
 #include "../mwworld/ptr.hpp"
 #include "windowbase.hpp"
 
+#include "accessibility/screen.hpp"
+
 namespace MWGui
 {
 
@@ -13,6 +15,8 @@ namespace MWGui
         MerchantRepair();
 
         void onOpen() override;
+        void onClose() override;
+        void onFrame(float dt) override;
 
         void setPtr(const MWWorld::Ptr& actor) override;
 
@@ -28,6 +32,12 @@ namespace MWGui
         MWWorld::Ptr mActor;
 
         size_t mControllerFocus = 0;
+
+        // Screen-reader controller. Virtual focus via an invisible anchor; the
+        // repair buttons are widget-backed options rebuilt each setPtr().
+        A11y::Screen mA11y;
+        MyGUI::Widget* mA11yAnchor = nullptr;
+        void buildAccessibility();
 
     protected:
         void onMouseWheel(MyGUI::Widget* sender, int rel);
