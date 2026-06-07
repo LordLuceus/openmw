@@ -58,6 +58,8 @@ namespace MWGui
         // so the inventory window forwards its balance keys here.
         void a11yAnnounceBalance(bool interrupt);
         void a11yAdjustBalance(int delta);
+        // Announce the player's gold (G) or the merchant's gold pool (Shift+G).
+        void a11yAnnounceGold(bool merchant);
         void a11yOfferCountDialog();
         void a11ySubmitOffer();
         MWGui::A11y::Screen& a11yScreen() { return mA11y; }

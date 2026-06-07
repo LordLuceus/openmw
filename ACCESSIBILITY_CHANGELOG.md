@@ -13,7 +13,8 @@ Newest changes are listed first. (OpenMW's own engine changelog lives in
   again on an item marked "on offer" to take it back off the table. Adjust the
   running deal with the balance keys: B reads the current total, plus and minus
   change it by one (hold Shift for 100), C types in an exact amount, and O makes
-  the offer.
+  the offer. Press G to hear your own gold, or Shift+G for the merchant's
+  available gold (the most they can pay you for a sale).
 - **Waypoints.** Drop a map note anywhere with the N key, then scan, face, and
   walk to your dropped notes, Marked locations, and existing map notes in the
   current area. The audio beacon works with waypoints too.

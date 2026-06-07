@@ -939,6 +939,29 @@ namespace MWGui
         A11y::say(label + ": " + std::to_string(balance), interrupt);
     }
 
+    void TradeWindow::a11yAnnounceGold(bool merchant)
+    {
+        MWBase::WindowManager* winMgr = MWBase::Environment::get().getWindowManager();
+        if (merchant)
+        {
+            // "Seller's gold: N" -- the merchant's available gold pool, the cap
+            // on how much you can be paid for a sale.
+            A11y::say(std::string(winMgr->getGameSettingString("sSellerGold", "Seller's gold")) + ": "
+                    + std::to_string(getMerchantGold()),
+                /*interrupt=*/true);
+        }
+        else
+        {
+            MWWorld::Ptr player = MWMechanics::getPlayer();
+            const int playerGold
+                = player.getClass().getContainerStore(player).count(MWWorld::ContainerStore::sGoldId);
+            // "Your gold: N".
+            A11y::say(std::string(winMgr->getGameSettingString("sYourGold", "Your gold")) + ": "
+                    + std::to_string(playerGold),
+                /*interrupt=*/true);
+        }
+    }
+
     void TradeWindow::a11yAdjustBalance(int delta)
     {
         // Reuse the increase/decrease button logic so clamping/sign handling
@@ -996,6 +1019,10 @@ namespace MWGui
             case MyGUI::KeyCode::Minus:
             case MyGUI::KeyCode::Subtract:
                 a11yAdjustBalance(MyGUI::InputManager::getInstance().isShiftPressed() ? -100 : -1);
+                return true;
+            case MyGUI::KeyCode::G:
+                // G = your gold, Shift+G = the merchant's gold pool.
+                a11yAnnounceGold(/*merchant=*/MyGUI::InputManager::getInstance().isShiftPressed());
                 return true;
             case MyGUI::KeyCode::C:
                 a11yOfferCountDialog();
