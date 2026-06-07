@@ -248,6 +248,18 @@ namespace MWAccessibility
         // Whether the audio beacon is currently enabled. Off by default.
         bool mBeaconEnabled = false;
 
+        // --- Draw-state announcement ------------------------------------
+        // Last observed player draw state (nothing / weapon drawn / spell
+        // readied), polled each frame in onFrame so we can announce the
+        // transition -- e.g. "Iron Dagger ready", "Fireball ready", "Weapon
+        // sheathed". Sighted players see the readied weapon/spell on the HUD;
+        // this gives the same feedback by ear. Stored as the raw enum value
+        // (MWMechanics::DrawState) cast to int to avoid pulling the enum into
+        // the header. -1 = uninitialised (no announcement on first poll).
+        int mLastDrawState = -1;
+        // Poll the player's draw state and announce any change (see above).
+        void announceDrawStateChange();
+
         // --- Lock-on state ----------------------------------------------
         // The actor/object the player is currently locked onto for combat or
         // interaction, or empty when not locked. Held as a Ptr (refreshed each

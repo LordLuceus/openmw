@@ -33,9 +33,13 @@
 #include <components/esm3/loadnpc.hpp>
 #include <components/esm3/loadprob.hpp>
 #include <components/esm3/loadrepa.hpp>
+#include <components/esm3/loadspel.hpp>
 #include <components/esm3/loadweap.hpp>
 
+#include "../mwmechanics/aisequence.hpp"
 #include "../mwmechanics/creaturestats.hpp"
+#include "../mwmechanics/drawstate.hpp"
+#include "../mwmechanics/spells.hpp"
 
 #include "../mwgui/tooltips.hpp"
 
@@ -49,6 +53,8 @@
 #include "../mwworld/cellref.hpp"
 #include "../mwworld/cellstore.hpp"
 #include "../mwworld/class.hpp"
+#include "../mwworld/esmstore.hpp"
+#include "../mwworld/inventorystore.hpp"
 #include "../mwworld/player.hpp"
 #include "../mwworld/ptr.hpp"
 #include "../mwworld/refdata.hpp"
@@ -105,7 +111,10 @@ namespace
         switch (cat)
         {
             case MWAccessibility::Category::Npcs:
-                return "NPCs";
+                // "Actors" (NPCs + creatures) -- the enum value is historically
+                // named Npcs, but the spoken category is "Actors" since "NPCs"
+                // is also one of its subcategories.
+                return "Actors";
             case MWAccessibility::Category::Doors:
                 return "Doors";
             case MWAccessibility::Category::Containers:
@@ -208,6 +217,30 @@ namespace
     bool isNpcActor(const MWWorld::Ptr& p) { return p.getType() == ESM::NPC::sRecordId; }
     bool isCreatureActor(const MWWorld::Ptr& p) { return p.getType() == ESM::Creature::sRecordId; }
 
+    // "Hostile": an actor actively in combat with the player, i.e. the player
+    // is among its AI combat targets. This is the reliable "trying to kill me
+    // right now" signal -- narrower (and more useful) than a generic
+    // isInCombat(), which is also true when the actor is fighting someone else
+    // (a guard vs a rat). Dead actors are excluded so corpses don't linger in
+    // the list. Used as the "Hostile" subcategory of the Actors category.
+    bool isHostileActor(const MWWorld::Ptr& p)
+    {
+        if (!p.getClass().isActor())
+            return false;
+        const MWMechanics::CreatureStats& stats = p.getClass().getCreatureStats(p);
+        if (stats.isDead())
+            return false;
+        const MWWorld::Ptr player = MWBase::Environment::get().getWorld()->getPlayerPtr();
+        if (player.isEmpty())
+            return false;
+        std::vector<MWWorld::Ptr> targets;
+        stats.getAiSequence().getCombatTargets(targets);
+        for (const MWWorld::Ptr& t : targets)
+            if (t == player)
+                return true;
+        return false;
+    }
+
     constexpr Subcategory kItemSubs[] = {
         { "All", nullptr },
         { "Weapons", &isWeapon },
@@ -222,6 +255,7 @@ namespace
 
     constexpr Subcategory kNpcSubs[] = {
         { "All", nullptr },
+        { "Hostile", &isHostileActor },
         { "NPCs", &isNpcActor },
         { "Creatures", &isCreatureActor },
     };
@@ -462,6 +496,7 @@ namespace MWAccessibility
         mAutoWalker.onFrame(dt);
         mProximityCue.onFrame(dt);
         updateLockOn();
+        announceDrawStateChange();
     }
 
     bool Scanner::handleKey(int scancode, int modState)
@@ -833,6 +868,79 @@ namespace MWAccessibility
         if (announce)
             speak("Lock released.");
         mLockTargetName.clear();
+    }
+
+    void Scanner::announceDrawStateChange()
+    {
+        MWBase::World* world = MWBase::Environment::get().getWorld();
+        MWWorld::Ptr player = world->getPlayerPtr();
+        if (player.isEmpty())
+            return;
+
+        const MWMechanics::DrawState state
+            = player.getClass().getCreatureStats(player).getDrawState();
+        const int stateInt = static_cast<int>(state);
+        if (stateInt == mLastDrawState)
+            return;
+        const int prev = mLastDrawState;
+        mLastDrawState = stateInt;
+        // Don't announce the initial baseline (first poll of a freshly loaded
+        // game): the player hasn't just pressed anything, so it would be noise.
+        if (prev < 0)
+            return;
+
+        switch (state)
+        {
+            case MWMechanics::DrawState::Weapon:
+            {
+                // Name the readied weapon, or "Hand to hand" when unarmed.
+                std::string name = "Hand to hand";
+                MWWorld::InventoryStore& inv = player.getClass().getInventoryStore(player);
+                auto slot = inv.getSlot(MWWorld::InventoryStore::Slot_CarriedRight);
+                if (slot != inv.end() && !slot->isEmpty())
+                    name = slot->getClass().getName(*slot);
+                speak(name + " ready.");
+                break;
+            }
+            case MWMechanics::DrawState::Spell:
+            {
+                // Name the readied spell, or the selected enchanted item if a
+                // magic item is what's equipped for casting.
+                std::string name;
+                const ESM::RefId selected
+                    = player.getClass().getCreatureStats(player).getSpells().getSelectedSpell();
+                if (!selected.empty())
+                {
+                    const ESM::Spell* spell = world->getStore().get<ESM::Spell>().search(selected);
+                    if (spell)
+                        name = spell->mName;
+                }
+                if (name.empty())
+                {
+                    MWWorld::InventoryStore& inv = player.getClass().getInventoryStore(player);
+                    if (inv.getSelectedEnchantItem() != inv.end())
+                    {
+                        const MWWorld::Ptr item = *inv.getSelectedEnchantItem();
+                        if (!item.isEmpty())
+                            name = item.getClass().getName(item);
+                    }
+                }
+                if (name.empty())
+                    speak("Magic ready.");
+                else
+                    speak(name + " ready.");
+                break;
+            }
+            case MWMechanics::DrawState::Nothing:
+            default:
+                // Distinguish what was put away so the player knows which mode
+                // they left (matches the two ready announcements).
+                if (prev == static_cast<int>(MWMechanics::DrawState::Spell))
+                    speak("Magic put away.");
+                else
+                    speak("Weapon sheathed.");
+                break;
+        }
     }
 
     bool Scanner::activateTarget()
