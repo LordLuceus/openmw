@@ -10,14 +10,14 @@ Each GUI screen is identified by its `GuiMode` (see
 
 Inventory, Spells/Magic, Stats, Map (+ waypoints & map notes), Dialogue
 (+ topic jumping), Journal (page reading + topics/quests browsing), Container,
-Book, Scroll, Barter, Travel, Training, Persuasion, Settings window, Main menu, and the
+Book, Scroll, Barter, Spell buying, Travel, Training, Persuasion, Settings window, Main menu, and the
 character-creation screens (Name, Race, Birth, Class, Review). Object scanner,
 auto-walk, location announcements, and audio beacon (gameplay, not a screen).
 
 ## To-Do
 
 ### Merchant / services windows (model-backed lists, barter-like)
-- [ ] **Spell buying** (`GM_SpellBuying`) — list of purchasable spells + cost
+- [x] **Spell buying** (`GM_SpellBuying`) — list of purchasable spells + cost
 - [ ] **Spell making / creation** (`GM_SpellCreation`) — effect builder (complex)
 - [ ] **Enchanting** (`GM_Enchanting`) — item + effects + soul gem
 - [ ] **Alchemy / potion-making** (`GM_Alchemy`) — ingredients grid → effects
