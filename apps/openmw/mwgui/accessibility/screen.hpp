@@ -67,7 +67,15 @@ namespace MWGui::A11y
         /// Switch this screen to virtual-focus mode using \p anchor as the
         /// permanently-focused widget. Call before add()/activate(). In this
         /// mode option widgets are not focused and are made non-focusable.
-        void setVirtualFocus(MyGUI::Widget* anchor);
+        ///
+        /// \param ownModal set true when the screen's own window is itself a
+        ///        WindowModal (e.g. the item-selection picker). Normally a
+        ///        virtual screen yields anchor focus whenever MyGUI reports any
+        ///        active modal -- correct when a *separate* native dialog pops
+        ///        over a non-modal screen, but wrong when this screen IS the
+        ///        modal (it would yield to itself and go deaf to the arrows).
+        ///        With ownModal=true the screen keeps pinning its anchor.
+        void setVirtualFocus(MyGUI::Widget* anchor, bool ownModal = false);
 
         /// Register a navigable option. In real-focus mode this forces the
         /// widget focusable and hooks its focus / key events; in virtual-focus
@@ -150,6 +158,10 @@ namespace MWGui::A11y
         /// of a dynamic widget-less list (e.g. a container's items) whose labels
         /// aren't unique enough for selectByLabel() (many identical stacks).
         size_t currentIndex() const { return mCurrent; }
+
+        /// Number of options currently in the list. Useful for clamping a saved
+        /// cursor position after a rebuild that may have shrunk the list.
+        size_t size() const { return mElements.size(); }
 
         /// True while the user is in text-edit mode on an editable option, so an
         /// owner can defer a list rebuild until editing finishes.
@@ -274,6 +286,10 @@ namespace MWGui::A11y
         size_t mCurrent = npos;
 
         bool mVirtual = false;
+        // True when this virtual screen's own window is a WindowModal, so its
+        // onFrame must NOT treat "a modal is active" as someone else's dialog to
+        // yield to -- the active modal is us. See setVirtualFocus(ownModal).
+        bool mOwnModal = false;
         MyGUI::Widget* mAnchor = nullptr;
 
         // In virtual mode, the widget that held key focus *before* we pinned

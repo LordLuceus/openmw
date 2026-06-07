@@ -45,9 +45,10 @@ namespace MWGui::A11y
         return UiManager::instance().isActive(this);
     }
 
-    void Screen::setVirtualFocus(MyGUI::Widget* anchor)
+    void Screen::setVirtualFocus(MyGUI::Widget* anchor, bool ownModal)
     {
         mVirtual = true;
+        mOwnModal = ownModal;
         mAnchor = anchor;
         // Tell the engine's keyboard navigation not to consume Tab when our
         // anchor holds focus, so Tab reaches our own key handler (used for tab
@@ -872,7 +873,10 @@ namespace MWGui::A11y
         // so isModalAny() is always true for them -- they must NOT yield, or
         // every key would be swallowed. Only virtual screens treat a modal as
         // "someone else's dialog".
-        if (mVirtual && MyGUI::InputManager::getInstance().isModalAny())
+        // ...unless we ARE that modal (ownModal): an item-selection picker is a
+        // WindowModal but still a virtual screen, so it must keep pinning its
+        // own anchor rather than yielding to itself (which left the arrows dead).
+        if (mVirtual && !mOwnModal && MyGUI::InputManager::getInstance().isModalAny())
         {
             mYieldedToModal = true;
             return;
@@ -999,8 +1003,10 @@ namespace MWGui::A11y
         // the last key we genuinely handled. Reporting that stale value would
         // tell the engine the key was consumed and swallow the modal's own
         // Escape/Enter handling (so the dialog couldn't be cancelled). While
-        // yielding to a modal we never consume keys.
-        if (mVirtual && MyGUI::InputManager::getInstance().isModalAny())
+        // yielding to a modal we never consume keys. Exception: when our own
+        // window IS the modal (ownModal), our anchor DID receive the key, so the
+        // real mKeyConsumed is meaningful and must be honoured.
+        if (mVirtual && !mOwnModal && MyGUI::InputManager::getInstance().isModalAny())
             return false;
         return mKeyConsumed;
     }
@@ -1026,8 +1032,11 @@ namespace MWGui::A11y
         // For a virtual-focus (non-modal) screen, a live modal dialog owns the
         // keyboard -- let the engine route keys to it. Real-focus screens are
         // themselves modal, so this guard must not apply to them (it would
-        // swallow every key). See the matching note in onFrame().
-        if (mVirtual && MyGUI::InputManager::getInstance().isModalAny())
+        // swallow every key). Likewise a virtual screen whose own window IS the
+        // modal (ownModal, e.g. the item-selection picker) must keep its keys --
+        // otherwise it yields to itself and the arrows/Enter go dead. See the
+        // matching note in onFrame().
+        if (mVirtual && !mOwnModal && MyGUI::InputManager::getInstance().isModalAny())
         {
             mKeyConsumed = false;
             return;

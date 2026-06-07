@@ -10,7 +10,7 @@ Each GUI screen is identified by its `GuiMode` (see
 
 Inventory, Spells/Magic, Stats, Map (+ waypoints & map notes), Dialogue
 (+ topic jumping), Journal (page reading + topics/quests browsing), Container,
-Book, Scroll, Barter, Spell buying, Travel, Training, Persuasion, Settings window, Main menu, and the
+Book, Scroll, Barter, Spell buying, Repair (own + smith), Travel, Training, Persuasion, Settings window, Main menu, and the
 character-creation screens (Name, Race, Birth, Class, Review). Object scanner,
 auto-walk, location announcements, and audio beacon (gameplay, not a screen).
 
@@ -22,8 +22,8 @@ auto-walk, location announcements, and audio beacon (gameplay, not a screen).
 - [ ] **Enchanting** (`GM_Enchanting`) — item + effects + soul gem
 - [ ] **Alchemy / potion-making** (`GM_Alchemy`) — ingredients grid → effects
 - [ ] **Recharge** (`GM_Recharge`) — recharge enchanted items with soul gems
-- [ ] **Repair** (`GM_Repair`) — player's own repair hammers
-- [ ] **Merchant repair** (`GM_MerchantRepair`) — paying a smith (separate window)
+- [x] **Repair** (`GM_Repair`) — player's own repair hammers
+- [x] **Merchant repair** (`GM_MerchantRepair`) — paying a smith (separate window)
 
 ### Progress / confirmation dialogs
 - [ ] **Level up** (`GM_Levelup`) — attribute picks
@@ -50,5 +50,8 @@ auto-walk, location announcements, and audio beacon (gameplay, not a screen).
 
 ## Notes
 - There are TWO repair windows: `GM_Repair` (own hammer) vs `GM_MerchantRepair`.
+- `ItemSelectionDialog` (the item picker modal) is now accessible — this is the
+  same picker used by Alchemy, Enchanting, Recharge, and the quick-keys menu, so
+  those screens get the item-choosing half for free.
 - Companion is the same two-pane inventory pattern as barter (`A11y::PaneGroup`),
   so it should be a quick follow-up.
