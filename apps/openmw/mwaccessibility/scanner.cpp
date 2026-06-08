@@ -445,7 +445,31 @@ namespace MWAccessibility
         // re-announce the current cell.
         if (MWBase::Environment::get().getStateManager()->getState()
             != MWBase::StateManager::State_Running)
+        {
             mCellNamePrimed = false;
+
+            // Drop every cached MWWorld::Ptr while no game is running. Loading a
+            // save (including quickload) tears down the current world, so any
+            // Ptr we are holding -- the lock-on target and the cached per-
+            // category object lists -- becomes dangling. If we kept them,
+            // updateLockOn() would dereference freed memory next frame
+            // (mLockTarget.getCellRef()...), crashing on load. This state is
+            // entered during load (and at the main menu); it is NOT entered for
+            // in-game menus/dialogue, which stay State_Running, so we won't
+            // clear the lock just because the player opened their inventory.
+            mLockedOn = false;
+            mLockTarget = MWWorld::Ptr();
+            mLockTargetName.clear();
+            for (auto& s : mLists)
+            {
+                s.mObjects.clear();
+                s.mWaypoints.clear();
+                s.mIndex = -1;
+                s.mSelectedRef = ESM::RefNum{};
+                s.mDirty = true;
+            }
+            mLastCellId = nullptr;
+        }
 
         if (!isGameplayActive())
             return;
@@ -854,20 +878,33 @@ namespace MWAccessibility
         // mechanism as focusCamera()). WASD movement stays relative to this
         // facing, so the player can advance/strafe.
         //
-        // CRITICAL: aim from the player's EYE, and at the target's CENTRE -- not
-        // foot-origin to foot-origin. The position vectors returned above are at
-        // each object's base (feet). But the lockpick/probe and activate code
-        // raycasts from the CAMERA (eye level, ~chest-to-head height up), and
-        // melee getHitContact() likewise measures from the actor's eye. If we
-        // pitch using foot-to-foot we badly under-aim downward targets: a chest
-        // on the floor a couple of metres away comes out almost level, so the
-        // camera ray sails over it and hits the wall/shelf behind (the "aimed at
-        // the plates above the chest" bug). Raising the origin to eye level and
-        // the aim point to the target's vertical centre makes the pitch match
-        // what the raycast actually needs.
-        const float playerEye = world->getHalfExtents(player, /*rendering=*/true).z() * 2.f * 0.85f;
+        // CRITICAL: aim the pitch from the projectile/attack ORIGIN to the
+        // target's CENTRE -- not foot-origin to foot-origin. The position
+        // vectors above are at each object's base (feet); pitching foot-to-foot
+        // badly under-aims downward targets.
+        //
+        // Use TORSO height (0.75) for our origin, because that is exactly where
+        // the engine launches a target spell's magic bolt from
+        // (ProjectileManager::launchMagicBolt uses Constants::TorsoHeight). A
+        // bolt flies in a straight line PARALLEL to our facing, starting at the
+        // torso. If we instead pitched from a higher point (e.g. the eye/camera
+        // at 0.85), the bolt -- launched 0.10*height lower but flying parallel
+        // to the eye->centre line -- arrives that same ~13 units BELOW centre,
+        // dropping into the target's legs/feet and clipping low clutter (a chest
+        // or the ground) on the way at range. That produced intermittent ranged
+        // spell misses that worked up close (before the trajectory had dropped
+        // into anything). Matching the origin to the actual launch height makes
+        // the bolt pass through centre at any distance.
+        //
+        // This is safe for the other interactions: lockpick/probe/activate and
+        // touch-on-object spells (Open) now use the locked target DIRECTLY
+        // rather than a camera ray (see CharacterController / World::castSpell),
+        // so they don't depend on this pitch; melee getHitContact() uses a
+        // tolerant facing cone, not a thin ray. Only the projectile is angle-
+        // sensitive, so we optimise the aim for it.
+        const float playerTorso = world->getHalfExtents(player, /*rendering=*/true).z() * 2.f * 0.75f;
         osg::Vec3f playerPos = player.getRefData().getPosition().asVec3();
-        playerPos.z() += playerEye;
+        playerPos.z() += playerTorso;
         osg::Vec3f targetPos = mLockTarget.getRefData().getPosition().asVec3();
         // Aim at the target's vertical centre (half its height up from its
         // base), so we don't aim at an actor's feet or a container's floor edge.
