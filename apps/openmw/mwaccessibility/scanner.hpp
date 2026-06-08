@@ -40,6 +40,17 @@ namespace MWAccessibility
         /// lists when the player's cell changes.
         void onFrame(float dt);
 
+        /// Drop ALL cached MWWorld::Ptr state (lock-on target, per-category
+        /// object lists, cell tracking). Called from StateManager::cleanup when
+        /// a game is loaded or ended -- that tears down the world synchronously,
+        /// freeing the cell refs our Ptrs point at, so anything we keep would
+        /// dangle. We can't rely on onFrame noticing a non-Running state because
+        /// a quickload completes (unload old world, load save, return to
+        /// Running) entirely within one input handler, before onFrame runs
+        /// again; the next updateLockOn would then dereference a freed target
+        /// and crash. This deterministic hook runs at the exact teardown point.
+        void clear();
+
         /// Called from KeyboardManager. \p scancode is an SDL_Scancode,
         /// \p modState is the raw SDL_GetModState() bitmask. Returns true
         /// if the scanner consumed the keypress.
@@ -59,6 +70,19 @@ namespace MWAccessibility
         /// the lockpick/probe path (CharacterController) consults this so picking
         /// a chest works even when the camera ray is obstructed.
         MWWorld::Ptr lockTarget() const { return mLockedOn ? mLockTarget : MWWorld::Ptr(); }
+
+        /// Announce when the player attacks the locked target but can't reach
+        /// it: "Out of range", or "Target too high"/"Target too low" when it's
+        /// within horizontal reach but beyond the engine's vertical reach check.
+        /// A blind player has no on-screen miss/whiff cue, so this tells them to
+        /// close in (or that the target is above/below reach, e.g. a cliff
+        /// racer). \p reach is the attack's reach in world units, so the caller
+        /// supplies the right value: getMeleeWeaponReach for a melee swing, or
+        /// fCombatDistance for a touch spell. No-op when not locked, the target
+        /// isn't an actor, or the target is actually in reach. Throttled
+        /// internally so rapid swings/casts don't spam speech. Called from
+        /// CharacterController::prepareHit (melee) and World::castSpell (touch).
+        void announceOutOfReach(float reach);
 
         /// Called by the WindowManager when the search prompt is confirmed.
         /// \p query is the (possibly empty) name filter; an empty query clears
@@ -291,6 +315,14 @@ namespace MWAccessibility
         // Spoken name of the locked target, captured at lock time so release /
         // status messages read sensibly even if the Ptr later goes stale.
         std::string mLockTargetName;
+
+        // Throttle for announceMeleeReach: a swung weapon resolves its hit
+        // several times per second, so we rate-limit the "out of range" speech.
+        // Counts DOWN each frame in onFrame; announceMeleeReach speaks only when
+        // it has reached 0, then resets it to the cooldown interval. So the
+        // first out-of-range swing speaks at once and repeats only after the
+        // interval elapses.
+        float mMeleeReachCooldown = 0.f;
     };
 }
 

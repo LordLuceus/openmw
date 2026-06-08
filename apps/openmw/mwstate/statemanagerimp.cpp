@@ -43,6 +43,8 @@
 #include "../mwworld/scene.hpp"
 #include "../mwworld/worldmodel.hpp"
 
+#include "../mwaccessibility/scanner.hpp"
+
 #include "../mwmechanics/actorutil.hpp"
 #include "../mwmechanics/npcstats.hpp"
 
@@ -62,6 +64,14 @@ void MWState::StateManager::cleanup(bool force)
         MWBase::Environment::get().getWorld()->clear();
         MWBase::Environment::get().getInputManager()->clear();
         MWBase::Environment::get().getMechanicsManager()->clear();
+
+        // [a11y] Drop the screen-reader scanner's cached Ptrs (lock-on target,
+        // object lists) before the world is gone. Done here -- synchronously
+        // with the other managers' teardown -- because a quickload completes
+        // entirely within one input handler, so the scanner's own onFrame never
+        // sees a non-Running state to clear on. Without this, updateLockOn()
+        // dereferences a freed lock target next frame and crashes on quickload.
+        MWAccessibility::Scanner::instance().clear();
 
         mCharacterManager.setCurrentCharacter(nullptr);
         mTimePlayed = 0;

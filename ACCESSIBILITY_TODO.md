@@ -55,12 +55,30 @@ auto-walk, location announcements, and audio beacon (gameplay, not a screen).
       and stay distance-ordered. Fixed hostiles vanishing from the scanner the
       moment they entered combat (hasToolTip() exception for actors).
 - [x] **Weapon/spell ready announcements** — draw state polled and announced.
-- [ ] **Out-of-range melee feedback** — tell the player when a locked target is
-      too far to hit (and ideally too high/low for the equipped weapon).
+- [x] **Out-of-range feedback** — when the player swings melee or casts a touch
+      spell at a locked target that's unreachable, announce "Out of range" (too
+      far) or "Target too high"/"Target too low" (beyond vertical reach).
+      Throttled; uses the engine's own reach math. Ranged "target" spells are
+      excluded so distance casting isn't nagged.
 - [ ] **Spell-cast announcements** — announce when a (nearby) actor casts a spell.
 - [ ] **Enemy health readout** — read the selected/locked actor's health (% only,
       matching the native enemy health bar; magicka/fatigue not shown to sighted
       players so not exposed).
+
+### Tech debt
+- [ ] **Memory-safety audit (post-combat)** — sweep the a11y code for stale
+      `MWWorld::Ptr` handling across world teardown. The scanner caches Ptrs
+      (lock-on target, per-category object lists, auto-walk target, proximity
+      cue) that dangle when a save loads/ends or a cell unloads. Two quickload
+      crashes were traced (via the minidump) to `updateLockOn` dereferencing a
+      freed lock target; root-caused to the synchronous quickload completing
+      within one input handler, so `onFrame` state-polling never fired. Fixed
+      deterministically via `Scanner::clear()` from `StateManager::cleanup`.
+      Audit every cached Ptr for the same hazard, confirm `clear()` covers all
+      of them, and check the per-frame `pruneDeadObjects`/cell-change paths and
+      `lockTarget()` consumers (CharacterController, World::castSpell) for
+      use-after-free. Prefer storing stable `RefNum`s + re-resolving over
+      holding raw Ptrs where practical.
 
 ## Notes
 - There are TWO repair windows: `GM_Repair` (own hammer) vs `GM_MerchantRepair`.

@@ -52,6 +52,7 @@
 
 #include "actorutil.hpp"
 #include "aicombataction.hpp"
+#include "combat.hpp"
 #include "creaturestats.hpp"
 #include "movement.hpp"
 #include "npcstats.hpp"
@@ -1265,6 +1266,16 @@ namespace MWMechanics
                 mAttackSuccess = mPtr.getClass().evaluateHit(mPtr, mAttackVictim, mAttackHitPos);
                 if (!mAttackSuccess)
                     mAttackStrength = 0.f;
+
+                // [a11y] Tell a screen-reader player when a melee swing at their
+                // locked target can't reach it ("Out of range" / "Target too
+                // high/low"). They have no visual whiff cue. No-op unless the
+                // player is locked onto a live actor that's actually out of
+                // reach; throttled internally. mWeapon is the held weapon (empty
+                // for hand-to-hand), matching what evaluateHit used above.
+                if (mPtr == getPlayer())
+                    MWAccessibility::Scanner::instance().announceOutOfReach(
+                        MWMechanics::getMeleeWeaponReach(mPtr, mWeapon));
             }
             playSwishSound();
         }

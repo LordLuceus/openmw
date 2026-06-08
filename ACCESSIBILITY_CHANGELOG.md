@@ -4,6 +4,15 @@ A running log of screen-reader accessibility features added to this OpenMW fork.
 Newest changes are listed first. (OpenMW's own engine changelog lives in
 `CHANGELOG.md`.)
 
+## 2026-06-08
+
+- **Out-of-range feedback.** When you swing a melee weapon or cast a touch spell
+  at a locked target that's too far to reach, you'll now hear "Out of range" --
+  or "Target too high" / "Target too low" when the target is within horizontal
+  reach but above or below your weapon's vertical reach (like a cliff racer
+  overhead). Ranged spells you cast from a distance, such as Fireball, won't
+  trigger it. The message is rate-limited so a flurry of swings won't spam it.
+
 ## 2026-06-07
 
 - **Combat lock-on.** Press K to lock onto whatever the scanner has selected.

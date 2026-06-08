@@ -112,6 +112,19 @@ namespace MWWorld
 {
     namespace
     {
+        // [a11y] True if any effect of the spell/enchantment is a touch-range
+        // effect (RT_Touch). Used to decide whether to give "out of range"
+        // feedback when a player's cast finds no target: only touch spells need
+        // the caster adjacent, so we must not warn about distance for ranged
+        // "target" spells (e.g. Fireball) or self spells.
+        bool spellHasTouchEffect(const ESM::EffectList& effects)
+        {
+            for (const ESM::IndexedENAMstruct& effect : effects.mList)
+                if (effect.mData.mRange == ESM::RT_Touch)
+                    return true;
+            return false;
+        }
+
         std::vector<std::pair<GlobalVariableName, ESM::Variant>> generateDefaultGlobals()
         {
             return {
@@ -2986,6 +2999,21 @@ namespace MWWorld
         if (!selectedSpell.empty())
         {
             const ESM::Spell* spell = mStore.get<ESM::Spell>().find(selectedSpell);
+            // [a11y] Out-of-reach feedback for the player's TOUCH spells. A touch
+            // spell resolves its actor target through the same melee cone as a
+            // weapon (getHitContact above), so if the locked enemy is too far the
+            // target comes back empty and the spell silently fizzles -- no whiff
+            // cue for a blind player. Only warn for spells that actually have a
+            // touch (on-self-range RT_Touch) effect; ranged "target" spells like
+            // Fireball are meant to be cast from afar, so we must not nag about
+            // distance for those. announceOutOfReach itself no-ops unless locked
+            // onto a live actor that's genuinely out of reach, and is throttled.
+            if (casterIsPlayer && !scriptedSpell && target.isEmpty() && spellHasTouchEffect(spell->mEffects))
+            {
+                const float fCombatDistance
+                    = mStore.get<ESM::GameSetting>().find("fCombatDistance")->mValue.getFloat();
+                MWAccessibility::Scanner::instance().announceOutOfReach(fCombatDistance);
+            }
             cast.cast(spell);
         }
         else
@@ -2994,6 +3022,17 @@ namespace MWWorld
             if (inv.getSelectedEnchantItem() != inv.end())
             {
                 const auto& itemPtr = *inv.getSelectedEnchantItem();
+                if (casterIsPlayer && !scriptedSpell && target.isEmpty())
+                {
+                    const ESM::Enchantment* ench = mStore.get<ESM::Enchantment>().search(
+                        itemPtr.getClass().getEnchantment(itemPtr));
+                    if (ench && spellHasTouchEffect(ench->mEffects))
+                    {
+                        const float fCombatDistance
+                            = mStore.get<ESM::GameSetting>().find("fCombatDistance")->mValue.getFloat();
+                        MWAccessibility::Scanner::instance().announceOutOfReach(fCombatDistance);
+                    }
+                }
                 cast.cast(itemPtr);
             }
         }

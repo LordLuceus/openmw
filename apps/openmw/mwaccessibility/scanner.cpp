@@ -37,6 +37,7 @@
 #include <components/esm3/loadweap.hpp>
 
 #include "../mwmechanics/aisequence.hpp"
+#include "../mwmechanics/combat.hpp"
 #include "../mwmechanics/creaturestats.hpp"
 #include "../mwmechanics/drawstate.hpp"
 #include "../mwmechanics/spells.hpp"
@@ -73,6 +74,11 @@ namespace
     // shows up promptly, but not every frame (the rebuild scans all active
     // cells). See Scanner::announceDrawStateChange's sibling refresh path.
     constexpr float kActorRefreshInterval = 0.5f;
+
+    // Minimum gap (seconds) between spoken "out of range" melee warnings, so a
+    // rapidly-swinging weapon doesn't machine-gun the message. See
+    // Scanner::announceMeleeReach.
+    constexpr float kMeleeReachAnnounceInterval = 1.5f;
 
     std::string formatDistance(float units)
     {
@@ -435,6 +441,31 @@ namespace MWAccessibility
         return true;
     }
 
+    void Scanner::clear()
+    {
+        // Release the lock-on and drop every cached MWWorld::Ptr. Called when a
+        // game is loaded or ended (StateManager::cleanup), which tears down the
+        // world synchronously and frees the cell refs our Ptrs point at. Keeping
+        // any would leave a dangling target that updateLockOn() dereferences on
+        // the next frame (mLockTarget.getCellRef()...), crashing on quickload.
+        // Also reset cell tracking and the cell-name priming so the freshly
+        // loaded cell is recorded silently and lists rebuild from scratch.
+        mLockedOn = false;
+        mLockTarget = MWWorld::Ptr();
+        mLockTargetName.clear();
+        for (auto& s : mLists)
+        {
+            s.mObjects.clear();
+            s.mWaypoints.clear();
+            s.mIndex = -1;
+            s.mSelectedRef = ESM::RefNum{};
+            s.mDirty = true;
+        }
+        mLastCellId = nullptr;
+        mCellNamePrimed = false;
+        mMeleeReachCooldown = 0.f;
+    }
+
     void Scanner::onFrame(float dt)
     {
         // Re-arm the cell-name baseline whenever no game is loaded, so the
@@ -448,27 +479,14 @@ namespace MWAccessibility
         {
             mCellNamePrimed = false;
 
-            // Drop every cached MWWorld::Ptr while no game is running. Loading a
-            // save (including quickload) tears down the current world, so any
-            // Ptr we are holding -- the lock-on target and the cached per-
-            // category object lists -- becomes dangling. If we kept them,
-            // updateLockOn() would dereference freed memory next frame
-            // (mLockTarget.getCellRef()...), crashing on load. This state is
-            // entered during load (and at the main menu); it is NOT entered for
-            // in-game menus/dialogue, which stay State_Running, so we won't
-            // clear the lock just because the player opened their inventory.
-            mLockedOn = false;
-            mLockTarget = MWWorld::Ptr();
-            mLockTargetName.clear();
-            for (auto& s : mLists)
-            {
-                s.mObjects.clear();
-                s.mWaypoints.clear();
-                s.mIndex = -1;
-                s.mSelectedRef = ESM::RefNum{};
-                s.mDirty = true;
-            }
-            mLastCellId = nullptr;
+            // Belt-and-braces: also drop cached Ptrs whenever no game is
+            // running. The authoritative teardown hook is Scanner::clear(),
+            // called synchronously from StateManager::cleanup (a quickload
+            // unloads + reloads + returns to Running within one input handler,
+            // so this onFrame branch may never see a non-Running state). This
+            // remains as a cheap safety net for any path that lands here with a
+            // game not running -- e.g. sitting at the main menu.
+            clear();
         }
 
         if (!isGameplayActive())
@@ -527,6 +545,11 @@ namespace MWAccessibility
         mProximityCue.onFrame(dt);
         updateLockOn();
         announceDrawStateChange();
+
+        // Tick down the out-of-range melee speech throttle (see
+        // announceMeleeReach). Clamp at 0 so it doesn't run negative.
+        if (mMeleeReachCooldown > 0.f)
+            mMeleeReachCooldown = std::max(0.f, mMeleeReachCooldown - dt);
 
         // Keep the Actors list live: actors move and turn hostile mid-fight, so
         // a list cached at selection time goes stale (a new attacker won't
@@ -918,6 +941,65 @@ namespace MWAccessibility
         const float desiredPitch = -std::atan2(delta.z(), horiz);
         world->rotateObject(player, osg::Vec3f(desiredPitch, 0.0f, desiredYaw),
             MWBase::RotationFlag_none);
+    }
+
+    void Scanner::announceOutOfReach(float reach)
+    {
+        // CRITICAL: bail unless a game is actually running. This is called from
+        // the combat/cast path (prepareHit, castSpell), which can run during a
+        // save load's teardown frame -- a queued melee swing resolves while the
+        // world is being torn down. At that point mLockTarget may be dangling
+        // (the lock is cleared by our own onFrame, but combat updates can fire
+        // first), so touching it would dereference freed memory and crash on
+        // quickload. The Running-state gate matches where onFrame clears the
+        // lock; in-game menus stay Running, so this doesn't suppress legitimate
+        // in-combat warnings.
+        if (MWBase::Environment::get().getStateManager()->getState()
+            != MWBase::StateManager::State_Running)
+            return;
+
+        // Only meaningful when locked onto a live actor: the message tells the
+        // player their attack on *that enemy* won't land. Without a lock we have
+        // no specific target to reason about (a sighted player would see the
+        // whiff), and non-actor locks (a chest) aren't melee/touch combat
+        // targets.
+        if (!mLockedOn || mLockTarget.isEmpty())
+            return;
+        if (!mLockTarget.getClass().isActor()
+            || mLockTarget.getClass().getCreatureStats(mLockTarget).isDead())
+            return;
+
+        MWBase::World* world = MWBase::Environment::get().getWorld();
+        MWWorld::Ptr player = world->getPlayerPtr();
+        if (player.isEmpty())
+            return;
+
+        // Use the engine's own reach math so our notion of "in range" matches
+        // what the hit actually requires. isInMeleeReach() ANDs two conditions:
+        // a vertical check (|height difference| < reach) and a horizontal
+        // distance-to-bounds check. We evaluate them separately so we can tell
+        // the player *why* it won't connect. (Touch spells resolve their actor
+        // target through the same melee cone, so the same reach math applies.)
+        if (MWMechanics::isInMeleeReach(player, mLockTarget, reach))
+            return; // Actually in range -- the attack can land, so stay silent.
+
+        // Throttle: a held swing (or repeated casts) resolves several times a
+        // second.
+        if (mMeleeReachCooldown > 0.f)
+            return;
+        mMeleeReachCooldown = kMeleeReachAnnounceInterval;
+
+        // Distinguish the two failure modes. Mirror isInMeleeReach's tests:
+        // if the horizontal distance is within reach but the height isn't, the
+        // target is simply too far above or below us (a cliff racer overhead, an
+        // enemy atop a ledge), which closing the horizontal gap won't fix.
+        const float heightDiff = player.getRefData().getPosition().pos[2]
+            - mLockTarget.getRefData().getPosition().pos[2];
+        const bool horizOk = MWMechanics::getDistanceToBounds(player, mLockTarget) < reach;
+        if (horizOk && std::abs(heightDiff) >= reach)
+            speak(heightDiff < 0.f ? "Target too high." : "Target too low.");
+        else
+            speak("Out of range.");
     }
 
     void Scanner::releaseLockOn(bool announce)
