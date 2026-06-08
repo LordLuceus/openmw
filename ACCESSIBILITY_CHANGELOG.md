@@ -6,6 +6,21 @@ Newest changes are listed first. (OpenMW's own engine changelog lives in
 
 ## 2026-06-08
 
+- **Enemy spellcasting announcements.** When another actor casts a spell or uses
+  a scroll, you'll now hear it -- for example "Dagoth Gares casts Fireball at
+  you." The "at you" is added when the caster is fighting you and the spell
+  reaches outward, so you can tell an attack aimed your way from a buff someone
+  cast on themselves. Casts are announced when they're nearby, or at any
+  distance when the caster is targeting you; your own casts aren't announced
+  (you already hear those when you ready them).
+
+- **Reaching things on the ground.** Fixed not being able to activate objects
+  whose base is sunk into the floor or terrain -- most notably Fargoth's hollow
+  tree stump. Auto-walk would bring you right on top of it and say you'd arrived,
+  but trying to use it claimed you were too far away with no way to get closer.
+  Activation now measures to the object's surface (as the game does when you look
+  at something) instead of its buried centre point.
+
 - **Out-of-range feedback.** When you swing a melee weapon or cast a touch spell
   at a locked target that's too far to reach, you'll now hear "Out of range" --
   or "Target too high" / "Target too low" when the target is within horizontal

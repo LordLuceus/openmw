@@ -60,7 +60,13 @@ auto-walk, location announcements, and audio beacon (gameplay, not a screen).
       far) or "Target too high"/"Target too low" (beyond vertical reach).
       Throttled; uses the engine's own reach math. Ranged "target" spells are
       excluded so distance casting isn't nagged.
-- [ ] **Spell-cast announcements** — announce when a (nearby) actor casts a spell.
+- [x] **Spell-cast announcements** — announce when another actor casts a spell or
+      uses a scroll/magic item. Hooked at the two CastSpell::cast success points
+      (spell + item/scroll); excludes on-strike/projectile enchantments. Spoken
+      as "<Caster> casts <spell>" with " at you" appended when the caster is in
+      combat with the player AND the spell reaches outward (touch/target range,
+      not a self-buff). Announced when nearby (~28 m) OR when targeting the
+      player at any distance; the player's own casts are excluded.
 - [ ] **Enemy health readout** — read the selected/locked actor's health (% only,
       matching the native enemy health bar; magicka/fatigue not shown to sighted
       players so not exposed).

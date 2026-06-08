@@ -10,6 +10,10 @@
 #include <iterator>
 #include <utility>
 
+#include <osg/ComputeBoundsVisitor>
+
+#include <components/sceneutil/positionattitudetransform.hpp>
+
 #include <MyGUI_LanguageManager.h>
 
 #include <components/misc/constants.hpp>
@@ -41,6 +45,8 @@
 #include "../mwmechanics/creaturestats.hpp"
 #include "../mwmechanics/drawstate.hpp"
 #include "../mwmechanics/spells.hpp"
+
+#include "../mwrender/vismask.hpp"
 
 #include "../mwgui/tooltips.hpp"
 
@@ -79,6 +85,15 @@ namespace
     // rapidly-swinging weapon doesn't machine-gun the message. See
     // Scanner::announceMeleeReach.
     constexpr float kMeleeReachAnnounceInterval = 1.5f;
+
+    // How close (world units) another actor must be for its spellcast to be
+    // announced when it is NOT targeting the player. ~28 m: roughly the audible/
+    // relevant neighbourhood, so the player hears a mage in the same room or
+    // courtyard buffing or fighting someone else, without narrating every cast
+    // across a whole exterior cell. Casts by an actor in combat with the player
+    // are announced at any distance regardless of this. See
+    // Scanner::announceActorSpellCast.
+    constexpr float kSpellCastNearbyRange = 28.f * kUnitsPerMetre;
 
     std::string formatDistance(float units)
     {
@@ -1002,6 +1017,52 @@ namespace MWAccessibility
             speak("Out of range.");
     }
 
+    void Scanner::announceActorSpellCast(
+        const MWWorld::Ptr& caster, const std::string& sourceName, bool targetsOutward)
+    {
+        // Guard against being called outside a running game (the cast path can
+        // run during scripted setup / teardown). Mirrors announceOutOfReach.
+        if (MWBase::Environment::get().getStateManager()->getState()
+            != MWBase::StateManager::State_Running)
+            return;
+
+        if (caster.isEmpty() || !caster.getClass().isActor())
+            return;
+
+        MWBase::World* world = MWBase::Environment::get().getWorld();
+        MWWorld::Ptr player = world->getPlayerPtr();
+        if (player.isEmpty() || caster == player)
+            return; // The player's own casts are covered by ready announcements.
+
+        // Is the caster actively in combat with the player? This is our "aimed
+        // at you" signal: actors cast with an empty target (the engine resolves
+        // the real target post-cast via hit contact / projectile), so we can't
+        // read intent from the spell itself -- but an actor fighting the player
+        // who casts an outward spell is, in practice, casting at them.
+        const bool inCombatWithPlayer
+            = caster.getClass().getCreatureStats(caster).getAiSequence().isInCombat(player);
+
+        // Announce a cast if it's either near the player or by someone fighting
+        // them (at any distance). A distant mage buffing allies in another part
+        // of the cell isn't worth narrating; an enemy lobbing spells at the
+        // player from across a room always is.
+        const float distSq
+            = (caster.getRefData().getPosition().asVec3() - player.getRefData().getPosition().asVec3())
+                  .length2();
+        const bool nearby = distSq <= kSpellCastNearbyRange * kSpellCastNearbyRange;
+        if (!inCombatWithPlayer && !nearby)
+            return;
+
+        std::string text = objectDisplayName(caster) + " casts " + sourceName;
+        // Only claim "at you" when the spell actually reaches outward (has a
+        // touch/target effect) AND the caster is fighting the player; a self-
+        // buff cast mid-fight shouldn't be reported as aimed at the player.
+        if (inCombatWithPlayer && targetsOutward)
+            text += " at you";
+        text += ".";
+        speak(text);
+    }
+
     void Scanner::releaseLockOn(bool announce)
     {
         if (!mLockedOn)
@@ -1107,6 +1168,43 @@ namespace MWAccessibility
         }
     }
 
+    namespace
+    {
+        // Distance (world units) from \p fromPos to the nearest point of \p
+        // target's world-space bounding box, or to its origin as a fallback when
+        // no renderable bounds are available.
+        //
+        // Why bounds, not the origin: a reference's origin sits at its authored
+        // pivot, which for many statics (e.g. a hollow tree stump) is at the
+        // base, often sunk into the terrain. Measuring origin-to-origin then
+        // reports the player as several metres away even while they stand right
+        // on top of the object -- and for an object below them there's no way to
+        // close that vertical gap on foot. Vanilla doesn't hit this because it
+        // activates via a camera ray that strikes the visible SURFACE; the
+        // nearest-bounding-box point is our equivalent of that surface hit.
+        float distanceToBounds(const osg::Vec3f& fromPos, const MWWorld::Ptr& target)
+        {
+            const osg::Vec3f origin = target.getRefData().getPosition().asVec3();
+            auto* node = target.getRefData().getBaseNode();
+            if (!node)
+                return (origin - fromPos).length();
+
+            osg::ComputeBoundsVisitor cb;
+            cb.setTraversalMask(~(MWRender::Mask_ParticleSystem | MWRender::Mask_Effect));
+            node->accept(cb);
+            const osg::BoundingBox& bb = cb.getBoundingBox();
+            if (!bb.valid())
+                return (origin - fromPos).length();
+
+            // Clamp the point to the box on each axis; the distance to that
+            // clamped point is the distance to the nearest surface (0 if inside).
+            const osg::Vec3f nearest(std::clamp(fromPos.x(), bb.xMin(), bb.xMax()),
+                std::clamp(fromPos.y(), bb.yMin(), bb.yMax()),
+                std::clamp(fromPos.z(), bb.zMin(), bb.zMax()));
+            return (nearest - fromPos).length();
+        }
+    }
+
     bool Scanner::activateTarget()
     {
         MWWorld::Ptr target = currentTarget();
@@ -1118,10 +1216,12 @@ namespace MWAccessibility
 
         // Gate on the engine's activation distance, matching vanilla reach.
         // The audio beacon already guides the player into range, so this just
-        // prevents grabbing things across the room.
-        osg::Vec3f delta = target.getRefData().getPosition().asVec3()
-            - player.getRefData().getPosition().asVec3();
-        float dist = delta.length();
+        // prevents grabbing things across the room. Measure to the target's
+        // nearest bounding-box surface rather than its origin, so an object
+        // whose pivot is sunk into the ground (a tree stump, a floor hatch) can
+        // still be activated when the player is standing on/over it -- see
+        // distanceToBounds.
+        const float dist = distanceToBounds(player.getRefData().getPosition().asVec3(), target);
         if (dist > world->getMaxActivationDistance())
         {
             speak(objectDisplayName(target) + " is too far away.");

@@ -84,6 +84,21 @@ namespace MWAccessibility
         /// CharacterController::prepareHit (melee) and World::castSpell (touch).
         void announceOutOfReach(float reach);
 
+        /// Announce that another actor has cast a spell (or used a scroll/magic
+        /// item), so a screen-reader player -- who can't see casting animations
+        /// or coloured spell flashes -- knows a threat is incoming and what it
+        /// is. \p caster is the casting actor, \p sourceName the spell/scroll
+        /// display name. \p targetsOutward is true if the spell has any
+        /// touch/target-range effect (i.e. it's aimed at someone, not a pure
+        /// self-buff). Spoken as "<Caster> casts <spell>." with " at you"
+        /// appended when the caster is in combat with the player AND the spell
+        /// reaches outward. No-op for the player's own casts (handled by the
+        /// weapon/spell-ready announcements) and for casts that are neither
+        /// nearby nor by an actor targeting the player. Called from
+        /// CastSpell::cast (spell and item/scroll paths).
+        void announceActorSpellCast(
+            const MWWorld::Ptr& caster, const std::string& sourceName, bool targetsOutward);
+
         /// Called by the WindowManager when the search prompt is confirmed.
         /// \p query is the (possibly empty) name filter; an empty query clears
         /// the filter. Applies to the current category, persists across cell

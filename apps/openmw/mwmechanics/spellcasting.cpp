@@ -8,6 +8,8 @@
 #include <components/misc/rng.hpp>
 #include <components/misc/strings/format.hpp>
 
+#include "../mwaccessibility/scanner.hpp"
+
 #include "../mwbase/environment.hpp"
 #include "../mwbase/mechanicsmanager.hpp"
 #include "../mwbase/soundmanager.hpp"
@@ -28,6 +30,20 @@
 
 namespace MWMechanics
 {
+    namespace
+    {
+        // [a11y] True if any effect of the list reaches OUTWARD (touch or target
+        // range) rather than being a pure self effect. Used to decide whether a
+        // spellcast announcement should say it was cast "at you".
+        bool spellTargetsOutward(const ESM::EffectList& effects)
+        {
+            for (const ESM::IndexedENAMstruct& e : effects.mList)
+                if (e.mData.mRange == ESM::RT_Touch || e.mData.mRange == ESM::RT_Target)
+                    return true;
+            return false;
+        }
+    }
+
     CastSpell::CastSpell(
         const MWWorld::Ptr& caster, const MWWorld::Ptr& target, const bool fromProjectile, const bool scriptedSpell)
         : mCaster(caster)
@@ -351,6 +367,14 @@ namespace MWMechanics
                 mCaster.getClass().skillUsageSucceeded(mCaster, ESM::Skill::Enchant, ESM::Skill::Enchant_CastOnStrike);
         }
 
+        // [a11y] Announce another actor deliberately using a scroll (CastOnce)
+        // or activating a magic item (WhenUsed). Exclude on-strike weapon
+        // enchantments and thrown/ammo projectile enchantments: those fire on
+        // every hit, are combat noise rather than a "cast", and would spam.
+        if (!isProjectile && (type == ESM::Enchantment::CastOnce || type == ESM::Enchantment::WhenUsed))
+            MWAccessibility::Scanner::instance().announceActorSpellCast(
+                mCaster, mSourceName, spellTargetsOutward(enchantment->mEffects));
+
         if (isProjectile)
             inflict(mTarget, enchantment->mEffects, ESM::RT_Self);
         else
@@ -432,6 +456,12 @@ namespace MWMechanics
         // A non-actor doesn't play its spell cast effects from a character controller, so play them here
         if (!mCaster.getClass().isActor())
             playSpellCastingEffects(spell->mEffects.mList);
+
+        // [a11y] Announce another actor's successful spellcast (we've passed the
+        // success/fail checks above). No-op for the player and for casts neither
+        // nearby nor aimed at the player.
+        MWAccessibility::Scanner::instance().announceActorSpellCast(
+            mCaster, mSourceName, spellTargetsOutward(spell->mEffects));
 
         inflict(mCaster, spell->mEffects, ESM::RT_Self);
 
