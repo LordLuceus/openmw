@@ -2,12 +2,17 @@
 
 #include <sstream>
 
+#include <MyGUI_UString.h>
+
 #include <components/esm3/loadench.hpp>
 
 #include "../tooltips.hpp"
 #include "../widgets.hpp"
 
 #include "../../mwbase/environment.hpp"
+#include "../../mwbase/windowmanager.hpp"
+
+#include "../../mwmechanics/spellutil.hpp"
 
 #include "../../mwworld/class.hpp"
 #include "../../mwworld/esmstore.hpp"
@@ -100,6 +105,49 @@ namespace MWGui::A11y
                 for (MWGui::Widgets::SpellEffectParams& effect : effects)
                     effect.mIsConstant = constant;
                 appendEffects(effects, lines);
+
+                // How the enchantment is triggered (Cast When Used / When
+                // Strikes / Once / Constant Effect). The on-screen tooltip shows
+                // this as a line after the effects (see ToolTips::getMiscString /
+                // the enchant block in tooltips.cpp); without it the spoken
+                // tooltip can't tell e.g. a Cast-When-Used item from a constant
+                // one. Resolve the same GMST labels the visual tooltip uses.
+                MWBase::WindowManager* wm = MWBase::Environment::get().getWindowManager();
+                std::string_view castType;
+                switch (enchant->mData.mType)
+                {
+                    case ESM::Enchantment::CastOnce:
+                        castType = wm->getGameSettingString("sItemCastOnce", {});
+                        break;
+                    case ESM::Enchantment::WhenStrikes:
+                        castType = wm->getGameSettingString("sItemCastWhenStrikes", {});
+                        break;
+                    case ESM::Enchantment::WhenUsed:
+                        castType = wm->getGameSettingString("sItemCastWhenUsed", {});
+                        break;
+                    case ESM::Enchantment::ConstantEffect:
+                        castType = wm->getGameSettingString("sItemCastConstant", {});
+                        break;
+                }
+                if (!castType.empty())
+                    lines.emplace_back(castType);
+
+                // Remaining / maximum enchantment charge. The on-screen tooltip
+                // draws this as a charge bar, but only for the rechargeable cast
+                // types (When Used / When Strikes) -- Cast Once and Constant
+                // Effect items have no charge pool. This is the only place the
+                // charge is shown for items that don't appear in the magic pane
+                // (e.g. on-strike weapons like the Firebite Dagger), so surface
+                // it here for every enchanted item, not just castable ones.
+                if (enchant->mData.mType == ESM::Enchantment::WhenStrikes
+                    || enchant->mData.mType == ESM::Enchantment::WhenUsed)
+                {
+                    const int maxCharge = MWMechanics::getEnchantmentCharge(*enchant);
+                    const int charge = (info.remainingEnchantCharge == -1) ? maxCharge : info.remainingEnchantCharge;
+                    std::string chargeLine{ wm->getGameSettingString("sCharges", "Charges") };
+                    chargeLine += ": " + MyGUI::utility::toString(charge) + " / " + MyGUI::utility::toString(maxCharge);
+                    lines.emplace_back(std::move(chargeLine));
+                }
             }
         }
 

@@ -6,6 +6,17 @@ Newest changes are listed first. (OpenMW's own engine changelog lives in
 
 ## 2026-06-08
 
+- **Enchanted items now say how they're triggered, and their charges.** An
+  enchanted item's accessible tooltip previously read only the effect (e.g. the
+  Demon Tanto's "Bound Dagger for 60 secs on Self") with no indication of when it
+  fires. It now appends the cast type the way the visual tooltip does -- "Cast
+  When Used", "Cast When Strikes", "Cast Once", or "Constant Effect" -- so you can
+  tell a use-activated item from one that triggers on hit or is always on. For
+  the rechargeable cast types (When Used / When Strikes) it also reads the
+  remaining and maximum enchantment charge, e.g. "Charges: 60 / 80". Previously
+  charges were only visible in the magic pane, which excludes on-strike weapons
+  like the Firebite Dagger, so their charge was unreadable entirely.
+
 - **Discovered locations in the scanner.** The scanner has a new "Locations"
   category listing the named places you've found on the world map -- towns you've
   visited and anywhere an NPC has marked for you ("I've marked it on your map").
