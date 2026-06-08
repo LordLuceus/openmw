@@ -466,6 +466,18 @@ namespace MWAccessibility
         return true;
     }
 
+    MWWorld::Ptr Scanner::lockTarget() const
+    {
+        // No game running => the world (and thus mLockTarget's backing object)
+        // may be torn down; never return a possibly-dangling Ptr. clear() also
+        // resets mLockedOn on teardown, but this guard removes the reliance on
+        // call-ordering invariants for the external (combat) consumers.
+        if (MWBase::Environment::get().getStateManager()->getState()
+            != MWBase::StateManager::State_Running)
+            return MWWorld::Ptr();
+        return mLockedOn ? mLockTarget : MWWorld::Ptr();
+    }
+
     void Scanner::clear()
     {
         // Release the lock-on and drop every cached MWWorld::Ptr. Called when a
@@ -486,6 +498,16 @@ namespace MWAccessibility
             s.mSelectedRef = ESM::RefNum{};
             s.mDirty = true;
         }
+        // The auto-walker and proximity cue each cache a Ptr to the object they
+        // are chasing / homing on and dereference it every frame (getCellRef,
+        // getRefData). On world teardown that backing object is freed, so -- as
+        // with the lock target above -- we must release them here, or the next
+        // onFrame (state back to Running after a synchronous quickload) would
+        // hit AutoWalker::onFrame / ProximityCue::onFrame and dereference freed
+        // memory. isEmpty() can't catch a dangling-but-non-null Ptr, so the
+        // per-frame "target gone" checks there are NOT sufficient on their own.
+        mAutoWalker.cancel();
+        mProximityCue.stop();
         mLastCellId = nullptr;
         mCellNamePrimed = false;
         mMeleeReachCooldown = 0.f;

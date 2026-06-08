@@ -77,19 +77,29 @@ auto-walk, location announcements, and audio beacon (gameplay, not a screen).
       exposed. Part of the AHUD quick-info keys.
 
 ### Tech debt
-- [ ] **Memory-safety audit (post-combat)** — sweep the a11y code for stale
-      `MWWorld::Ptr` handling across world teardown. The scanner caches Ptrs
-      (lock-on target, per-category object lists, auto-walk target, proximity
-      cue) that dangle when a save loads/ends or a cell unloads. Two quickload
-      crashes were traced (via the minidump) to `updateLockOn` dereferencing a
-      freed lock target; root-caused to the synchronous quickload completing
-      within one input handler, so `onFrame` state-polling never fired. Fixed
-      deterministically via `Scanner::clear()` from `StateManager::cleanup`.
-      Audit every cached Ptr for the same hazard, confirm `clear()` covers all
-      of them, and check the per-frame `pruneDeadObjects`/cell-change paths and
-      `lockTarget()` consumers (CharacterController, World::castSpell) for
-      use-after-free. Prefer storing stable `RefNum`s + re-resolving over
-      holding raw Ptrs where practical.
+- [x] **Memory-safety audit (post-combat)** — swept the a11y code for stale
+      `MWWorld::Ptr` handling across world teardown. Findings + fixes:
+      - **BUG (UAF) — auto-walker / proximity cue survived `clear()`.** Both
+        cache a Ptr target and deref it every frame (`getCellRef`, `getRefData`).
+        `Scanner::clear()` reset the lock target + object lists but did NOT
+        cancel `mAutoWalker` / stop `mProximityCue`, so after a quickload while
+        auto-walking (or with a beacon homing), the next `onFrame` would deref a
+        freed target — same crash class as the original lock-on UAF. FIXED:
+        `clear()` now calls `mAutoWalker.cancel()` + `mProximityCue.stop()`.
+      - **Hardening — `lockTarget()` had no `State_Running` guard** (unlike its
+        sibling announce* helpers). External combat consumers
+        (`World::castSpell` worldimp.cpp:2962, `CharacterController` character.cpp:1761)
+        check `isEmpty()`, which canNOT catch a dangling-but-non-null Ptr. FIXED:
+        `lockTarget()` now returns empty unless `State_Running`, so it can never
+        hand out a freed Ptr regardless of call ordering. Both consumers
+        confirmed safe (isEmpty-checked, immediate use, not cached).
+      - **Verified safe:** `pruneDeadObjects` (only runs after onFrame's
+        `isGameplayActive()` guard; `clear()` empties `mObjects` on teardown
+        first); per-frame helper `onFrame`s run after that same guard.
+      - Note: `isEmpty()` is a null check only; the real teardown protection is
+        the synchronous `Scanner::clear()` from `StateManager::cleanup` clearing
+        every cached Ptr before the next frame. Future code holding a Ptr across
+        frames MUST be released in `clear()`.
 
 ## Notes
 - There are TWO repair windows: `GM_Repair` (own hammer) vs `GM_MerchantRepair`.

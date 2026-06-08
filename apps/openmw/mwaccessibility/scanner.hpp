@@ -69,7 +69,13 @@ namespace MWAccessibility
         /// front of the real target -- can use the explicit lock instead. Today
         /// the lockpick/probe path (CharacterController) consults this so picking
         /// a chest works even when the camera ray is obstructed.
-        MWWorld::Ptr lockTarget() const { return mLockedOn ? mLockTarget : MWWorld::Ptr(); }
+        /// Returns an empty Ptr unless a game is actually running and a target
+        /// is locked. The running-state guard (mirroring the announce* helpers)
+        /// makes this UAF-proof by construction: external consumers
+        /// (World::castSpell, CharacterController) can call it during a teardown
+        /// frame, and a dangling-but-non-null mLockTarget would NOT be caught by
+        /// their isEmpty() checks -- so we never hand one out.
+        MWWorld::Ptr lockTarget() const;
 
         /// Announce when the player attacks the locked target but can't reach
         /// it: "Out of range", or "Target too high"/"Target too low" when it's

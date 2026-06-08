@@ -6,6 +6,11 @@ Newest changes are listed first. (OpenMW's own engine changelog lives in
 
 ## 2026-06-08
 
+- **Crash fix.** Fixed a crash that could happen if you loaded a save while
+  auto-walking to something (or while the proximity beacon was guiding you to a
+  target). The mod now cleanly stops auto-walk and the beacon when a game is
+  loaded or ended, so the leftover target can't cause a crash on the next frame.
+
 - **Accessible HUD.** Press H to open a spoken version of the on-screen HUD. The
   world pauses while it's open -- so if you're suddenly attacked you have time to
   get your bearings -- but the scanner keys and quick-info keys keep working, so
