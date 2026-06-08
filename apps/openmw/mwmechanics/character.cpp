@@ -35,6 +35,8 @@
 
 #include "../mwrender/animation.hpp"
 
+#include "../mwaccessibility/scanner.hpp"
+
 #include "../mwbase/environment.hpp"
 #include "../mwbase/luamanager.hpp"
 #include "../mwbase/mechanicsmanager.hpp"
@@ -50,6 +52,7 @@
 
 #include "actorutil.hpp"
 #include "aicombataction.hpp"
+#include "combat.hpp"
 #include "creaturestats.hpp"
 #include "movement.hpp"
 #include "npcstats.hpp"
@@ -1263,6 +1266,16 @@ namespace MWMechanics
                 mAttackSuccess = mPtr.getClass().evaluateHit(mPtr, mAttackVictim, mAttackHitPos);
                 if (!mAttackSuccess)
                     mAttackStrength = 0.f;
+
+                // [a11y] Tell a screen-reader player when a melee swing at their
+                // locked target can't reach it ("Out of range" / "Target too
+                // high/low"). They have no visual whiff cue. No-op unless the
+                // player is locked onto a live actor that's actually out of
+                // reach; throttled internally. mWeapon is the held weapon (empty
+                // for hand-to-hand), matching what evaluateHit used above.
+                if (mPtr == getPlayer())
+                    MWAccessibility::Scanner::instance().announceOutOfReach(
+                        MWMechanics::getMeleeWeaponReach(mPtr, mWeapon));
             }
             playSwishSound();
         }
@@ -1733,6 +1746,22 @@ namespace MWMechanics
                 // TODO: this will only work for the player, and needs to be fixed if NPCs should ever use
                 // lockpicks/probes.
                 MWWorld::Ptr target = world->getFocusObject();
+
+                // [a11y] When the screen-reader scanner is locked onto an object,
+                // use that as the pick/probe target instead of the camera ray.
+                // A blind player can't aim the crosshair, and even with the
+                // body/camera aimed dead at a chest the ray can be blocked by
+                // furniture in front of it (table edge, plates), so getFocusObject
+                // returns a static, not the container. The explicit lock is the
+                // object the player actually selected, so it's the right target.
+                // Only the player uses lockpicks/probes, so gating on the lock
+                // (which only the player sets) is safe.
+                if (mPtr == getPlayer())
+                {
+                    MWWorld::Ptr locked = MWAccessibility::Scanner::instance().lockTarget();
+                    if (!locked.isEmpty())
+                        target = locked;
+                }
 
                 if (!target.isEmpty())
                 {

@@ -36,17 +36,60 @@ auto-walk, location announcements, and audio beacon (gameplay, not a screen).
       cheapest remaining win.
 - [ ] **Quick keys menu** (`GM_QuickKeysMenu`)
 - [ ] **Console** (`console.cpp`)
-- [ ] **HUD** — persistent in-game bars / widgets
+- [x] **HUD** — accessible HUD (AHUD). H toggles it; pauses the world (via a
+      time-manager tag, not a GuiMode) so the scanner + quick-info keys still
+      work while frozen, giving a blind player time to assess an ambush. Quick
+      info works in gameplay too: Alt+H/M/F read player health/magicka/fatigue
+      ("current of max"); Shift+Alt+H reads the current enemy's health (% only).
 
 ### System screens (no GuiMode — separate path)
 - [ ] **Save / Load** (`savegamedialog.cpp`)
 - [ ] **Death screen** — bespoke yes/no dialogue (differs from the usual one)
 - [ ] **Scripts tab** in options — within the otherwise-accessible settings window
 
-### Targeting-dependent (deferred until combat/targeting work)
-- [ ] **Combat** — needs target selection
-- [ ] **Lockpicking / probes** — using the tool alone didn't work; needs a target,
-      so slots in with combat/targeting
+### Targeting / combat (lock-on backbone landed)
+- [x] **Lock-on targeting** — press K to lock the scanner selection; player is
+      re-aimed (yaw + pitch, eye-to-centre) every frame so melee/spells/tools
+      connect. Releases on death, walk-away, or K again.
+- [x] **Lockpicking / probes** — now use the locked target directly, so they work
+      even when the camera ray is blocked by furniture in front of the container.
+- [x] **Touch-on-object spells** (e.g. Open) — same locked-target bypass.
+- [x] **Hostile actor list** — "Actors" category (renamed from NPCs) gained a
+      "Hostile" subcategory; actor list refreshes live so attackers appear at once
+      and stay distance-ordered. Fixed hostiles vanishing from the scanner the
+      moment they entered combat (hasToolTip() exception for actors).
+- [x] **Weapon/spell ready announcements** — draw state polled and announced.
+- [x] **Out-of-range feedback** — when the player swings melee or casts a touch
+      spell at a locked target that's unreachable, announce "Out of range" (too
+      far) or "Target too high"/"Target too low" (beyond vertical reach).
+      Throttled; uses the engine's own reach math. Ranged "target" spells are
+      excluded so distance casting isn't nagged.
+- [x] **Spell-cast announcements** — announce when another actor casts a spell or
+      uses a scroll/magic item. Hooked at the two CastSpell::cast success points
+      (spell + item/scroll); excludes on-strike/projectile enchantments. Spoken
+      as "<Caster> casts <spell>" with " at you" appended when the caster is in
+      combat with the player AND the spell reaches outward (touch/target range,
+      not a self-buff). Announced when nearby (~28 m) OR when targeting the
+      player at any distance; the player's own casts are excluded.
+- [x] **Enemy health readout** — Shift+Alt+H reads the locked target's (else the
+      scanner selection's) health as a percentage only, matching the native
+      enemy health bar; magicka/fatigue not shown to sighted players so not
+      exposed. Part of the AHUD quick-info keys.
+
+### Tech debt
+- [ ] **Memory-safety audit (post-combat)** — sweep the a11y code for stale
+      `MWWorld::Ptr` handling across world teardown. The scanner caches Ptrs
+      (lock-on target, per-category object lists, auto-walk target, proximity
+      cue) that dangle when a save loads/ends or a cell unloads. Two quickload
+      crashes were traced (via the minidump) to `updateLockOn` dereferencing a
+      freed lock target; root-caused to the synchronous quickload completing
+      within one input handler, so `onFrame` state-polling never fired. Fixed
+      deterministically via `Scanner::clear()` from `StateManager::cleanup`.
+      Audit every cached Ptr for the same hazard, confirm `clear()` covers all
+      of them, and check the per-frame `pruneDeadObjects`/cell-change paths and
+      `lockTarget()` consumers (CharacterController, World::castSpell) for
+      use-after-free. Prefer storing stable `RefNum`s + re-resolving over
+      holding raw Ptrs where practical.
 
 ## Notes
 - There are TWO repair windows: `GM_Repair` (own hammer) vs `GM_MerchantRepair`.

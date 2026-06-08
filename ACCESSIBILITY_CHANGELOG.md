@@ -4,7 +4,69 @@ A running log of screen-reader accessibility features added to this OpenMW fork.
 Newest changes are listed first. (OpenMW's own engine changelog lives in
 `CHANGELOG.md`.)
 
+## 2026-06-08
+
+- **Accessible HUD.** Press H to open a spoken version of the on-screen HUD. The
+  world pauses while it's open -- so if you're suddenly attacked you have time to
+  get your bearings -- but the scanner keys and quick-info keys keep working, so
+  you can find who's attacking and check your stats without the fight moving on.
+  Use the Up and Down arrows to move through the items: your location, health,
+  magicka, fatigue, breath (only when you're underwater), whether you're
+  sneaking, your readied weapon and spell, active magic effects, and the actor
+  you currently have targeted. Press Home to re-read the current item. On the
+  "Active effects" item, press Enter to step into the full list of what's
+  affecting you (with its strength and time remaining), and Escape or Left to
+  come back out. The target item follows your scanner selection live, so as you
+  cycle targets while in the HUD, it updates to show each one's health. Press H
+  again or Escape to close.
+- **Quick stat checks.** Even during normal play (and in the HUD), you can read a
+  single stat instantly: Alt+H for health, Alt+M for magicka, Alt+F for fatigue,
+  and Shift+Alt+H for the health of whatever you have targeted.
+
+- **Enemy spellcasting announcements.** When another actor casts a spell or uses
+  a scroll, you'll now hear it -- for example "Dagoth Gares casts Fireball at
+  you." The "at you" is added when the caster is fighting you and the spell
+  reaches outward, so you can tell an attack aimed your way from a buff someone
+  cast on themselves. Casts are announced when they're nearby, or at any
+  distance when the caster is targeting you; your own casts aren't announced
+  (you already hear those when you ready them).
+
+- **Reaching things on the ground.** Fixed not being able to activate objects
+  whose base is sunk into the floor or terrain -- most notably Fargoth's hollow
+  tree stump. Auto-walk would bring you right on top of it and say you'd arrived,
+  but trying to use it claimed you were too far away with no way to get closer.
+  Activation now measures to the object's surface (as the game does when you look
+  at something) instead of its buried centre point.
+
+- **Out-of-range feedback.** When you swing a melee weapon or cast a touch spell
+  at a locked target that's too far to reach, you'll now hear "Out of range" --
+  or "Target too high" / "Target too low" when the target is within horizontal
+  reach but above or below your weapon's vertical reach (like a cliff racer
+  overhead). Ranged spells you cast from a distance, such as Fireball, won't
+  trigger it. The message is rate-limited so a flurry of swings won't spam it.
+
 ## 2026-06-07
+
+- **Combat lock-on.** Press K to lock onto whatever the scanner has selected.
+  Your character keeps facing and aiming at that target every moment, so melee
+  swings, spells, and even lockpicks and probes connect without you having to
+  line up a crosshair you can't see. It also fixes aiming at things above or
+  below you, like a cliff racer overhead or a chest on the floor. Lock-on
+  releases automatically when the target dies or you walk away, or press K again
+  to release it yourself.
+- **Picking locks and casting on things you can't see directly.** With a target
+  locked on, lockpicks, probes, and touch spells like Open now work on it even
+  when furniture or clutter sits between you and it -- the action uses your
+  locked target instead of relying on a clear line of sight.
+- **Find what's attacking you.** The scanner's actor list (renamed from "NPCs"
+  to "Actors") has a new "Hostile" subcategory listing only the actors currently
+  in combat with you. Cycle to it with Shift+PageUp/PageDown. The actor list now
+  also refreshes while you're in it, so a new attacker appears right away and
+  distances stay accurate as everyone moves around during a fight.
+- **Weapon and spell readiness.** Drawing a weapon or readying a spell now
+  announces what you've readied -- for example "Iron Dagger ready", "Hand to
+  hand ready", or "Fireball ready" -- and you'll hear "Weapon sheathed" or
+  "Magic put away" when you lower it again.
 
 - **Smoother auto-walk.** Auto-walk no longer hops around for no reason on a clear
   path -- it now only does its little jump-and-sidestep recovery when the body is

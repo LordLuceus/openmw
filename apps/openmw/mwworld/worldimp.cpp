@@ -57,6 +57,8 @@
 
 #include <components/settings/values.hpp>
 
+#include "../mwaccessibility/scanner.hpp"
+
 #include "../mwbase/environment.hpp"
 #include "../mwbase/luamanager.hpp"
 #include "../mwbase/mechanicsmanager.hpp"
@@ -110,6 +112,19 @@ namespace MWWorld
 {
     namespace
     {
+        // [a11y] True if any effect of the spell/enchantment is a touch-range
+        // effect (RT_Touch). Used to decide whether to give "out of range"
+        // feedback when a player's cast finds no target: only touch spells need
+        // the caster adjacent, so we must not warn about distance for ranged
+        // "target" spells (e.g. Fireball) or self spells.
+        bool spellHasTouchEffect(const ESM::EffectList& effects)
+        {
+            for (const ESM::IndexedENAMstruct& effect : effects.mList)
+                if (effect.mData.mRange == ESM::RT_Touch)
+                    return true;
+            return false;
+        }
+
         std::vector<std::pair<GlobalVariableName, ESM::Variant>> generateDefaultGlobals()
         {
             return {
@@ -2931,6 +2946,28 @@ namespace MWWorld
                         target = result.mHitObject;
                 }
             }
+
+            // [a11y] If the player has the screen-reader scanner locked onto a
+            // world OBJECT (e.g. a chest for the Open spell) and the camera/cone
+            // resolution above still hasn't found a usable object target, fall
+            // back to the locked object. A blind player can't aim the crosshair,
+            // and even aimed dead-on the camera ray can be blocked by furniture
+            // in front of the container (the same problem the lockpick path had).
+            // Scoped to NON-ACTOR locks within activation distance, mirroring
+            // activate/lockpick: actor touch spells already resolve robustly via
+            // the melee cone above (which also keeps their proper short reach),
+            // so we deliberately don't override those here.
+            if (casterIsPlayer && (target.isEmpty() || !target.getClass().hasToolTip(target)))
+            {
+                MWWorld::Ptr locked = MWAccessibility::Scanner::instance().lockTarget();
+                if (!locked.isEmpty() && !locked.getClass().isActor() && locked.getClass().hasToolTip(locked))
+                {
+                    const osg::Vec3f delta
+                        = locked.getRefData().getPosition().asVec3() - actor.getRefData().getPosition().asVec3();
+                    if (delta.length() <= getMaxActivationDistance())
+                        target = locked;
+                }
+            }
         }
 
         osg::Vec3f hitPosition = actor.getRefData().getPosition().asVec3();
@@ -2962,6 +2999,21 @@ namespace MWWorld
         if (!selectedSpell.empty())
         {
             const ESM::Spell* spell = mStore.get<ESM::Spell>().find(selectedSpell);
+            // [a11y] Out-of-reach feedback for the player's TOUCH spells. A touch
+            // spell resolves its actor target through the same melee cone as a
+            // weapon (getHitContact above), so if the locked enemy is too far the
+            // target comes back empty and the spell silently fizzles -- no whiff
+            // cue for a blind player. Only warn for spells that actually have a
+            // touch (on-self-range RT_Touch) effect; ranged "target" spells like
+            // Fireball are meant to be cast from afar, so we must not nag about
+            // distance for those. announceOutOfReach itself no-ops unless locked
+            // onto a live actor that's genuinely out of reach, and is throttled.
+            if (casterIsPlayer && !scriptedSpell && target.isEmpty() && spellHasTouchEffect(spell->mEffects))
+            {
+                const float fCombatDistance
+                    = mStore.get<ESM::GameSetting>().find("fCombatDistance")->mValue.getFloat();
+                MWAccessibility::Scanner::instance().announceOutOfReach(fCombatDistance);
+            }
             cast.cast(spell);
         }
         else
@@ -2970,6 +3022,17 @@ namespace MWWorld
             if (inv.getSelectedEnchantItem() != inv.end())
             {
                 const auto& itemPtr = *inv.getSelectedEnchantItem();
+                if (casterIsPlayer && !scriptedSpell && target.isEmpty())
+                {
+                    const ESM::Enchantment* ench = mStore.get<ESM::Enchantment>().search(
+                        itemPtr.getClass().getEnchantment(itemPtr));
+                    if (ench && spellHasTouchEffect(ench->mEffects))
+                    {
+                        const float fCombatDistance
+                            = mStore.get<ESM::GameSetting>().find("fCombatDistance")->mValue.getFloat();
+                        MWAccessibility::Scanner::instance().announceOutOfReach(fCombatDistance);
+                    }
+                }
                 cast.cast(itemPtr);
             }
         }

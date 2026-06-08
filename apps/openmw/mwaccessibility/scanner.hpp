@@ -40,6 +40,17 @@ namespace MWAccessibility
         /// lists when the player's cell changes.
         void onFrame(float dt);
 
+        /// Drop ALL cached MWWorld::Ptr state (lock-on target, per-category
+        /// object lists, cell tracking). Called from StateManager::cleanup when
+        /// a game is loaded or ended -- that tears down the world synchronously,
+        /// freeing the cell refs our Ptrs point at, so anything we keep would
+        /// dangle. We can't rely on onFrame noticing a non-Running state because
+        /// a quickload completes (unload old world, load save, return to
+        /// Running) entirely within one input handler, before onFrame runs
+        /// again; the next updateLockOn would then dereference a freed target
+        /// and crash. This deterministic hook runs at the exact teardown point.
+        void clear();
+
         /// Called from KeyboardManager. \p scancode is an SDL_Scancode,
         /// \p modState is the raw SDL_GetModState() bitmask. Returns true
         /// if the scanner consumed the keypress.
@@ -50,6 +61,66 @@ namespace MWAccessibility
         static bool isGameplayActive();
 
         AutoWalker& autoWalker() { return mAutoWalker; }
+
+        /// The object the player is currently locked onto (see toggleLockOn),
+        /// or an empty Ptr when not locked. Exposed so engine interaction paths
+        /// that normally resolve their target from the camera crosshair -- which
+        /// a blind player cannot aim, and which can be blocked by furniture in
+        /// front of the real target -- can use the explicit lock instead. Today
+        /// the lockpick/probe path (CharacterController) consults this so picking
+        /// a chest works even when the camera ray is obstructed.
+        MWWorld::Ptr lockTarget() const { return mLockedOn ? mLockTarget : MWWorld::Ptr(); }
+
+        /// Announce when the player attacks the locked target but can't reach
+        /// it: "Out of range", or "Target too high"/"Target too low" when it's
+        /// within horizontal reach but beyond the engine's vertical reach check.
+        /// A blind player has no on-screen miss/whiff cue, so this tells them to
+        /// close in (or that the target is above/below reach, e.g. a cliff
+        /// racer). \p reach is the attack's reach in world units, so the caller
+        /// supplies the right value: getMeleeWeaponReach for a melee swing, or
+        /// fCombatDistance for a touch spell. No-op when not locked, the target
+        /// isn't an actor, or the target is actually in reach. Throttled
+        /// internally so rapid swings/casts don't spam speech. Called from
+        /// CharacterController::prepareHit (melee) and World::castSpell (touch).
+        void announceOutOfReach(float reach);
+
+        /// Announce that another actor has cast a spell (or used a scroll/magic
+        /// item), so a screen-reader player -- who can't see casting animations
+        /// or coloured spell flashes -- knows a threat is incoming and what it
+        /// is. \p caster is the casting actor, \p sourceName the spell/scroll
+        /// display name. \p targetsOutward is true if the spell has any
+        /// touch/target-range effect (i.e. it's aimed at someone, not a pure
+        /// self-buff). Spoken as "<Caster> casts <spell>." with " at you"
+        /// appended when the caster is in combat with the player AND the spell
+        /// reaches outward. No-op for the player's own casts (handled by the
+        /// weapon/spell-ready announcements) and for casts that are neither
+        /// nearby nor by an actor targeting the player. Called from
+        /// CastSpell::cast (spell and item/scroll paths).
+        void announceActorSpellCast(
+            const MWWorld::Ptr& caster, const std::string& sourceName, bool targetsOutward);
+
+        /// --- Accessible HUD (AHUD) ---------------------------------------
+        /// Toggle the accessible HUD. Bound to H. While active, the world is
+        /// paused (so a suddenly-attacked player has time to assess and react)
+        /// yet the scanner keys and the quick-info keys keep working, letting
+        /// the player find an attacker, check stats, etc. Pressing H again (or
+        /// Escape) closes it and unpauses. The pause is a time-manager tag, not
+        /// a GuiMode, precisely so scanner input keeps flowing while paused.
+        void toggleHud();
+        /// Whether the AHUD is currently active.
+        bool isHudActive() const { return mHudActive; }
+
+        /// Quick-info readouts. Player stats are spoken as "<Stat> <current> of
+        /// <max>" (rounded), matching the numbers on the native bars. Enemy
+        /// health is spoken as a percentage only -- the native enemy health bar
+        /// exposes no numbers to sighted players, so neither do we. The enemy is
+        /// the locked target if one is held, else the current scanner selection;
+        /// a no-op (with a brief spoken note) if that isn't a living actor.
+        /// These work both in normal gameplay and while the AHUD is open.
+        void announcePlayerHealth();
+        void announcePlayerMagicka();
+        void announcePlayerFatigue();
+        void announceEnemyHealth();
 
         /// Called by the WindowManager when the search prompt is confirmed.
         /// \p query is the (possibly empty) name filter; an empty query clears
@@ -91,6 +162,24 @@ namespace MWAccessibility
         bool activateTarget();
         void focusCamera();
         void walkToTarget();
+
+        // --- Combat / interaction lock-on --------------------------------
+        // Toggle a persistent "lock-on" to the currently-selected target. While
+        // locked, updateLockOn() re-aims the player at the target every frame
+        // (yaw + pitch), so the engine's facing-direction based systems --
+        // melee getHitContact(), the getFocusObject() raycast used by
+        // lockpicks/probes, and spell/marksman launches -- all connect without
+        // the player needing to aim a crosshair they can't see. Works for any
+        // target type (an NPC to attack, or a chest/door to pick). Pressing the
+        // key again, selecting nothing, target death, or starting an auto-walk
+        // releases the lock.
+        void toggleLockOn();
+        // Per-frame re-aim while locked. No-op when not locked. Auto-releases
+        // (with an announcement) if the locked target dies or leaves the world.
+        void updateLockOn();
+        // Release the lock if held. \p announce speaks "Lock released." Safe to
+        // call when not locked (does nothing).
+        void releaseLockOn(bool announce);
         // Open the text-input prompt to set/refine the current category's name
         // filter (see applySearchFilter). Seeds it with the active filter.
         void openSearch();
@@ -220,6 +309,128 @@ namespace MWAccessibility
 
         // Whether the audio beacon is currently enabled. Off by default.
         bool mBeaconEnabled = false;
+
+        // --- Draw-state announcement ------------------------------------
+        // Last observed player draw state (nothing / weapon drawn / spell
+        // readied), polled each frame in onFrame so we can announce the
+        // transition -- e.g. "Iron Dagger ready", "Fireball ready", "Weapon
+        // sheathed". Sighted players see the readied weapon/spell on the HUD;
+        // this gives the same feedback by ear. Stored as the raw enum value
+        // (MWMechanics::DrawState) cast to int to avoid pulling the enum into
+        // the header. -1 = uninitialised (no announcement on first poll).
+        int mLastDrawState = -1;
+        // Poll the player's draw state and announce any change (see above).
+        void announceDrawStateChange();
+
+        // --- Live refresh of the Actors list ----------------------------
+        // Actors move and change combat state continuously, so a list cached at
+        // selection time goes stale fast: a newly-hostile attacker won't appear
+        // in the Hostile subcategory, and distances/ordering drift as actors
+        // approach or flee. While the Actors category is active we silently
+        // rebuild its list on this cadence (seconds) so membership, distance
+        // order, and the proximity cue stay current. The rebuild re-pins the
+        // cursor onto the same object by RefNum, so the player doesn't lose
+        // their place. Other categories (doors, items, ...) are static, so they
+        // don't need this. Refresh does NOT announce -- the next explicit
+        // action speaks the up-to-date state.
+        float mActorRefreshTimer = 0.f;
+        // Silently rebuild the active category's list, preserving the current
+        // selection by RefNum. Used by the live-refresh path.
+        void refreshActiveListPreservingSelection();
+
+        // --- Lock-on state ----------------------------------------------
+        // The actor/object the player is currently locked onto for combat or
+        // interaction, or empty when not locked. Held as a Ptr (refreshed each
+        // frame in updateLockOn) so we can re-aim at it; auto-released if it
+        // dies or unloads. Stored separately from the scanner cursor so the
+        // player can keep cycling/inspecting other targets without breaking the
+        // lock.
+        MWWorld::Ptr mLockTarget;
+        // Whether we are actively locked on (mLockTarget valid and being
+        // tracked). A separate flag rather than just testing mLockTarget so the
+        // intent is explicit and easy to gate updateLockOn() on.
+        bool mLockedOn = false;
+        // Spoken name of the locked target, captured at lock time so release /
+        // status messages read sensibly even if the Ptr later goes stale.
+        std::string mLockTargetName;
+
+        // --- Accessible HUD (navigable list) ----------------------------
+        // Whether the AHUD is open. When true the world is paused via a
+        // time-manager tag (see toggleHud) but scanner/quick-info keys still
+        // work. Cleared (and the pause lifted) by toggleHud and by clear().
+        bool mHudActive = false;
+        // One row of the HUD list, built fresh each time the HUD opens (the
+        // world is paused, so a snapshot is fine). mLabel is what's spoken when
+        // the cursor lands on it. mIsEffects marks the single "Active effects"
+        // row, which the player drills into with Enter to walk a sub-list.
+        struct HudItem
+        {
+            std::string mLabel;
+            bool mIsEffects = false;
+            // The target row recomputes its label from the live scanner/lock
+            // selection each time it's announced, so it tracks the target the
+            // player cycles to with the scanner keys while the HUD is open
+            // (rather than showing a stale snapshot from when the HUD opened).
+            bool mIsTarget = false;
+        };
+        std::vector<HudItem> mHudItems; // current snapshot of HUD rows
+        int mHudIndex = 0; // cursor within mHudItems
+        // When true the cursor is inside the active-effects sub-list (entered
+        // from the Effects row); Up/Down walk mHudEffects, Escape/Left back out.
+        bool mHudInEffects = false;
+        // Snapshot of the active-effect sub-list (source + effect strings),
+        // taken when the player drills in. Parallel to MWGui::A11y::activeEffects.
+        std::vector<std::pair<std::string, std::string>> mHudEffects;
+        int mHudEffectIndex = 0;
+        // Last target-row label spoken, so the per-frame poll (hudFollowTarget)
+        // re-announces only when the live target actually changes -- letting the
+        // target row track the actor the player cycles the scanner to while
+        // parked on it, without repeating on unchanged frames.
+        std::string mHudLastTargetLabel;
+        // While the HUD is open and the cursor rests on the live target row,
+        // re-announce that row whenever the underlying target changes. No-op
+        // otherwise. Called each frame from onFrame (which runs even while the
+        // HUD-paused world is frozen).
+        void hudFollowTarget();
+
+        // Build mHudItems from the current player/enemy state (called on open).
+        void buildHudItems();
+        // Move the HUD cursor by \p delta (handles both the main list and the
+        // effects sub-list) and speak the row landed on.
+        void hudMove(int delta);
+        // Speak the current HUD row (or effect sub-row when drilled in).
+        void announceHudCurrent();
+        // Enter / leave the active-effects sub-list from the Effects row.
+        void hudEnterEffects();
+        void hudLeaveEffects();
+        // Route a key while the AHUD is open. Returns true if consumed.
+        bool handleHudKey(int scancode, bool ctrl, bool shift, bool alt);
+
+        // Speak one player dynamic stat as "<label> <current> of <max>".
+        // \p index is the DynamicStat index (0 health, 1 magicka, 2 fatigue).
+        void announcePlayerStat(int index, const char* label);
+        // The actor whose health the enemy-info key reports: the locked target
+        // if held, otherwise the current scanner selection. Empty if neither is
+        // a valid actor.
+        MWWorld::Ptr enemyInfoTarget();
+        // String builders shared by the quick-info keys and the HUD list rows.
+        // Each returns the spoken phrase for one HUD element, or an empty string
+        // when that element has nothing to report (so it can be skipped).
+        std::string playerStatText(int index, const char* label) const;
+        std::string readiedWeaponText() const; // "Weapon: Iron Dagger"
+        std::string readiedSpellText() const; // "Spell: Fireball"
+        std::string enemyHealthText(); // "<Name>, health N percent"
+        std::string targetHealthLabel(); // "Target: <Name>, health N percent" / "Target: none"
+        std::string locationText() const; // resolved cell name
+        std::string breathText() const; // "Breath N percent" (only underwater)
+
+        // Throttle for announceMeleeReach: a swung weapon resolves its hit
+        // several times per second, so we rate-limit the "out of range" speech.
+        // Counts DOWN each frame in onFrame; announceMeleeReach speaks only when
+        // it has reached 0, then resets it to the cooldown interval. So the
+        // first out-of-range swing speaks at once and repeats only after the
+        // interval elapses.
+        float mMeleeReachCooldown = 0.f;
     };
 }
 
