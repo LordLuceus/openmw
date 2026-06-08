@@ -9,6 +9,7 @@
 #include <cstdio>
 #include <iterator>
 #include <utility>
+#include <vector>
 
 #include <osg/ComputeBoundsVisitor>
 
@@ -32,6 +33,7 @@
 #include <components/esm3/loaddoor.hpp>
 #include <components/esm3/loadingr.hpp>
 #include <components/esm3/loadligh.hpp>
+#include <components/esm3/loadgmst.hpp>
 #include <components/esm3/loadlock.hpp>
 #include <components/esm3/loadmisc.hpp>
 #include <components/esm3/loadnpc.hpp>
@@ -44,14 +46,17 @@
 #include "../mwmechanics/combat.hpp"
 #include "../mwmechanics/creaturestats.hpp"
 #include "../mwmechanics/drawstate.hpp"
+#include "../mwmechanics/npcstats.hpp"
 #include "../mwmechanics/spells.hpp"
 
 #include "../mwrender/vismask.hpp"
 
+#include "../mwgui/accessibility/activeeffects.hpp"
 #include "../mwgui/tooltips.hpp"
 
 #include "../mwbase/environment.hpp"
 #include "../mwbase/luamanager.hpp"
+#include "../mwbase/mechanicsmanager.hpp"
 #include "../mwbase/statemanager.hpp"
 #include "../mwbase/windowmanager.hpp"
 #include "../mwbase/world.hpp"
@@ -65,6 +70,7 @@
 #include "../mwworld/player.hpp"
 #include "../mwworld/ptr.hpp"
 #include "../mwworld/refdata.hpp"
+#include "../mwworld/datetimemanager.hpp"
 #include "../mwworld/worldmodel.hpp"
 
 namespace
@@ -94,6 +100,10 @@ namespace
     // are announced at any distance regardless of this. See
     // Scanner::announceActorSpellCast.
     constexpr float kSpellCastNearbyRange = 28.f * kUnitsPerMetre;
+
+    // Time-manager pause tag for the accessible HUD. Pausing is additive/tagged
+    // (see DateTimeManager), so our pause coexists with any other pause source.
+    constexpr std::string_view sHudPauseTag = "a11y_hud";
 
     std::string formatDistance(float units)
     {
@@ -479,6 +489,23 @@ namespace MWAccessibility
         mLastCellId = nullptr;
         mCellNamePrimed = false;
         mMeleeReachCooldown = 0.f;
+
+        // If the AHUD was open when the world was torn down (e.g. the player
+        // loaded a save from the HUD), drop our pause tag so the new game isn't
+        // left frozen. The time manager is reset on load, but unpausing our tag
+        // explicitly keeps the bookkeeping honest and harmless if already gone.
+        if (mHudActive)
+        {
+            mHudActive = false;
+            if (MWBase::World* world = MWBase::Environment::get().getWorld())
+                world->getTimeManager()->unpause(sHudPauseTag);
+        }
+        mHudInEffects = false;
+        mHudItems.clear();
+        mHudEffects.clear();
+        mHudIndex = 0;
+        mHudEffectIndex = 0;
+        mHudLastTargetLabel.clear();
     }
 
     void Scanner::onFrame(float dt)
@@ -511,6 +538,10 @@ namespace MWAccessibility
         MWWorld::Ptr player = world->getPlayerPtr();
         if (player.isEmpty())
             return;
+
+        // While the HUD is open and parked on the target row, keep that row in
+        // sync with whichever actor the player cycles the scanner to.
+        hudFollowTarget();
 
         // Invalidate caches when the player's cell changes (handles both
         // interior/exterior transitions). In an exterior the active cell grid
@@ -592,6 +623,41 @@ namespace MWAccessibility
 
         bool ctrl = (modState & KMOD_CTRL) != 0;
         bool shift = (modState & KMOD_SHIFT) != 0;
+        bool alt = (modState & KMOD_ALT) != 0;
+
+        // Quick-info keys (Alt modifier) work both in normal gameplay and while
+        // the AHUD is open, so handle them up front before the auto-walk-cancel
+        // and the main key switch. Alt+H/M/F read the player's health / magicka
+        // / fatigue; Shift+Alt+H reads the current enemy's health.
+        if (alt && !ctrl)
+        {
+            switch (scancode)
+            {
+                case SDL_SCANCODE_H:
+                    if (shift)
+                        announceEnemyHealth();
+                    else
+                        announcePlayerHealth();
+                    return true;
+                case SDL_SCANCODE_M:
+                    announcePlayerMagicka();
+                    return true;
+                case SDL_SCANCODE_F:
+                    announcePlayerFatigue();
+                    return true;
+                default:
+                    break;
+            }
+        }
+
+        // While the AHUD is open, give its navigation keys (arrows, Enter,
+        // Home, Escape/Left to back out of the effects sub-list) first crack.
+        // Anything it doesn't consume falls through to the scanner keys below,
+        // which keep working while the HUD is up (the player can still cycle
+        // scan targets, lock on, etc.). H / Escape that aren't consumed here
+        // reach the main switch and close the HUD.
+        if (mHudActive && handleHudKey(scancode, ctrl, shift, alt))
+            return true;
 
         // Pressing a movement key while auto-walk is active should cancel it
         // cleanly. We don't consume the key; the player still wants to move.
@@ -679,6 +745,25 @@ namespace MWAccessibility
                 // spells, and lockpicks/probes connect without manual aiming.
                 toggleLockOn();
                 return true;
+            case SDL_SCANCODE_H:
+                // Toggle the accessible HUD (pauses the world; scanner +
+                // quick-info keys keep working). Plain H only -- Alt+H is the
+                // quick health readout handled above.
+                if (!ctrl && !shift && !alt)
+                {
+                    toggleHud();
+                    return true;
+                }
+                return false;
+            case SDL_SCANCODE_ESCAPE:
+                // Escape closes the AHUD if it's open (and only then do we
+                // consume it, so Escape behaves normally otherwise).
+                if (mHudActive)
+                {
+                    toggleHud();
+                    return true;
+                }
+                return false;
             case SDL_SCANCODE_END:
                 clearSelection();
                 return true;
@@ -1492,6 +1577,385 @@ namespace MWAccessibility
         // -- the same vocabulary used for target bearings.
         const float yaw = player.getRefData().getPosition().rot[2];
         speak(std::string("Facing ") + compassLabel(yaw) + ".");
+    }
+
+    std::string Scanner::playerStatText(int index, const char* label) const
+    {
+        MWWorld::Ptr player = MWBase::Environment::get().getWorld()->getPlayerPtr();
+        if (player.isEmpty())
+            return {};
+
+        const MWMechanics::CreatureStats& stats = player.getClass().getCreatureStats(player);
+        const MWMechanics::DynamicStat<float>& stat = stats.getDynamic(index);
+        // Current can dip a touch below 0 / round oddly; clamp current to >= 0
+        // and report the modified maximum, matching the on-screen bars.
+        const int current = static_cast<int>(std::max(0.f, std::round(stat.getCurrent())));
+        const int max = static_cast<int>(std::round(stat.getModified()));
+        // Match the stats pane's convention: "<label>: <current> / <max>".
+        return std::string(label) + ": " + std::to_string(current) + " / " + std::to_string(max);
+    }
+
+    void Scanner::announcePlayerStat(int index, const char* label)
+    {
+        std::string text = playerStatText(index, label);
+        if (!text.empty())
+            speak(text + ".");
+    }
+
+    void Scanner::announcePlayerHealth()
+    {
+        announcePlayerStat(0, "Health");
+    }
+
+    void Scanner::announcePlayerMagicka()
+    {
+        announcePlayerStat(1, "Magicka");
+    }
+
+    void Scanner::announcePlayerFatigue()
+    {
+        announcePlayerStat(2, "Fatigue");
+    }
+
+    std::string Scanner::readiedWeaponText() const
+    {
+        MWWorld::Ptr player = MWBase::Environment::get().getWorld()->getPlayerPtr();
+        if (player.isEmpty() || !player.getClass().hasInventoryStore(player))
+            return {};
+        MWWorld::InventoryStore& inv = player.getClass().getInventoryStore(player);
+        auto slot = inv.getSlot(MWWorld::InventoryStore::Slot_CarriedRight);
+        if (slot != inv.end() && !slot->isEmpty())
+            return "Weapon: " + std::string(slot->getClass().getName(*slot));
+        // Empty right hand = hand-to-hand, mirroring the native HUD's H2H icon.
+        return "Weapon: Hand to hand";
+    }
+
+    std::string Scanner::readiedSpellText() const
+    {
+        MWBase::World* world = MWBase::Environment::get().getWorld();
+        MWWorld::Ptr player = world->getPlayerPtr();
+        if (player.isEmpty())
+            return {};
+
+        const ESM::RefId selected = player.getClass().getCreatureStats(player).getSpells().getSelectedSpell();
+        if (!selected.empty())
+        {
+            const ESM::Spell* spell = world->getStore().get<ESM::Spell>().search(selected);
+            if (spell)
+                return "Spell: " + spell->mName;
+        }
+        if (player.getClass().hasInventoryStore(player))
+        {
+            MWWorld::InventoryStore& inv = player.getClass().getInventoryStore(player);
+            if (inv.getSelectedEnchantItem() != inv.end())
+            {
+                const MWWorld::Ptr item = *inv.getSelectedEnchantItem();
+                if (!item.isEmpty())
+                    return "Spell: " + std::string(item.getClass().getName(item));
+            }
+        }
+        return {}; // Nothing selected -- omit the line entirely.
+    }
+
+    std::string Scanner::breathText() const
+    {
+        MWBase::World* world = MWBase::Environment::get().getWorld();
+        MWWorld::Ptr player = world->getPlayerPtr();
+        if (player.isEmpty() || !player.getClass().isNpc())
+            return {};
+
+        // Mirror the HUD's drowning bar: it appears only once the player is
+        // underwater and has started spending breath (timeLeft < the full
+        // hold-breath time). A full or uninitialised (-1) timer means the bar
+        // is hidden, so we report nothing. Spoken as a percentage of capacity,
+        // matching the bar (which carries no numbers).
+        const MWMechanics::NpcStats& stats = player.getClass().getNpcStats(player);
+        const float timeLeft = stats.getTimeToStartDrowning();
+        static const float holdBreath = world->getStore()
+                                            .get<ESM::GameSetting>()
+                                            .find("fHoldBreathTime")
+                                            ->mValue.getFloat();
+        if (holdBreath <= 0.f || timeLeft < 0.f || timeLeft >= holdBreath)
+            return {};
+        const int percent = static_cast<int>(std::round(std::clamp(timeLeft / holdBreath, 0.f, 1.f) * 100.f));
+        return "Breath: " + std::to_string(percent) + " percent";
+    }
+
+    MWWorld::Ptr Scanner::enemyInfoTarget()
+    {
+        // Prefer the locked target (the thing the player is actively fighting),
+        // falling back to the current scanner selection.
+        MWWorld::Ptr target = lockTarget();
+        if (target.isEmpty())
+            target = currentTarget();
+        if (target.isEmpty() || !target.getClass().isActor())
+            return MWWorld::Ptr();
+        return target;
+    }
+
+    std::string Scanner::enemyHealthText()
+    {
+        MWWorld::Ptr target = enemyInfoTarget();
+        if (target.isEmpty())
+            return {};
+        const MWMechanics::CreatureStats& stats = target.getClass().getCreatureStats(target);
+        // Percentage only: the native enemy health bar shows no numbers to
+        // sighted players, so we expose none either -- matching getRatio()*100,
+        // exactly what the bar fills to.
+        const int percent
+            = static_cast<int>(std::round(std::clamp(stats.getHealth().getRatio(), 0.f, 1.f) * 100.f));
+        return objectDisplayName(target) + ", health " + std::to_string(percent) + " percent";
+    }
+
+    std::string Scanner::locationText() const
+    {
+        MWBase::World* world = MWBase::Environment::get().getWorld();
+        MWWorld::Ptr player = world->getPlayerPtr();
+        if (player.isEmpty())
+            return {};
+        MWWorld::CellStore* cell = player.getCell();
+        if (!cell)
+            return {};
+        std::string_view name = world->getCellName(cell);
+        if (name.empty())
+            return {};
+        return std::string(name);
+    }
+
+    void Scanner::announceEnemyHealth()
+    {
+        std::string text = enemyHealthText();
+        if (text.empty())
+            speak("No target.");
+        else
+            speak(text + ".");
+    }
+
+    void Scanner::buildHudItems()
+    {
+        mHudItems.clear();
+        mHudIndex = 0;
+        mHudInEffects = false;
+        mHudEffects.clear();
+        mHudEffectIndex = 0;
+        mHudLastTargetLabel.clear();
+
+        MWBase::World* world = MWBase::Environment::get().getWorld();
+        MWWorld::Ptr player = world->getPlayerPtr();
+        if (player.isEmpty())
+            return;
+
+        // Build the list in the order the screen reads: where you are, your
+        // three vitals, breath (only underwater), sneaking, readied weapon /
+        // spell, an "Active effects" drill-in row, and the current enemy. Rows
+        // with nothing to say are omitted so navigation only lands on real
+        // info. The world is paused while the HUD is open, so this snapshot
+        // stays accurate until close.
+        if (std::string loc = locationText(); !loc.empty())
+            mHudItems.push_back({ loc, false });
+
+        mHudItems.push_back({ playerStatText(0, "Health"), false });
+        mHudItems.push_back({ playerStatText(1, "Magicka"), false });
+        mHudItems.push_back({ playerStatText(2, "Fatigue"), false });
+
+        if (std::string breath = breathText(); !breath.empty())
+            mHudItems.push_back({ breath, false });
+
+        if (MWBase::Environment::get().getMechanicsManager()->isSneaking(player))
+            mHudItems.push_back({ "Sneaking", false });
+
+        if (std::string w = readiedWeaponText(); !w.empty())
+            mHudItems.push_back({ w, false });
+        if (std::string s = readiedSpellText(); !s.empty())
+            mHudItems.push_back({ s, false });
+
+        // Active effects: a single drill-in row reporting the count. Snapshot
+        // the detailed lines (shared with the magic pane) so Enter can walk
+        // them. Omitted entirely when nothing is active.
+        for (const MWGui::A11y::ActiveEffectLine& line : MWGui::A11y::activeEffects(player))
+            mHudEffects.emplace_back(line.source, line.effect);
+        if (!mHudEffects.empty())
+        {
+            HudItem fx;
+            fx.mLabel = "Active effects, " + std::to_string(mHudEffects.size());
+            fx.mIsEffects = true;
+            mHudItems.push_back(std::move(fx));
+        }
+
+        // Target row: always present so the player can park on it and have it
+        // track whichever actor they cycle to with the scanner keys (its label
+        // is recomputed live in announceHudCurrent). mLabel here is just the
+        // initial snapshot shown on open.
+        HudItem target;
+        target.mIsTarget = true;
+        target.mLabel = targetHealthLabel();
+        mHudItems.push_back(std::move(target));
+    }
+
+    std::string Scanner::targetHealthLabel()
+    {
+        std::string text = enemyHealthText();
+        return text.empty() ? "Target: none" : "Target: " + text;
+    }
+
+    void Scanner::announceHudCurrent()
+    {
+        if (mHudInEffects)
+        {
+            if (mHudEffects.empty())
+                return;
+            const auto& [source, effect] = mHudEffects[mHudEffectIndex];
+            speak(source + ": " + effect + ".");
+            return;
+        }
+
+        if (mHudItems.empty())
+        {
+            speak("HUD empty.");
+            return;
+        }
+        const HudItem& item = mHudItems[mHudIndex];
+        // The target row is recomputed live so it reflects whichever actor the
+        // player has cycled the scanner to since the HUD opened.
+        std::string label = item.mIsTarget ? targetHealthLabel() : item.mLabel;
+        // Record the spoken target label so the per-frame follow poll only
+        // re-announces on an actual change.
+        if (item.mIsTarget)
+            mHudLastTargetLabel = label;
+        // Hint that the effects row is enterable.
+        if (item.mIsEffects)
+            label += ". Press Enter for details";
+        speak(label + ".");
+    }
+
+    void Scanner::hudFollowTarget()
+    {
+        // Only while the HUD is open, in the main list, parked on the target
+        // row. Re-announce when the live target label changes (the player
+        // cycled the scanner to a different actor, or its health moved -- though
+        // the world is paused, so in practice this fires on target switches).
+        if (!mHudActive || mHudInEffects || mHudItems.empty())
+            return;
+        if (!mHudItems[mHudIndex].mIsTarget)
+            return;
+        std::string label = targetHealthLabel();
+        if (label != mHudLastTargetLabel)
+            announceHudCurrent();
+    }
+
+    void Scanner::hudMove(int delta)
+    {
+        if (mHudInEffects)
+        {
+            if (mHudEffects.empty())
+                return;
+            const int n = static_cast<int>(mHudEffects.size());
+            mHudEffectIndex = (mHudEffectIndex + delta % n + n) % n;
+            announceHudCurrent();
+            return;
+        }
+        if (mHudItems.empty())
+            return;
+        const int n = static_cast<int>(mHudItems.size());
+        mHudIndex = (mHudIndex + delta % n + n) % n;
+        announceHudCurrent();
+    }
+
+    void Scanner::hudEnterEffects()
+    {
+        if (mHudItems.empty() || !mHudItems[mHudIndex].mIsEffects || mHudEffects.empty())
+            return;
+        mHudInEffects = true;
+        mHudEffectIndex = 0;
+        announceHudCurrent();
+    }
+
+    void Scanner::hudLeaveEffects()
+    {
+        if (!mHudInEffects)
+            return;
+        mHudInEffects = false;
+        // Return to the Effects row that was drilled into, and re-announce it
+        // so the player knows they're back in the main list.
+        announceHudCurrent();
+    }
+
+    void Scanner::toggleHud()
+    {
+        MWWorld::DateTimeManager* timeMgr = MWBase::Environment::get().getWorld()->getTimeManager();
+        if (mHudActive)
+        {
+            mHudActive = false;
+            mHudInEffects = false;
+            timeMgr->unpause(sHudPauseTag);
+            speak("HUD closed.");
+            return;
+        }
+
+        mHudActive = true;
+        // Pause via a time-manager tag (not a GuiMode): this freezes the world
+        // -- player and AI movement, time, combat -- while leaving our key
+        // handler live, so the player can calmly navigate the HUD and read
+        // stats mid-ambush. Unpaused on close, and defensively in clear().
+        timeMgr->pause(sHudPauseTag);
+        buildHudItems();
+        // Land on the first row and read it (a brief "HUD" cue prefixes it). The
+        // quick-info keys (Alt+H/M/F, Shift+Alt+H) stay available for spot
+        // checks, and Up/Down walk the list.
+        if (mHudItems.empty())
+        {
+            speak("HUD empty.");
+            return;
+        }
+        speak("HUD.");
+        announceHudCurrent();
+    }
+
+    bool Scanner::handleHudKey(int scancode, bool ctrl, bool shift, bool alt)
+    {
+        // Only called while the HUD is open. Arrow Up/Down walk the list (or the
+        // effects sub-list); Enter drills into the effects row; Escape/Left back
+        // out of the sub-list, else H/Escape (handled by the caller) close the
+        // HUD. Plain presses only -- modified combos fall through so the
+        // quick-info keys and scanner keys keep working.
+        if (ctrl || shift || alt)
+            return false;
+
+        switch (scancode)
+        {
+            case SDL_SCANCODE_UP:
+                hudMove(-1);
+                return true;
+            case SDL_SCANCODE_DOWN:
+                hudMove(+1);
+                return true;
+            case SDL_SCANCODE_RETURN:
+            case SDL_SCANCODE_KP_ENTER:
+                // Drill into the effects row. In the sub-list there's nothing
+                // to enter, but still consume Enter so it doesn't leak to the
+                // scanner's focus-camera action while the HUD is up.
+                if (!mHudInEffects)
+                    hudEnterEffects();
+                return true;
+            case SDL_SCANCODE_LEFT:
+            case SDL_SCANCODE_ESCAPE:
+                // Escape / Left back out of the effects sub-list (consuming the
+                // key). When already in the main list, return false so the
+                // caller's Escape handling closes the whole HUD.
+                if (mHudInEffects)
+                {
+                    hudLeaveEffects();
+                    return true;
+                }
+                return false;
+            case SDL_SCANCODE_HOME:
+                // Re-read the current row (consistent with Home elsewhere as a
+                // "repeat" key) without leaving the HUD.
+                announceHudCurrent();
+                return true;
+            default:
+                return false;
+        }
     }
 
     void Scanner::rebuildCurrentList()

@@ -36,7 +36,11 @@ auto-walk, location announcements, and audio beacon (gameplay, not a screen).
       cheapest remaining win.
 - [ ] **Quick keys menu** (`GM_QuickKeysMenu`)
 - [ ] **Console** (`console.cpp`)
-- [ ] **HUD** — persistent in-game bars / widgets
+- [x] **HUD** — accessible HUD (AHUD). H toggles it; pauses the world (via a
+      time-manager tag, not a GuiMode) so the scanner + quick-info keys still
+      work while frozen, giving a blind player time to assess an ambush. Quick
+      info works in gameplay too: Alt+H/M/F read player health/magicka/fatigue
+      ("current of max"); Shift+Alt+H reads the current enemy's health (% only).
 
 ### System screens (no GuiMode — separate path)
 - [ ] **Save / Load** (`savegamedialog.cpp`)
@@ -67,9 +71,10 @@ auto-walk, location announcements, and audio beacon (gameplay, not a screen).
       combat with the player AND the spell reaches outward (touch/target range,
       not a self-buff). Announced when nearby (~28 m) OR when targeting the
       player at any distance; the player's own casts are excluded.
-- [ ] **Enemy health readout** — read the selected/locked actor's health (% only,
-      matching the native enemy health bar; magicka/fatigue not shown to sighted
-      players so not exposed).
+- [x] **Enemy health readout** — Shift+Alt+H reads the locked target's (else the
+      scanner selection's) health as a percentage only, matching the native
+      enemy health bar; magicka/fatigue not shown to sighted players so not
+      exposed. Part of the AHUD quick-info keys.
 
 ### Tech debt
 - [ ] **Memory-safety audit (post-combat)** — sweep the a11y code for stale

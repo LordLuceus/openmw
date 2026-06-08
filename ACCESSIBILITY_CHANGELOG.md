@@ -6,6 +6,23 @@ Newest changes are listed first. (OpenMW's own engine changelog lives in
 
 ## 2026-06-08
 
+- **Accessible HUD.** Press H to open a spoken version of the on-screen HUD. The
+  world pauses while it's open -- so if you're suddenly attacked you have time to
+  get your bearings -- but the scanner keys and quick-info keys keep working, so
+  you can find who's attacking and check your stats without the fight moving on.
+  Use the Up and Down arrows to move through the items: your location, health,
+  magicka, fatigue, breath (only when you're underwater), whether you're
+  sneaking, your readied weapon and spell, active magic effects, and the actor
+  you currently have targeted. Press Home to re-read the current item. On the
+  "Active effects" item, press Enter to step into the full list of what's
+  affecting you (with its strength and time remaining), and Escape or Left to
+  come back out. The target item follows your scanner selection live, so as you
+  cycle targets while in the HUD, it updates to show each one's health. Press H
+  again or Escape to close.
+- **Quick stat checks.** Even during normal play (and in the HUD), you can read a
+  single stat instantly: Alt+H for health, Alt+M for magicka, Alt+F for fatigue,
+  and Shift+Alt+H for the health of whatever you have targeted.
+
 - **Enemy spellcasting announcements.** When another actor casts a spell or uses
   a scroll, you'll now hear it -- for example "Dagoth Gares casts Fireball at
   you." The "at you" is added when the caster is fighting you and the spell

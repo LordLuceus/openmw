@@ -99,6 +99,29 @@ namespace MWAccessibility
         void announceActorSpellCast(
             const MWWorld::Ptr& caster, const std::string& sourceName, bool targetsOutward);
 
+        /// --- Accessible HUD (AHUD) ---------------------------------------
+        /// Toggle the accessible HUD. Bound to H. While active, the world is
+        /// paused (so a suddenly-attacked player has time to assess and react)
+        /// yet the scanner keys and the quick-info keys keep working, letting
+        /// the player find an attacker, check stats, etc. Pressing H again (or
+        /// Escape) closes it and unpauses. The pause is a time-manager tag, not
+        /// a GuiMode, precisely so scanner input keeps flowing while paused.
+        void toggleHud();
+        /// Whether the AHUD is currently active.
+        bool isHudActive() const { return mHudActive; }
+
+        /// Quick-info readouts. Player stats are spoken as "<Stat> <current> of
+        /// <max>" (rounded), matching the numbers on the native bars. Enemy
+        /// health is spoken as a percentage only -- the native enemy health bar
+        /// exposes no numbers to sighted players, so neither do we. The enemy is
+        /// the locked target if one is held, else the current scanner selection;
+        /// a no-op (with a brief spoken note) if that isn't a living actor.
+        /// These work both in normal gameplay and while the AHUD is open.
+        void announcePlayerHealth();
+        void announcePlayerMagicka();
+        void announcePlayerFatigue();
+        void announceEnemyHealth();
+
         /// Called by the WindowManager when the search prompt is confirmed.
         /// \p query is the (possibly empty) name filter; an empty query clears
         /// the filter. Applies to the current category, persists across cell
@@ -330,6 +353,76 @@ namespace MWAccessibility
         // Spoken name of the locked target, captured at lock time so release /
         // status messages read sensibly even if the Ptr later goes stale.
         std::string mLockTargetName;
+
+        // --- Accessible HUD (navigable list) ----------------------------
+        // Whether the AHUD is open. When true the world is paused via a
+        // time-manager tag (see toggleHud) but scanner/quick-info keys still
+        // work. Cleared (and the pause lifted) by toggleHud and by clear().
+        bool mHudActive = false;
+        // One row of the HUD list, built fresh each time the HUD opens (the
+        // world is paused, so a snapshot is fine). mLabel is what's spoken when
+        // the cursor lands on it. mIsEffects marks the single "Active effects"
+        // row, which the player drills into with Enter to walk a sub-list.
+        struct HudItem
+        {
+            std::string mLabel;
+            bool mIsEffects = false;
+            // The target row recomputes its label from the live scanner/lock
+            // selection each time it's announced, so it tracks the target the
+            // player cycles to with the scanner keys while the HUD is open
+            // (rather than showing a stale snapshot from when the HUD opened).
+            bool mIsTarget = false;
+        };
+        std::vector<HudItem> mHudItems; // current snapshot of HUD rows
+        int mHudIndex = 0; // cursor within mHudItems
+        // When true the cursor is inside the active-effects sub-list (entered
+        // from the Effects row); Up/Down walk mHudEffects, Escape/Left back out.
+        bool mHudInEffects = false;
+        // Snapshot of the active-effect sub-list (source + effect strings),
+        // taken when the player drills in. Parallel to MWGui::A11y::activeEffects.
+        std::vector<std::pair<std::string, std::string>> mHudEffects;
+        int mHudEffectIndex = 0;
+        // Last target-row label spoken, so the per-frame poll (hudFollowTarget)
+        // re-announces only when the live target actually changes -- letting the
+        // target row track the actor the player cycles the scanner to while
+        // parked on it, without repeating on unchanged frames.
+        std::string mHudLastTargetLabel;
+        // While the HUD is open and the cursor rests on the live target row,
+        // re-announce that row whenever the underlying target changes. No-op
+        // otherwise. Called each frame from onFrame (which runs even while the
+        // HUD-paused world is frozen).
+        void hudFollowTarget();
+
+        // Build mHudItems from the current player/enemy state (called on open).
+        void buildHudItems();
+        // Move the HUD cursor by \p delta (handles both the main list and the
+        // effects sub-list) and speak the row landed on.
+        void hudMove(int delta);
+        // Speak the current HUD row (or effect sub-row when drilled in).
+        void announceHudCurrent();
+        // Enter / leave the active-effects sub-list from the Effects row.
+        void hudEnterEffects();
+        void hudLeaveEffects();
+        // Route a key while the AHUD is open. Returns true if consumed.
+        bool handleHudKey(int scancode, bool ctrl, bool shift, bool alt);
+
+        // Speak one player dynamic stat as "<label> <current> of <max>".
+        // \p index is the DynamicStat index (0 health, 1 magicka, 2 fatigue).
+        void announcePlayerStat(int index, const char* label);
+        // The actor whose health the enemy-info key reports: the locked target
+        // if held, otherwise the current scanner selection. Empty if neither is
+        // a valid actor.
+        MWWorld::Ptr enemyInfoTarget();
+        // String builders shared by the quick-info keys and the HUD list rows.
+        // Each returns the spoken phrase for one HUD element, or an empty string
+        // when that element has nothing to report (so it can be skipped).
+        std::string playerStatText(int index, const char* label) const;
+        std::string readiedWeaponText() const; // "Weapon: Iron Dagger"
+        std::string readiedSpellText() const; // "Spell: Fireball"
+        std::string enemyHealthText(); // "<Name>, health N percent"
+        std::string targetHealthLabel(); // "Target: <Name>, health N percent" / "Target: none"
+        std::string locationText() const; // resolved cell name
+        std::string breathText() const; // "Breath N percent" (only underwater)
 
         // Throttle for announceMeleeReach: a swung weapon resolves its hit
         // several times per second, so we rate-limit the "out of range" speech.
