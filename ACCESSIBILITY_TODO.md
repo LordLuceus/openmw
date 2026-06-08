@@ -62,8 +62,16 @@ auto-walk, location announcements, and audio beacon (gameplay, not a screen).
 - [x] **Out-of-range feedback** — when the player swings melee or casts a touch
       spell at a locked target that's unreachable, announce "Out of range" (too
       far) or "Target too high"/"Target too low" (beyond vertical reach).
-      Throttled; uses the engine's own reach math. Ranged "target" spells are
-      excluded so distance casting isn't nagged.
+      Throttled; uses the engine's own reach math.
+- [x] **No-clear-shot feedback for ranged spells** — magic "target" bolts (e.g.
+      Fireball) fly in a straight line with no gravity and NO distance cap, so
+      the real failure a blind player can't see is an obstructed path, not range.
+      `Scanner::announceNoClearShot()` raycasts torso->target-centre (the exact
+      trajectory updateLockOn aims) using the projectile collision mask; if the
+      first thing hit isn't the locked target, speak "No clear shot." Only when
+      locked onto a live actor; throttled via the shared reach cooldown. Wired in
+      World::castSpell for the player's RT_Target spells/enchantments
+      (spellHasTargetEffect).
 - [x] **Spell-cast announcements** — announce when another actor casts a spell or
       uses a scroll/magic item. Hooked at the two CastSpell::cast success points
       (spell + item/scroll); excludes on-strike/projectile enchantments. Spoken

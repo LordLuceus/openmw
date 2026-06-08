@@ -125,6 +125,19 @@ namespace MWWorld
             return false;
         }
 
+        // [a11y] True if any effect is a ranged "target" effect (RT_Target),
+        // i.e. the spell launches a magic bolt (e.g. Fireball). Used to give a
+        // blind player a "no clear shot" cue when the bolt's path to the locked
+        // target is obstructed -- the ranged counterpart to the touch/melee
+        // out-of-range warning.
+        bool spellHasTargetEffect(const ESM::EffectList& effects)
+        {
+            for (const ESM::IndexedENAMstruct& effect : effects.mList)
+                if (effect.mData.mRange == ESM::RT_Target)
+                    return true;
+            return false;
+        }
+
         std::vector<std::pair<GlobalVariableName, ESM::Variant>> generateDefaultGlobals()
         {
             return {
@@ -3014,6 +3027,13 @@ namespace MWWorld
                     = mStore.get<ESM::GameSetting>().find("fCombatDistance")->mValue.getFloat();
                 MWAccessibility::Scanner::instance().announceOutOfReach(fCombatDistance);
             }
+            // [a11y] Ranged ("target") spells launch a straight-line magic bolt.
+            // It has no distance cap, but an intervening wall/pillar/clutter
+            // silently blocks it -- a miss a blind player can't see. Warn when
+            // the bolt's path to the locked target is obstructed. Independent of
+            // the touch check above: a spell can have target-range effects.
+            if (casterIsPlayer && !scriptedSpell && spellHasTargetEffect(spell->mEffects))
+                MWAccessibility::Scanner::instance().announceNoClearShot();
             cast.cast(spell);
         }
         else
@@ -3022,15 +3042,24 @@ namespace MWWorld
             if (inv.getSelectedEnchantItem() != inv.end())
             {
                 const auto& itemPtr = *inv.getSelectedEnchantItem();
-                if (casterIsPlayer && !scriptedSpell && target.isEmpty())
+                if (casterIsPlayer && !scriptedSpell)
                 {
                     const ESM::Enchantment* ench = mStore.get<ESM::Enchantment>().search(
                         itemPtr.getClass().getEnchantment(itemPtr));
-                    if (ench && spellHasTouchEffect(ench->mEffects))
+                    if (ench)
                     {
-                        const float fCombatDistance
-                            = mStore.get<ESM::GameSetting>().find("fCombatDistance")->mValue.getFloat();
-                        MWAccessibility::Scanner::instance().announceOutOfReach(fCombatDistance);
+                        // Touch enchantment that found no target: too far (see
+                        // the spell path above).
+                        if (target.isEmpty() && spellHasTouchEffect(ench->mEffects))
+                        {
+                            const float fCombatDistance
+                                = mStore.get<ESM::GameSetting>().find("fCombatDistance")->mValue.getFloat();
+                            MWAccessibility::Scanner::instance().announceOutOfReach(fCombatDistance);
+                        }
+                        // Ranged enchantment: warn if the bolt's path to the
+                        // locked target is blocked.
+                        if (spellHasTargetEffect(ench->mEffects))
+                            MWAccessibility::Scanner::instance().announceNoClearShot();
                     }
                 }
                 cast.cast(itemPtr);

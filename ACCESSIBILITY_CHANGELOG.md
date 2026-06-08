@@ -6,6 +6,15 @@ Newest changes are listed first. (OpenMW's own engine changelog lives in
 
 ## 2026-06-08
 
+- **No clear shot warning for ranged spells.** When you cast a ranged spell like
+  Fireball at a locked-on enemy but a wall, pillar, or other obstacle is between
+  you and them, you'll now hear "No clear shot" -- the ranged counterpart to the
+  "Out of range" warning for melee and touch spells. Ranged spell bolts fly in a
+  straight line until they hit something, so an obstruction you can't see makes
+  the spell harmlessly strike scenery instead of your target; this tells you to
+  reposition for a clear line. It only speaks when you're locked on (which is
+  what aims the bolt), and it stays silent when the path is clear.
+
 - **Crash fix.** Fixed a crash that could happen if you loaded a save while
   auto-walking to something (or while the proximity beacon was guiding you to a
   target). The mod now cleanly stops auto-walk and the beacon when a game is

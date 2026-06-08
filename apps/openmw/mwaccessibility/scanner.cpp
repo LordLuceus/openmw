@@ -49,6 +49,9 @@
 #include "../mwmechanics/npcstats.hpp"
 #include "../mwmechanics/spells.hpp"
 
+#include "../mwphysics/collisiontype.hpp"
+#include "../mwphysics/raycasting.hpp"
+
 #include "../mwrender/vismask.hpp"
 
 #include "../mwgui/accessibility/activeeffects.hpp"
@@ -1122,6 +1125,64 @@ namespace MWAccessibility
             speak(heightDiff < 0.f ? "Target too high." : "Target too low.");
         else
             speak("Out of range.");
+    }
+
+    void Scanner::announceNoClearShot()
+    {
+        // Same teardown guard as announceOutOfReach: the cast path can resolve
+        // during a save-load frame, when mLockTarget may be dangling.
+        if (MWBase::Environment::get().getStateManager()->getState()
+            != MWBase::StateManager::State_Running)
+            return;
+
+        // Only meaningful when locked onto a live actor -- that's the target the
+        // bolt is aimed at (updateLockOn holds the player's facing on it).
+        if (!mLockedOn || mLockTarget.isEmpty())
+            return;
+        if (!mLockTarget.getClass().isActor()
+            || mLockTarget.getClass().getCreatureStats(mLockTarget).isDead())
+            return;
+
+        MWBase::World* world = MWBase::Environment::get().getWorld();
+        MWWorld::Ptr player = world->getPlayerPtr();
+        if (player.isEmpty())
+            return;
+
+        // Reconstruct the exact bolt trajectory lock-on aims along: from the
+        // player's torso (where launchMagicBolt spawns the bolt) to the
+        // target's vertical centre. Keep this in sync with updateLockOn().
+        const float playerTorso = world->getHalfExtents(player, /*rendering=*/true).z() * 2.f * 0.75f;
+        osg::Vec3f from = player.getRefData().getPosition().asVec3();
+        from.z() += playerTorso;
+        osg::Vec3f to = mLockTarget.getRefData().getPosition().asVec3();
+        to.z() += world->getHalfExtents(mLockTarget, /*rendering=*/true).z();
+
+        // Cast along the trajectory using the projectile's own collision set
+        // (world geometry, terrain, doors, actors), ignoring the player so we
+        // don't self-block at the origin. A clear shot hits the locked target
+        // first; anything else hit before it means a wall/pillar/clutter (or
+        // another actor) is in the way and the bolt won't reach the target.
+        const MWPhysics::RayCastingInterface* rayCasting = world->getRayCasting();
+        if (!rayCasting)
+            return;
+        const int mask = MWPhysics::CollisionType_World | MWPhysics::CollisionType_HeightMap
+            | MWPhysics::CollisionType_Door | MWPhysics::CollisionType_Actor;
+        const MWPhysics::RayCastingResult result
+            = rayCasting->castRay(from, to, { player }, {}, mask);
+
+        // No hit at all (open line to the target) => clear shot, stay silent.
+        // A hit ON the locked target => clear shot. A hit on anything else =>
+        // blocked.
+        if (!result.mHit || result.mHitObject == mLockTarget)
+            return;
+
+        // Throttle with the shared reach cooldown so a flurry of casts (or a
+        // held cast) doesn't spam, and so this doesn't double up with the
+        // touch/melee out-of-reach line.
+        if (mMeleeReachCooldown > 0.f)
+            return;
+        mMeleeReachCooldown = kMeleeReachAnnounceInterval;
+        speak("No clear shot.");
     }
 
     void Scanner::announceActorSpellCast(

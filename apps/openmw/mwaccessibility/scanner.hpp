@@ -90,6 +90,20 @@ namespace MWAccessibility
         /// CharacterController::prepareHit (melee) and World::castSpell (touch).
         void announceOutOfReach(float reach);
 
+        /// Announce "No clear shot." when the player casts a ranged ("target")
+        /// spell at the locked actor but the bolt's straight-line path is
+        /// obstructed. Unlike melee/touch, ranged magic bolts have no distance
+        /// cap -- they fly in a straight line (no gravity) until they hit
+        /// something -- so the real failure a blind player can't see is an
+        /// intervening wall, pillar or clutter between them and the target.
+        /// Raycasts torso->target-centre along the exact trajectory lock-on
+        /// aims (see updateLockOn); if the first thing hit isn't the target,
+        /// the shot is blocked. No-op unless a game is running and locked onto a
+        /// live actor with a clear LINE the bolt would otherwise follow.
+        /// Throttled via the shared reach cooldown. Called from
+        /// World::castSpell for the player's ranged spells/enchantments.
+        void announceNoClearShot();
+
         /// Announce that another actor has cast a spell (or used a scroll/magic
         /// item), so a screen-reader player -- who can't see casting animations
         /// or coloured spell flashes -- knows a threat is incoming and what it
