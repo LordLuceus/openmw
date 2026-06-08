@@ -32,6 +32,7 @@
 #include "tooltips.hpp"
 
 #include "accessibility/itemtext.hpp"
+#include "accessibility/panegroup.hpp"
 #include "accessibility/speech.hpp"
 
 namespace MWGui
@@ -202,11 +203,15 @@ namespace MWGui
 
         setTitle(container.getClass().getName(container));
 
-        // Take screen-reader input: announce the container, then build the item
-        // list and land on the first entry (or the Close button if empty).
+        // Screen reader: the loot window is shown next to the player's inventory
+        // window. Build our item list and enrol as pane 0; the inventory enrols
+        // itself as pane 1, so Tab switches between taking (here) and storing
+        // (there). The PaneGroup claims focus for the lowest order first (this
+        // pane), matching the old behaviour of landing in the container.
         A11y::say(container.getClass().getName(container));
         buildAccessibility();
-        mA11y.activate();
+        A11y::PaneGroup::instance().enrol(
+            &mA11y, std::string(container.getClass().getName(container)), 0);
     }
 
     void ContainerWindow::buildAccessibility()
@@ -323,6 +328,7 @@ namespace MWGui
         if (MWBase::Environment::get().getWindowManager()->containsMode(GM_Container))
             return;
 
+        A11y::PaneGroup::instance().withdraw(&mA11y);
         mA11y.deactivate();
 
         if (mModel)
@@ -514,13 +520,31 @@ namespace MWGui
     void ContainerWindow::onFrame(float dt)
     {
         checkReferenceAvailable();
-        mA11y.onFrame(dt);
 
         if (mUpdateNextFrame)
         {
             mItemView->update();
             mUpdateNextFrame = false;
+            // The container's contents changed (an item taken out, or stored in
+            // from the inventory pane). Rebuild the spoken list so it stays in
+            // sync, keeping the cursor near its old row. Announce only when this
+            // pane is the active one -- a store happens from the inventory pane,
+            // which should be the one to speak.
+            if (A11y::PaneGroup::instance().contains(&mA11y))
+            {
+                const size_t cursor = mA11y.currentIndex();
+                buildAccessibility();
+                const size_t itemCount = mSortModel ? mSortModel->getItemCount() : 0;
+                if (mA11y.isActive() && cursor != A11y::Screen::npos && itemCount > 0)
+                    mA11y.selectIndex(std::min(cursor, itemCount - 1), /*announce=*/false);
+            }
         }
+
+        // Let the PaneGroup claim focus for the pane the user should land on.
+        if (A11y::PaneGroup::instance().contains(&mA11y))
+            A11y::PaneGroup::instance().maybeActivateInitial(&mA11y);
+
+        mA11y.onFrame(dt);
     }
 
     void ContainerWindow::onInventoryUpdate(const MWWorld::Ptr& ptr)

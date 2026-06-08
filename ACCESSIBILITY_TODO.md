@@ -31,9 +31,20 @@ auto-walk, location announcements, and audio beacon (gameplay, not a screen).
 - [ ] **Jail** (`GM_Jail`) — sentence / skill-loss screen
 
 ### Player-action UIs
-- [ ] **Companion** (`GM_Companion`) — share/transfer items. Reuses the inventory
-      pane; needs the same two-pane PaneGroup treatment barter got. Likely the
-      cheapest remaining win.
+- [x] **Store items into containers** (`GM_Container`) — the loot window and the
+      player's inventory are now enrolled as a two-pane PaneGroup (container = 0,
+      inventory = 1), so Tab/Shift+Tab switch between taking and storing, just
+      like barter. In the inventory pane, **S** stores the selected item into the
+      open container (count picker for a stack; Shift+S = whole stack) via the
+      existing `transferItem`/`ItemTransfer::apply` path. `a11yStoreItem` +
+      `onA11yCountStored` mirror the drop flow (unequip-if-needed, then follow the
+      item). Closes the take/drop/store gap (could take + drop, not store).
+- [ ] **Companion** (`GM_Companion`) — share/transfer items. The companion window
+      has NO accessibility yet (no `mA11y`), so it needs its own item list +
+      buildAccessibility first, then enrol as pane 0 (mirroring the container
+      work above) so the inventory's S-store path can target it too. Inventory
+      enrolment + S-store currently gated to `GM_Container`; extend to
+      `GM_Companion` once its pane exists.
 - [ ] **Quick keys menu** (`GM_QuickKeysMenu`)
 - [ ] **Console** (`console.cpp`)
 - [x] **HUD** — accessible HUD (AHUD). H toggles it; pauses the world (via a
@@ -114,5 +125,8 @@ auto-walk, location announcements, and audio beacon (gameplay, not a screen).
 - `ItemSelectionDialog` (the item picker modal) is now accessible — this is the
   same picker used by Alchemy, Enchanting, Recharge, and the quick-keys menu, so
   those screens get the item-choosing half for free.
-- Companion is the same two-pane inventory pattern as barter (`A11y::PaneGroup`),
-  so it should be a quick follow-up.
+- Companion is the same two-pane inventory pattern as barter/container
+  (`A11y::PaneGroup`). The container store work (S key, inventory enrols as pane 1
+  in `GM_Container`) is the template; companion just needs its own accessible
+  pane 0 built first, then to be added to the gating in InventoryWindow::onOpen
+  and the S-key handler.

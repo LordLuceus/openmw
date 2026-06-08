@@ -178,6 +178,23 @@ namespace MWGui
                 A11y::say(a11yEncumbranceValue(), /*interrupt=*/true);
                 return true;
             }
+            // S stores the selected item into the open container (the accessible
+            // counterpart to Alt+clicking it across). Only meaningful while a
+            // container window is open alongside; in plain inventory or barter
+            // there's nowhere to store, so let the key fall through. Shift+S
+            // stores the whole stack; otherwise the count picker opens for a
+            // stack.
+            if (key == MyGUI::KeyCode::S && mGuiMode == GM_Container)
+            {
+                const size_t cur = mA11y.currentIndex();
+                if (mSortModel && cur != A11y::Screen::npos && cur >= mA11yItemBase)
+                {
+                    const int index = static_cast<int>(cur - mA11yItemBase);
+                    if (index < static_cast<int>(mSortModel->getItemCount()))
+                        a11yStoreItem(index, MyGUI::InputManager::getInstance().isShiftPressed());
+                }
+                return true;
+            }
             // In barter, the balance/offer keys are shared with the merchant
             // pane: forward them so the player can read and adjust the running
             // total and submit the offer from the inventory side too.
@@ -601,6 +618,78 @@ namespace MWGui
         }
     }
 
+    void InventoryWindow::a11yStoreItem(int sortIndex, bool wholeStack)
+    {
+        if (!mSortModel || mTradeModel == nullptr)
+            return;
+        if (mGuiMode != GM_Container)
+            return;
+        if (sortIndex < 0 || sortIndex >= static_cast<int>(mSortModel->getItemCount()))
+            return;
+
+        const ItemStack item = mSortModel->getItem(sortIndex);
+        const int sourceIndex = mSortModel->mapToSource(sortIndex);
+
+        // Bound/conjured items can't be transferred out (ItemTransfer::apply
+        // would just message-box and refuse); guard here so we don't follow a
+        // move that never happens.
+        if (item.mFlags & ItemStack::Flag_Bound)
+        {
+            MWBase::Environment::get().getWindowManager()->messageBox("#{sBarterDialog12}");
+            return;
+        }
+
+        mSelectedItem = sourceIndex;
+        const size_t count = item.mCount;
+
+        if (!wholeStack && count > 1)
+        {
+            // Open the accessible count picker; on OK it transfers the chosen
+            // amount into the container/companion. Label "Take" matches the
+            // wording the container side uses for the equivalent picker.
+            std::string name{ item.mBase.getClass().getName(item.mBase) };
+            name += MWGui::ToolTips::getSoulString(item.mBase.getCellRef());
+            CountDialog* dialog = MWBase::Environment::get().getWindowManager()->getCountDialog();
+            dialog->openCountDialog(name, "#{sTake}", static_cast<int>(count));
+            dialog->eventOkClicked.clear();
+            dialog->eventOkClicked += MyGUI::newDelegate(this, &InventoryWindow::onA11yCountStored);
+            return;
+        }
+
+        // Move the whole stack across, then follow the item so the spoken list
+        // and cursor track the remainder (partial) or the row's new occupant
+        // (full move) -- same mechanism as a drop.
+        transferItem(nullptr, count);
+        a11yStartFollowing(item);
+    }
+
+    void InventoryWindow::onA11yCountStored(MyGUI::Widget* sender, std::size_t count)
+    {
+        // Grab the item identity before the transfer mutates the model, then
+        // follow it (or its now-removed row) like onA11yCountDropped does.
+        MWWorld::Ptr stored;
+        if (mTradeModel && mSelectedItem >= 0 && mSelectedItem < static_cast<int>(mTradeModel->getItemCount()))
+            stored = mTradeModel->getItem(mSelectedItem).mBase;
+
+        transferItem(sender, count);
+
+        if (mSortModel && !stored.isEmpty())
+        {
+            for (size_t i = 0; i < mSortModel->getItemCount(); ++i)
+            {
+                const ItemStack stack = mSortModel->getItem(static_cast<int>(i));
+                if (stack.mBase == stored)
+                {
+                    a11yStartFollowing(stack);
+                    return;
+                }
+            }
+            mA11yFollowItem = stored;
+            mA11yFollowTimer = 0.f;
+            mA11yFollowItemTotal = mSortModel->getItemCount() + 1; // was one more before the move
+        }
+    }
+
     void InventoryWindow::a11yRebuildKeepingCursor()
     {
         const size_t cursor = mA11y.currentIndex();
@@ -934,9 +1023,13 @@ namespace MWGui
         // Stats/Spells/Map, so enrol in the PaneGroup (Inventory = pane 1) and
         // let Tab switch between them. In barter mode it's shown next to the
         // merchant's TradeWindow (which enrols itself as pane 0), so enrol here
-        // too -- selling happens in this pane. Container/companion modes are
-        // driven from the other window, so don't enrol there.
-        if (mGuiMode == GM_Inventory || mGuiMode == GM_Barter)
+        // too -- selling happens in this pane. In container mode it's shown next
+        // to the loot window (which enrols itself as pane 0), so enrol here as
+        // well so the player can Tab to their own inventory and store items into
+        // the container with the S key. (Companion mode has no accessible pane on
+        // the other side yet, so it's excluded until that window is made
+        // accessible.)
+        if (mGuiMode == GM_Inventory || mGuiMode == GM_Barter || mGuiMode == GM_Container)
         {
             mA11yLastTradeSig = -1; // force a barter rebuild on the first frame
             buildAccessibility();

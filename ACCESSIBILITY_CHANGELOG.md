@@ -6,6 +6,15 @@ Newest changes are listed first. (OpenMW's own engine changelog lives in
 
 ## 2026-06-08
 
+- **Put items into containers.** While looting a container or corpse you can now
+  reach your own inventory and store items into it -- closing the gap where you
+  could take things out and drop items in the world, but not put them away. Press
+  Tab (or Shift+Tab) to switch between the container's contents and your
+  inventory, just like in barter. In your inventory, press S to store the
+  selected item into the open container; for a stack you'll get the usual count
+  picker (Shift+S stores the whole stack at once). Equipped items are unequipped
+  automatically, and the container refuses anything it can't hold.
+
 - **No clear shot warning for ranged spells.** When you cast a ranged spell like
   Fireball at a locked-on enemy but a wall, pillar, or other obstacle is between
   you and them, you'll now hear "No clear shot" -- the ranged counterpart to the
