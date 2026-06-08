@@ -248,22 +248,43 @@ namespace MWAccessibility
         {
             std::string mName;
             osg::Vec3f mPosition;
+            // True when this waypoint lives in the SAME worldspace as the player
+            // (e.g. both in the Morrowind exterior), so mPosition is directly
+            // comparable to the player's: distance, bearing, and auto-walk are
+            // all meaningful. False for notes in interiors or another worldspace
+            // -- we still list them (so distant towns/dungeons are discoverable)
+            // but speak only a crude area label and refuse auto-walk, since the
+            // raw XY can't be compared across coordinate systems.
+            bool mReachable = true;
+            // A short human-readable location for an unreachable waypoint (the
+            // cell/region name, e.g. "Balmora" or "Ascadian Isles"). Empty for
+            // reachable ones (which announce a real distance/bearing instead).
+            std::string mAreaLabel;
         };
 
-        // --- Waypoints category helpers ----------------------------------
-        // True when the active category is Waypoints (position-based, so the
-        // Ptr-based action paths must defer to the waypoint equivalents).
-        bool isWaypointCategory() const { return mCategory == Category::Waypoints; }
+        // --- Position-based category helpers -----------------------------
+        // Two categories (Waypoints and Locations) navigate bare world
+        // positions rather than world objects, so they share the position-based
+        // AutoWalker / ProximityCue paths and the mWaypoints list. The Ptr-based
+        // action paths must defer to the waypoint equivalents for either.
+        bool isWaypointCategory() const
+        {
+            return mCategory == Category::Waypoints || mCategory == Category::Locations;
+        }
         // Size of the active category's list (objects or waypoints).
         size_t currentListSize() const;
-        // The currently-selected waypoint, or nullptr if none / not in the
-        // Waypoints category.
+        // The currently-selected waypoint, or nullptr if none / not in a
+        // position-based category.
         const Waypoint* currentWaypoint() const;
-        // Gather the player's waypoints (map notes in the current cell plus the
-        // Mark spell location) into \p out, nearest first.
+        // Gather the player's waypoints (all map notes across the world plus the
+        // Mark spell location) into \p out, reachable-first.
         void collectWaypoints(std::vector<Waypoint>& out) const;
+        // Gather discovered global-map locations (visited named cells + NPC-
+        // marked places, one entry per town) into \p out as waypoints, nearest
+        // first. All are reachable exterior positions.
+        void collectLocations(std::vector<Waypoint>& out) const;
         // Announce the currently-selected waypoint (name, distance, bearing,
-        // N of M) -- the waypoint analogue of announceCurrent().
+        // N of M) -- the position-based analogue of announceCurrent().
         void announceCurrentWaypoint();
 
         Category mCategory = Category::Npcs;

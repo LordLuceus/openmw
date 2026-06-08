@@ -13,6 +13,7 @@
 
 #include "../mwgui/mode.hpp"
 
+#include <components/esm/refid.hpp>
 #include <components/sdlutil/events.hpp>
 
 namespace ESM
@@ -157,18 +158,45 @@ namespace MWBase
         virtual bool dropPlayerMapNote(const std::string& text) = 0;
 
         /// Accessibility: a single player map note exposed to the scanner's
-        /// Waypoints category -- its text and world position.
+        /// Waypoints category -- its text, world position, and the cell it was
+        /// dropped in (so the scanner can tell exterior overworld notes, which
+        /// share the player's coordinate system, from interior/other-worldspace
+        /// notes whose XY are not comparable to the player's position).
         struct MapNote
         {
             std::string mText;
             float mWorldX = 0.f;
             float mWorldY = 0.f;
+            ESM::RefId mCell;
         };
 
         /// Accessibility: return the player's map notes (custom markers) that
         /// belong to the cell identified by \p cellId. Used by the scanner to
         /// build the Waypoints category. Delegates to the marker collection.
         virtual std::vector<MapNote> getPlayerMapNotes(const ESM::RefId& cellId) const = 0;
+
+        /// Accessibility: return ALL of the player's map notes across every cell,
+        /// each tagged with its cell id. Used by the scanner to build a global
+        /// Waypoints list so distant notes (other towns, quest dungeons) are
+        /// discoverable, not just those in the current cell.
+        virtual std::vector<MapNote> getAllPlayerMapNotes() const = 0;
+
+        /// Accessibility: a discovered global-map location -- a named exterior
+        /// place the player has visited, or one an NPC marked via ShowMap/
+        /// FillMap. Cells sharing a name (a multi-cell town) are aggregated into
+        /// one entry at the town centre. mWorldX/mWorldY are exterior world
+        /// units in the default worldspace (centre of the cell / town).
+        struct DiscoveredLocation
+        {
+            std::string mName;
+            float mWorldX = 0.f;
+            float mWorldY = 0.f;
+        };
+
+        /// Accessibility: return all discovered global-map locations, aggregated
+        /// one entry per town. Used by the scanner's Locations category so the
+        /// player can track, range, and auto-walk to towns and NPC-marked spots.
+        virtual std::vector<DiscoveredLocation> getDiscoveredLocations() const = 0;
 
         virtual void toggleVisible(MWGui::GuiWindow wnd) = 0;
 

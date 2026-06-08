@@ -1546,9 +1546,27 @@ namespace MWGui
         for (auto it = range.first; it != range.second; ++it)
         {
             const ESM::CustomMarker& marker = it->second;
-            out.push_back({ marker.mNote, marker.mWorldX, marker.mWorldY });
+            out.push_back({ marker.mNote, marker.mWorldX, marker.mWorldY, marker.mCell });
         }
         return out;
+    }
+
+    std::vector<MWBase::WindowManager::MapNote> WindowManager::getAllPlayerMapNotes() const
+    {
+        std::vector<MapNote> out;
+        for (auto it = mCustomMarkers.begin(); it != mCustomMarkers.end(); ++it)
+        {
+            const ESM::CustomMarker& marker = it->second;
+            out.push_back({ marker.mNote, marker.mWorldX, marker.mWorldY, marker.mCell });
+        }
+        return out;
+    }
+
+    std::vector<MWBase::WindowManager::DiscoveredLocation> WindowManager::getDiscoveredLocations() const
+    {
+        if (!mMap)
+            return {};
+        return mMap->getDiscoveredLocations();
     }
 
     void WindowManager::setCullMask(uint32_t mask)

@@ -10,6 +10,8 @@
 
 #include "windowpinnablebase.hpp"
 
+#include "../mwbase/windowmanager.hpp"
+
 #include "accessibility/editfield.hpp"
 #include "accessibility/screen.hpp"
 
@@ -276,6 +278,11 @@ namespace MWGui
         /// adds the marker to the global map
         /// @param name The ESM::Cell::mName
         void addVisitedLocation(const std::string& name, int x, int y);
+
+        /// Accessibility: all discovered global-map locations (visited named
+        /// exterior cells + NPC-marked places), aggregated one entry per town at
+        /// the town centre. Used by the scanner's Locations category.
+        std::vector<MWBase::WindowManager::DiscoveredLocation> getDiscoveredLocations() const;
 
         // reveals this cell's map on the global map
         void cellExplored(int x, int y);

@@ -17,6 +17,8 @@
 
 #include <MyGUI_LanguageManager.h>
 
+#include <components/esm/esm3exteriorcellrefid.hpp>
+#include <components/esm/util.hpp>
 #include <components/misc/constants.hpp>
 #include <components/misc/strings/algorithm.hpp>
 
@@ -167,6 +169,8 @@ namespace
                 return "Detected";
             case MWAccessibility::Category::Waypoints:
                 return "Waypoints";
+            case MWAccessibility::Category::Locations:
+                return "Locations";
             case MWAccessibility::Category::Count:
                 break;
         }
@@ -824,12 +828,20 @@ namespace MWAccessibility
         }
         if (cat == Category::Waypoints)
         {
-            // Available only when the player has at least one waypoint in the
-            // current cell (a dropped map note or a Mark set here), so it's
-            // skipped when cycling otherwise -- just like Detected.
+            // Available only when the player has at least one waypoint anywhere
+            // (a dropped map note or a Mark), so it's skipped when cycling
+            // otherwise -- just like Detected.
             std::vector<Waypoint> wps;
             collectWaypoints(wps);
             return !wps.empty();
+        }
+        if (cat == Category::Locations)
+        {
+            // Available only once the player has discovered at least one named
+            // location on the global map (or an NPC has marked one).
+            std::vector<Waypoint> locs;
+            collectLocations(locs);
+            return !locs.empty();
         }
         return true;
     }
@@ -925,6 +937,13 @@ namespace MWAccessibility
             if (!wp)
             {
                 speak("No target selected.");
+                return;
+            }
+            // An unreachable waypoint (interior / other worldspace) has no
+            // comparable position, so there's no meaningful direction to face.
+            if (!wp->mReachable)
+            {
+                speak(wp->mName + " is in a different area; cannot face it.");
                 return;
             }
             osg::Vec3f d = wp->mPosition - playerPos;
@@ -1425,6 +1444,15 @@ namespace MWAccessibility
             if (!wp)
             {
                 speak("No target selected.");
+                return;
+            }
+            // Can't auto-walk to a waypoint in another worldspace: there's no
+            // continuous navmesh path across a door/teleport, and its raw XY
+            // isn't comparable to ours. Tell the user where it is instead.
+            if (!wp->mReachable)
+            {
+                std::string where = wp->mAreaLabel.empty() ? std::string("a different area") : wp->mAreaLabel;
+                speak(wp->mName + " is in " + where + "; cannot walk there from here.");
                 return;
             }
             if (mAutoWalker.start(wp->mPosition, wp->mName))
@@ -2063,6 +2091,14 @@ namespace MWAccessibility
             return;
         }
 
+        // The Locations category is likewise position-based: discovered global-
+        // map places (visited towns + NPC-marked spots), one entry per town.
+        if (mCategory == Category::Locations)
+        {
+            collectLocations(state.mWaypoints);
+            return;
+        }
+
         // The Detected category doesn't scan loaded cells: its membership is
         // whatever the player's active Detect Creature/Key/Enchantment effects
         // currently reveal (which can be outside the loaded grid). Build it from
@@ -2423,52 +2459,152 @@ namespace MWAccessibility
         if (!cellStore || !cellStore->getCell())
             return;
 
-        // Player map notes live in the same cell-keyed collection the map
-        // window draws. Scope to the player's current cell so distances and
-        // auto-walk stay meaningful (you can't path across a cell you're not
-        // in). The cell id is derived the same way a dropped note's is.
         const MWWorld::Cell* cell = cellStore->getCell();
         const osg::Vec3f playerPos = player.getRefData().getPosition().asVec3();
 
-        ESM::RefId cellId;
-        if (cell->isExterior())
-        {
-            const int cellX = static_cast<int>(std::floor(playerPos.x() / Constants::CellSizeInUnits));
-            const int cellY = static_cast<int>(std::floor(playerPos.y() / Constants::CellSizeInUnits));
-            cellId = ESM::Cell::generateIdForCell(true, {}, cellX, cellY);
-        }
-        else
-            cellId = cell->getId();
+        // The player's worldspace decides which notes share a comparable
+        // coordinate system. A note is "reachable" (real distance/bearing,
+        // auto-walkable) only when it's in the SAME worldspace the player is
+        // currently standing in -- whether that's the outdoor overworld or one
+        // specific interior. Notes in any other worldspace are listed but
+        // flagged unreachable with a crude area label, since their XY can't be
+        // compared to the player's across coordinate systems.
+        const ESM::RefId playerWorldspace = cell->getWorldSpace();
 
-        const auto notes = MWBase::Environment::get().getWindowManager()->getPlayerMapNotes(cellId);
+        // Resolve a short location name for an unreachable note from its cell id:
+        // an interior cell id is a string (the cell name); an exterior note maps
+        // to a cell whose name/region we can look up. Failing that, fall back to
+        // the raw id string so the user still gets *something*.
+        auto areaLabelFor = [world](const ESM::RefId& noteCell) -> std::string {
+            if (const auto* ext = noteCell.getIf<ESM::ESM3ExteriorCellRefId>())
+            {
+                const ESM::ExteriorCellLocation loc(ext->getX(), ext->getY(), ESM::Cell::sDefaultWorldspaceId);
+                try
+                {
+                    const MWWorld::CellStore& store
+                        = MWBase::Environment::get().getWorldModel()->getExterior(loc, /*forceLoad=*/false);
+                    const std::string_view name = world->getCellName(&store);
+                    if (!name.empty())
+                        return std::string(name);
+                }
+                catch (const std::exception&)
+                {
+                }
+                return std::string("Wilderness");
+            }
+            // Interior: the cell id IS the cell name.
+            return noteCell.toString();
+        };
+
+        // ALL map notes across every cell -- distant towns and quest dungeons
+        // should be discoverable, not just notes in the cell you're standing in.
+        const auto notes = MWBase::Environment::get().getWindowManager()->getAllPlayerMapNotes();
         for (const auto& note : notes)
         {
-            // Map notes only carry an XY world position; use the player's Z as a
-            // reasonable height for bearing/240 audio (they're on the same floor
-            // in practice, and the pathfinder snaps to navmesh height anyway).
             Waypoint wp;
             wp.mName = note.mText.empty() ? std::string("Note") : note.mText;
-            wp.mPosition = osg::Vec3f(note.mWorldX, note.mWorldY, playerPos.z());
+
+            // A note is reachable when it lives in the SAME worldspace as the
+            // player (same coordinate system, continuous navmesh). A note's
+            // worldspace is the default overworld if it's an exterior note
+            // (exterior cell ids carry x/y grid coords, so getIf() succeeds),
+            // otherwise the note's own interior cell id IS its worldspace.
+            // NB: this must NOT require the player to be outdoors -- a note
+            // dropped in the very interior you're standing in is reachable, even
+            // though both you and it are indoors (the earlier "playerInExterior"
+            // guard wrongly flagged such a note as "different area").
+            const bool noteIsExterior = note.mCell.getIf<ESM::ESM3ExteriorCellRefId>() != nullptr;
+            const bool reachable = noteIsExterior ? (playerWorldspace == ESM::Cell::sDefaultWorldspaceId)
+                                                  : (playerWorldspace == note.mCell);
+
+            wp.mReachable = reachable;
+            if (reachable)
+            {
+                // Map notes only carry an XY world position; use the player's Z
+                // as a reasonable height for bearing/240 audio (same floor in
+                // practice, and the pathfinder snaps to navmesh height anyway).
+                wp.mPosition = osg::Vec3f(note.mWorldX, note.mWorldY, playerPos.z());
+            }
+            else
+            {
+                // Keep the raw position for completeness, but it won't be used
+                // for bearing/auto-walk; supply a crude area label instead.
+                wp.mPosition = osg::Vec3f(note.mWorldX, note.mWorldY, playerPos.z());
+                wp.mAreaLabel = areaLabelFor(note.mCell);
+            }
             out.push_back(std::move(wp));
         }
 
-        // The Mark spell location, but only when it's in the player's current
-        // cell (a single global location; including a cross-cell mark would give
-        // a misleading bearing and an unreachable auto-walk target).
+        // The Mark spell location: a single global position. Reachable only when
+        // it's in the player's current worldspace (an exterior mark while the
+        // player is outdoors, or an interior mark in the very cell the player is
+        // standing in); otherwise list it with the cell name and no bearing.
         MWWorld::CellStore* markedCell = nullptr;
         ESM::Position markedPos;
         world->getPlayer().getMarkedPosition(markedCell, markedPos);
-        if (markedCell && markedCell == cellStore)
+        if (markedCell && markedCell->getCell())
         {
             Waypoint wp;
             wp.mName = "Mark";
             wp.mPosition = markedPos.asVec3();
+            const bool markReachable = markedCell->getCell()->getWorldSpace() == playerWorldspace;
+            wp.mReachable = markReachable;
+            if (!markReachable)
+                wp.mAreaLabel = std::string(world->getCellName(markedCell));
             out.push_back(std::move(wp));
         }
 
-        // Nearest first, matching the object categories' distance sort.
+        // Reachable waypoints first (nearest-first within that group, matching
+        // the object categories' distance sort); unreachable ones after, by
+        // name, since distance is meaningless for them.
         std::sort(out.begin(), out.end(), [&playerPos](const Waypoint& a, const Waypoint& b) {
-            return (a.mPosition - playerPos).length2() < (b.mPosition - playerPos).length2();
+            if (a.mReachable != b.mReachable)
+                return a.mReachable; // reachable sorts before unreachable
+            if (a.mReachable)
+                return (a.mPosition - playerPos).length2() < (b.mPosition - playerPos).length2();
+            return a.mName < b.mName;
+        });
+    }
+
+    void Scanner::collectLocations(std::vector<Waypoint>& out) const
+    {
+        MWBase::World* world = MWBase::Environment::get().getWorld();
+        const MWWorld::Ptr player = world->getPlayerPtr();
+        if (player.isEmpty())
+            return;
+        const MWWorld::CellStore* cellStore = player.getCell();
+        if (!cellStore || !cellStore->getCell())
+            return;
+        const osg::Vec3f playerPos = player.getRefData().getPosition().asVec3();
+
+        // Discovered locations are all exterior places in the default
+        // (overworld) worldspace. They're "reachable" -- real bearing/distance,
+        // auto-walkable -- only while the player is themselves out in that
+        // worldspace. From inside an interior they're still listed (so you can
+        // see what you've found) but, like a cross-worldspace waypoint, with no
+        // bearing: their XY isn't comparable to an interior position.
+        const bool reachable = cellStore->getCell()->getWorldSpace() == ESM::Cell::sDefaultWorldspaceId;
+
+        const auto locations = MWBase::Environment::get().getWindowManager()->getDiscoveredLocations();
+        for (const auto& loc : locations)
+        {
+            Waypoint wp;
+            wp.mName = loc.mName;
+            // Use the player's Z for bearing/elevation audio; the pathfinder
+            // snaps to navmesh height once we actually walk there.
+            wp.mPosition = osg::Vec3f(loc.mWorldX, loc.mWorldY, playerPos.z());
+            wp.mReachable = reachable;
+            if (!reachable)
+                wp.mAreaLabel = "on the map";
+            out.push_back(std::move(wp));
+        }
+
+        // Nearest-first when reachable; otherwise alphabetical (distance is
+        // meaningless from a different worldspace).
+        std::sort(out.begin(), out.end(), [&playerPos, reachable](const Waypoint& a, const Waypoint& b) {
+            if (reachable)
+                return (a.mPosition - playerPos).length2() < (b.mPosition - playerPos).length2();
+            return a.mName < b.mName;
         });
     }
 
@@ -2478,6 +2614,23 @@ namespace MWAccessibility
         if (!wp)
             return;
 
+        const auto& state = mLists[static_cast<size_t>(mCategory)];
+        const std::string position
+            = std::to_string(state.mIndex + 1) + " of " + std::to_string(state.mWaypoints.size()) + ".";
+
+        // Unreachable waypoints (interiors, other worldspaces) have no comparable
+        // position, so don't fabricate a distance/bearing -- just name the note
+        // and its area so the user knows it exists and roughly where.
+        if (!wp->mReachable)
+        {
+            std::string msg = wp->mName + ". ";
+            if (!wp->mAreaLabel.empty())
+                msg += wp->mAreaLabel + ", ";
+            msg += "different area. " + position;
+            speak(msg);
+            return;
+        }
+
         MWBase::World* world = MWBase::Environment::get().getWorld();
         MWWorld::Ptr player = world->getPlayerPtr();
         osg::Vec3f playerPos = player.getRefData().getPosition().asVec3();
@@ -2485,13 +2638,11 @@ namespace MWAccessibility
         float dist = delta.length();
         float targetYaw = std::atan2(delta.x(), delta.y());
 
-        const auto& state = mLists[static_cast<size_t>(mCategory)];
         std::string elevation = formatElevation(delta.z());
         std::string msg = wp->mName + ". " + formatDistance(dist)
             + ", " + compassLabel(targetYaw) + ". "
             + (elevation.empty() ? "" : elevation + ". ")
-            + std::to_string(state.mIndex + 1) + " of "
-            + std::to_string(state.mWaypoints.size()) + ".";
+            + position;
         speak(msg);
     }
 
@@ -2510,7 +2661,10 @@ namespace MWAccessibility
         }
         if (isWaypointCategory())
         {
-            if (const Waypoint* wp = currentWaypoint())
+            // Only beacon toward reachable waypoints; an unreachable one (another
+            // worldspace) would point the cue at a position in a different
+            // coordinate system, giving a nonsensical direction.
+            if (const Waypoint* wp = currentWaypoint(); wp && wp->mReachable)
                 mProximityCue.setTarget(wp->mPosition);
             else
                 mProximityCue.stop();

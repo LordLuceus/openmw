@@ -75,6 +75,17 @@ namespace
     constexpr float kRecoveryDuration = 0.6f; // seconds per wiggle
     constexpr int kMaxRecoveryAttempts = 3;
 
+    // Progressive (cross-cell) mode. A target farther than this from the player
+    // is assumed to be off the loaded navmesh, so we use the carrot approach
+    // (raycast toward it) rather than expecting a direct path. Roughly one cell
+    // (8192 units); within that the normal navmesh snap/path handles it.
+    constexpr float kProgressiveDistance = 7000.0f;
+
+    // How often (seconds) to announce remaining distance on a long progressive
+    // walk, and the minimum improvement that makes a callout worth speaking.
+    constexpr float kCalloutInterval = 25.0f;
+    constexpr float kCalloutMinProgress = 200.0f;
+
     DetourNavigator::Flags playerNavigatorFlags()
     {
         // The player is treated as a walker that can swim and open
@@ -193,6 +204,9 @@ namespace MWAccessibility
         mRecoveryTimer = 0.0f;
         mRecoveryAttempts = 0;
         mRecoveryDir = 1.0f;
+        mProgressive = false;
+        mTimeSinceCallout = 0.0f;
+        mLastCalloutDist = std::numeric_limits<float>::max();
     }
 
     void AutoWalker::cancel()
@@ -238,6 +252,45 @@ namespace MWAccessibility
         DetourNavigator::AgentBounds bounds = world->getPathfindingAgentBounds(player);
         DetourNavigator::Flags flags = playerNavigatorFlags();
         DetourNavigator::AreaCosts costs = defaultAreaCosts();
+        DetourNavigator::Navigator* navigator = world->getNavigator();
+
+        // PROGRESSIVE (cross-cell) mode. Only a 3x3 cell grid is loaded around
+        // the player, so a target farther than ~one cell is off the navmesh and
+        // can't be pathed to directly. Rather than blindly bee-lining into
+        // whatever scenery lies between (the old straight-line fallback), steer
+        // toward a "carrot": the farthest walkable navmesh point along the
+        // straight line to the target (raycast). Each re-path advances the
+        // carrot as new cells stream in, so we cross open terrain cell by cell.
+        // We only do this once we're sure the target really is beyond the mesh
+        // (a near target keeps the precise snap-and-path behaviour below).
+        const float horizToTarget = std::sqrt(
+            (rawEnd.x() - start.x()) * (rawEnd.x() - start.x()) + (rawEnd.y() - start.y()) * (rawEnd.y() - start.y()));
+        mProgressive = false;
+        if (navigator && horizToTarget > kProgressiveDistance)
+        {
+            const std::optional<osg::Vec3f> carrot
+                = DetourNavigator::raycast(*navigator, bounds, start, rawEnd, flags);
+            // Use the carrot only if it actually advances us a worthwhile
+            // distance toward the goal; a carrot right on top of the player
+            // means a wall is immediately in the way, so let the no-progress
+            // backstop handle it via the normal (non-progressive) path below.
+            if (carrot.has_value())
+            {
+                const float carrotHoriz = std::sqrt((carrot->x() - start.x()) * (carrot->x() - start.x())
+                    + (carrot->y() - start.y()) * (carrot->y() - start.y()));
+                if (carrotHoriz > kArrivalDistance * 2.0f)
+                {
+                    mProgressive = true;
+                    mEffectiveTarget = *carrot;
+                    mPathFinder.clearPath();
+                    mPathFinder.buildPath(player, start, *carrot, MWMechanics::PathgridGraph::sEmpty, bounds, flags,
+                        costs, /*endTolerance=*/kArrivalDistance, MWMechanics::PathType::Partial);
+                    if (!mPathFinder.isPathConstructed())
+                        mPathFinder.buildStraightPath(*carrot);
+                    return mPathFinder.isPathConstructed();
+                }
+            }
+        }
 
         // Snap the destination to the nearest walkable navmesh point. Many
         // targets (doors flush against walls, levers, items on tables) sit just
@@ -248,7 +301,7 @@ namespace MWAccessibility
         // rely on the pathgrid), keep the raw position.
         osg::Vec3f end = rawEnd;
         bool snappedOk = false;
-        if (DetourNavigator::Navigator* navigator = world->getNavigator())
+        if (navigator)
         {
             const osg::Vec3f searchHalfExtents(kNavMeshSnapRadius, kNavMeshSnapRadius, kNavMeshSnapRadius);
             const std::optional<osg::Vec3f> snapped = DetourNavigator::findNearestNavMeshPosition(
@@ -343,12 +396,40 @@ namespace MWAccessibility
             arrivalDist = std::max(kArrivalDistance, playerR + targetR + kBodyMargin);
         }
 
-        const float horizDist = std::min(horizDistTo(targetPos), horizDistTo(mEffectiveTarget));
+        // In progressive (cross-cell) mode mEffectiveTarget is a transient
+        // carrot, not the goal, so arrival must be judged against the true
+        // target only -- otherwise reaching the carrot would falsely announce
+        // "arrived". In normal mode we accept arrival at either the true target
+        // or its snapped navmesh proxy (a door embedded in a wall).
+        const float horizDist
+            = mProgressive ? horizDistTo(targetPos) : std::min(horizDistTo(targetPos), horizDistTo(mEffectiveTarget));
         if (horizDist <= arrivalDist)
         {
             speakQueued("Arrived at " + mTargetName + ".");
             cancel();
             return;
+        }
+
+        // Periodic progress callout on a long progressive walk: every so often,
+        // if we've actually closed distance since the last callout, announce
+        // how far remains so the user can judge progress (and cancel if it's
+        // heading the wrong way). Suppressed when not progressing, so it never
+        // spams while stuck.
+        if (mProgressive)
+        {
+            mTimeSinceCallout += dt;
+            if (mTimeSinceCallout >= kCalloutInterval)
+            {
+                mTimeSinceCallout = 0.0f;
+                if (mLastCalloutDist - horizDist >= kCalloutMinProgress)
+                {
+                    const float metres = horizDist / 69.99f;
+                    char buf[96];
+                    std::snprintf(buf, sizeof(buf), "%.0f metres to %s.", metres, mTargetName.c_str());
+                    speakQueued(buf);
+                    mLastCalloutDist = horizDist;
+                }
+            }
         }
 
         // --- Stuck detection -------------------------------------------------
@@ -391,7 +472,12 @@ namespace MWAccessibility
         // Backstop: moving but never getting closer for a long time -> give up.
         if (mTimeSinceProgress >= kNoProgressTimeout)
         {
-            if (mFinalApproach)
+            // On the final approach or a long progressive walk that's run out of
+            // walkable ground (a mountain/bay blocks the straight bearing), give
+            // the honest "stopped short, use the beacon" report rather than a
+            // bare "stuck" -- the target is simply not reachable on foot from
+            // here, which is exactly what the beacon hint is for.
+            if (mFinalApproach || mProgressive)
                 announceStoppedShort(player, targetPos, horizDistTo(targetPos));
             else
                 speakQueued("Stuck. Cannot reach " + mTargetName + ".");
@@ -406,11 +492,12 @@ namespace MWAccessibility
         {
             if (mRecoveryAttempts >= kMaxRecoveryAttempts)
             {
-                // If we wedged during the final straight-line approach, the
-                // target is genuinely unreachable on foot (e.g. up a level the
-                // navmesh doesn't model): face it and give the honest
-                // stopped-short report rather than a bare "stuck".
-                if (mFinalApproach)
+                // If we wedged during the final straight-line approach or a long
+                // progressive walk, the target is genuinely unreachable on foot
+                // from here (e.g. up a level the navmesh doesn't model, or across
+                // terrain the straight bearing can't cross): face it and give the
+                // honest stopped-short report rather than a bare "stuck".
+                if (mFinalApproach || mProgressive)
                 {
                     announceStoppedShort(player, targetPos, horizDistTo(targetPos));
                 }
@@ -496,6 +583,25 @@ namespace MWAccessibility
         // the honest remaining distance instead of a false arrival.
         if (mPathFinder.checkPathCompleted())
         {
+            // Progressive mode: completing the path just means we reached the
+            // current carrot, not the goal. Push the carrot further (a re-path
+            // will raycast again from our new position, and by now more cells
+            // have streamed in). If the target has finally come within reach,
+            // rebuildPath() will drop out of progressive mode on its own and the
+            // arrival checks above will fire next frame. Only give up if even a
+            // fresh path can't be built at all.
+            if (mProgressive)
+            {
+                mTimeSinceRepath = 0.0f;
+                if (!rebuildPath())
+                {
+                    announceStoppedShort(player, targetPos, horizDistTo(targetPos));
+                    cancel();
+                    return;
+                }
+                return;
+            }
+
             const float reachDist = world->getMaxActivationDistance();
             const float trueDist = horizDistTo(targetPos);
             if (trueDist <= reachDist)

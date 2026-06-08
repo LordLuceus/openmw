@@ -6,6 +6,33 @@ Newest changes are listed first. (OpenMW's own engine changelog lives in
 
 ## 2026-06-08
 
+- **Discovered locations in the scanner.** The scanner has a new "Locations"
+  category listing the named places you've found on the world map -- towns you've
+  visited and anywhere an NPC has marked for you ("I've marked it on your map").
+  Each town is one entry (its sub-cells are merged to the town centre), and like
+  waypoints you can range them, hear the bearing, and auto-walk to them. While
+  you're outdoors they give a real distance and direction; from inside a building
+  they're listed as "on the map" with no bearing (the coordinates aren't
+  comparable indoors). The category is hidden until you've discovered at least
+  one place. This fills the gap where our map pane only ever exposed your own
+  custom notes, never the game's own visited/marked locations.
+
+- **Global waypoint list + long-distance auto-walk.** The scanner's Waypoints
+  category now lists ALL your map notes and your Mark across the whole world, not
+  just the ones in the cell you're standing in -- so distant towns and quest
+  dungeons are discoverable. Notes in the same area as you (the outdoor world if
+  you're outside, or the specific interior you're currently in) announce a real
+  distance and bearing and can be auto-walked to; notes in another area (other
+  buildings, dungeons, other worldspaces) are still listed with their location
+  name (e.g. "Balmora, different area") so you know they exist, but have no
+  bearing and can't be walked to, since there's no continuous path across a door.
+  Auto-walk can now cross open country cell by cell: when a reachable waypoint is
+  far away, it steers toward the farthest walkable point along the route and
+  keeps extending as new terrain loads, calling out the remaining distance every
+  so often. If the land genuinely blocks the way (a mountain or bay), it stops
+  and tells you how far short it got and suggests the audio beacon, rather than
+  blindly walking you into the scenery.
+
 - **Put items into containers.** While looting a container or corpse you can now
   reach your own inventory and store items into it -- closing the gap where you
   could take things out and drop items in the world, but not put them away. Press

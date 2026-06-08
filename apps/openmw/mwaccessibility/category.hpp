@@ -26,6 +26,14 @@ namespace MWAccessibility
         // cycling while empty (no notes in the current cell and no Mark set).
         Waypoints,
 
+        // Discovered global-map locations: named exterior places the player has
+        // visited, plus any an NPC marked via ShowMap/FillMap, aggregated one
+        // entry per town. Like Waypoints these are bare world positions (not
+        // objects), so they share the same position-based AutoWalker /
+        // ProximityCue paths. Skipped when cycling while empty (nothing
+        // discovered yet).
+        Locations,
+
         Count
     };
 }

@@ -58,6 +58,41 @@ auto-walk, location announcements, and audio beacon (gameplay, not a screen).
 - [ ] **Death screen** — bespoke yes/no dialogue (differs from the usual one)
 - [ ] **Scripts tab** in options — within the otherwise-accessible settings window
 
+### Open-world navigation
+- [x] **Global waypoint list** — Scanner Waypoints category lists ALL map notes +
+      Mark across the world (via `getAllPlayerMapNotes`), not just the current
+      cell. A note is "reachable" (real distance/bearing, auto-walkable) when its
+      worldspace matches the player's CURRENT worldspace -- the overworld if
+      outside, or the specific interior you're in. Other-worldspace notes are
+      listed with a crude area label, no bearing, auto-walk/beacon refused (XY not
+      comparable across coordinate systems). Reachability: a note's worldspace is
+      `sDefaultWorldspaceId` if `note.mCell.getIf<ESM3ExteriorCellRefId>()` is set,
+      else `note.mCell` itself; compare to `player.getCell()->getWorldSpace()`.
+      (Do NOT gate on the player being outdoors -- that wrongly excluded a note in
+      the very interior you're standing in.)
+- [x] **Progressive (cross-cell) auto-walk** — for a far reachable target,
+      AutoWalker steers toward a "carrot" (`DetourNavigator::raycast` finds the
+      farthest walkable navmesh point along the bearing) and re-paths each second
+      so the carrot advances as cells stream in. Crosses open same-worldspace
+      terrain cell by cell. Periodic distance callouts; honest "stopped short, use
+      the beacon" when terrain truly blocks the straight bearing.
+- [x] **Discovered locations ("Locations" category)** — new scanner category
+      listing global-map places (visited named exterior cells + NPC `ShowMap`/
+      `FillMap` marks), aggregated one entry per town at the barycentre. Source:
+      `WindowManager::getDiscoveredLocations()` → `MapWindow::getDiscoveredLocations()`
+      which aggregates `MapWindow::mMarkers` (the authoritative discovered-cell
+      set) by `ESM::Cell::mName` before any comma. Reuses the position-based
+      Waypoint/AutoWalker/ProximityCue machinery (isWaypointCategory() now covers
+      both Waypoints and Locations). Reachable only while the player is in the
+      default exterior worldspace; listed as "on the map" (no bearing) indoors.
+- [ ] **Door-to-door / interior routing** — the hard remaining piece. Auto-walk
+      can't cross a door (interiors are separate worldspaces with disjoint
+      navmesh/coords). A real "guide me to that dungeon/shop" needs a higher-level
+      route graph: walk to the exterior door marker, announce arrival, player
+      activates it (teleport), then resume pathing inside. Would also let interior
+      waypoints become reachable. Significant: needs door-marker discovery and a
+      multi-leg walk state machine that survives worldspace changes.
+
 ### Targeting / combat (lock-on backbone landed)
 - [x] **Lock-on targeting** — press K to lock the scanner selection; player is
       re-aimed (yaw + pitch, eye-to-centre) every frame so melee/spells/tools
@@ -125,6 +160,16 @@ auto-walk, location announcements, and audio beacon (gameplay, not a screen).
 - `ItemSelectionDialog` (the item picker modal) is now accessible — this is the
   same picker used by Alchemy, Enchanting, Recharge, and the quick-keys menu, so
   those screens get the item-choosing half for free.
+- Navigation hard limits (why cross-map auto-walk can't "just work"): only a 3x3
+  cell grid is loaded around the player (`Constants::CellGridRadius = 1`), and the
+  Detour navmesh exists ONLY for loaded cells. So you can't path to anything more
+  than ~1 cell away directly — hence the carrot/raycast progressive approach,
+  which only extends as the player physically moves and new cells stream in.
+  Doors/interiors are separate worldspaces (disjoint navmesh + coordinate
+  systems), so continuous pathing across them is impossible; that's the
+  door-to-door routing TODO above. `findPath` returns `EndPolygonNotFound` when
+  the destination isn't near loaded navmesh — the trigger for the straight-line
+  fallback we replaced with the carrot.
 - Companion is the same two-pane inventory pattern as barter/container
   (`A11y::PaneGroup`). The container store work (S key, inventory enrols as pane 1
   in `GM_Container`) is the template; companion just needs its own accessible

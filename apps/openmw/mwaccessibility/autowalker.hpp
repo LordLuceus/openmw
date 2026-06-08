@@ -125,6 +125,28 @@ namespace MWAccessibility
         // short). Guards against re-entering final approach repeatedly and
         // against the periodic re-path clobbering the straight line.
         bool mFinalApproach = false;
+
+        // PROGRESSIVE (cross-cell) mode. When the requested target lies beyond
+        // the loaded navmesh (only a 3x3 cell grid is ever loaded around the
+        // player), we can't path to it directly. Instead we steer toward a
+        // "carrot": the farthest walkable navmesh point along the straight line
+        // toward the target (DetourNavigator::raycast). As the player advances
+        // and new cells stream in, each re-path pushes the carrot further, so
+        // we cross open same-worldspace terrain cell by cell until the true
+        // target finally comes within the loaded mesh and normal pathing/arrival
+        // takes over. In this mode mEffectiveTarget is the (transient) carrot,
+        // NOT an arrival proxy, so arrival is judged only against the true
+        // target. If the carrot can't advance (a wall/mountain truly blocks the
+        // straight bearing), the no-progress backstop stops us with an honest
+        // "stopped short" report. Set/cleared each rebuildPath().
+        bool mProgressive = false;
+
+        // Periodic progress callouts on long walks. mTimeSinceCallout counts up
+        // to kCalloutInterval; mLastCalloutDist is the true-target distance at
+        // the previous callout, so we only speak when we've actually gotten
+        // closer (never spam a distance while stuck).
+        float mTimeSinceCallout = 0.0f;
+        float mLastCalloutDist = std::numeric_limits<float>::max();
     };
 }
 

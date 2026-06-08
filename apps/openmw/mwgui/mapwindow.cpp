@@ -1341,6 +1341,50 @@ namespace MWGui
         }
     }
 
+    std::vector<MWBase::WindowManager::DiscoveredLocation> MapWindow::getDiscoveredLocations() const
+    {
+        // Aggregate the discovered exterior cells (mMarkers) by their display
+        // name, mirroring the visual global map: a multi-cell town like Balmora
+        // collapses to a single entry at the average (barycentre) of its cells'
+        // centres. We key on the name BEFORE any comma (e.g. "Balmora" from
+        // "Balmora, Fred's House"), exactly as addVisitedLocation does, so all
+        // of a town's named sub-cells fold together.
+        struct Accum
+        {
+            osg::Vec2f sum{ 0.f, 0.f };
+            int count = 0;
+        };
+        std::map<std::string, Accum> byName;
+
+        const auto& cellStore = MWBase::Environment::get().getESMStore()->get<ESM::Cell>();
+        for (const CellId& cellId : mMarkers)
+        {
+            const ESM::Cell* cell = cellStore.search(cellId.first, cellId.second);
+            if (!cell || cell->mName.empty())
+                continue;
+            std::string name = cell->mName.substr(0, cell->mName.find(','));
+            if (name.empty())
+                continue;
+            // Centre of this cell in exterior world units.
+            const osg::Vec2f centre((cellId.first + 0.5f) * Constants::CellSizeInUnits,
+                (cellId.second + 0.5f) * Constants::CellSizeInUnits);
+            Accum& a = byName[name];
+            a.sum += centre;
+            ++a.count;
+        }
+
+        std::vector<MWBase::WindowManager::DiscoveredLocation> out;
+        out.reserve(byName.size());
+        for (const auto& [name, a] : byName)
+        {
+            if (a.count == 0)
+                continue;
+            const osg::Vec2f centre = a.sum / static_cast<float>(a.count);
+            out.push_back({ name, centre.x(), centre.y() });
+        }
+        return out;
+    }
+
     void MapWindow::cellExplored(int x, int y)
     {
         mGlobalMapRender->cleanupCameras();

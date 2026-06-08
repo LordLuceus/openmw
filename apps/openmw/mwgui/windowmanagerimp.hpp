@@ -173,6 +173,8 @@ namespace MWGui
         void openWaypointNote() override;
         bool dropPlayerMapNote(const std::string& text) override;
         std::vector<MapNote> getPlayerMapNotes(const ESM::RefId& cellId) const override;
+        std::vector<MapNote> getAllPlayerMapNotes() const override;
+        std::vector<DiscoveredLocation> getDiscoveredLocations() const override;
 
         void toggleVisible(GuiWindow wnd) override;
 
