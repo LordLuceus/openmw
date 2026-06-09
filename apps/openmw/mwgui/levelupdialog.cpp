@@ -27,6 +27,8 @@
 
 #include "class.hpp"
 
+#include "accessibility/speech.hpp"
+
 namespace
 {
     constexpr unsigned int sMaxCoins = 3;
@@ -90,6 +92,13 @@ namespace MWGui
             image->setImageTexture("icons\\tx_goldicon.dds");
             mCoins.push_back(image);
         }
+
+        // Screen-reader setup: invisible anchor holds key focus; the attribute
+        // options and OK button are rebuilt by buildAccessibility() each onOpen().
+        mA11yAnchor = mMainWidget->createWidget<MyGUI::Widget>(
+            {}, MyGUI::IntCoord(0, 0, 1, 1), MyGUI::Align::Default);
+        mA11yAnchor->setNeedKeyFocus(true);
+        mA11y.setVirtualFocus(mA11yAnchor);
 
         if (Settings::gui().mControllerMenus)
         {
@@ -236,6 +245,141 @@ namespace MWGui
 
         // Play LevelUp Music
         MWBase::Environment::get().getSoundManager()->streamMusic(MWSound::triumphMusic, MWSound::MusicType::Normal);
+
+        // Screen reader: announce the new level and its flavour text, then build
+        // the attribute option list and take input. The player arrows through the
+        // attributes (each spoken with its value and pending level-up bonus),
+        // presses Enter to pick/unpick one, then activates OK to confirm.
+        buildAccessibility();
+        // A11y::say resolves the #{...} tag; build the string with it intact.
+        std::string intro = "#{sLevelUpMenu1} " + MyGUI::utility::toString(level);
+        if (!levelupdescription.empty())
+        {
+            intro += ". " + std::string(levelupdescription);
+            // The flavour text usually already ends in a period; don't double it.
+            if (intro.back() != '.')
+                intro += '.';
+        }
+        else
+            intro += '.';
+        // The coins (number of attributes you may raise) are image boxes with no
+        // native text, so the count is invisible to a screen reader -- state it
+        // explicitly, since it gates how many attributes you can pick.
+        intro += ' ' + std::to_string(mCoinCount)
+            + (mCoinCount == 1 ? " attribute to increase." : " attributes to increase.");
+        A11y::say(intro);
+        mA11y.activate();
+    }
+
+    void LevelupDialog::onClose()
+    {
+        mA11y.deactivate();
+    }
+
+    void LevelupDialog::onFrame(float dt)
+    {
+        mA11y.onFrame(dt);
+    }
+
+    std::string LevelupDialog::attributeOptionText(ESM::Attribute::AttributeID id) const
+    {
+        MWWorld::Ptr player = MWBase::Environment::get().getWorld()->getPlayerPtr();
+        const MWMechanics::CreatureStats& creatureStats = player.getClass().getCreatureStats(player);
+        const MWMechanics::NpcStats& pcStats = player.getClass().getNpcStats(player);
+
+        const auto* attribute = MWBase::Environment::get().getESMStore()->get<ESM::Attribute>().search(id);
+        const std::string name = attribute ? attribute->mName : std::string();
+        const int base = static_cast<int>(creatureStats.getAttribute(id).getBase());
+
+        std::string text = name + ": " + MyGUI::utility::toString(base);
+
+        const bool chosen
+            = std::find(mSpentAttributes.begin(), mSpentAttributes.end(), id) != mSpentAttributes.end();
+        if (base >= 100)
+        {
+            text += ", maxed";
+            return text;
+        }
+
+        int mult = pcStats.getLevelupAttributeMultiplier(id);
+        mult = std::min(mult, 100 - base);
+        // "+N if chosen" tells the player how much this attribute would gain (the
+        // visual xN multiplier badge); once chosen, report it as selected.
+        if (chosen)
+            text += ", selected, +" + MyGUI::utility::toString(mult);
+        else
+            text += ", +" + MyGUI::utility::toString(mult) + " if chosen";
+        return text;
+    }
+
+    void LevelupDialog::buildAccessibility()
+    {
+        mA11y.clear();
+
+        // One option per attribute, in the same order the buttons were created.
+        // Enter toggles whether the attribute is picked (routes through the same
+        // onAttributeClicked used by the mouse, so coin limits + value updates
+        // stay consistent), and the option re-describes itself so the spoken
+        // "+N if chosen" / "selected" state always reflects the live pick. The
+        // native attribute tooltip (name + description) is offered on T.
+        const auto& store = MWBase::Environment::get().getESMStore()->get<ESM::Attribute>();
+        for (const ESM::Attribute& attribute : store)
+        {
+            const auto id = attribute.mId;
+            auto it = mAttributeWidgets.find(id);
+            if (it == mAttributeWidgets.end())
+                continue;
+            MyGUI::Button* button = it->second.mButton;
+
+            const std::string name = attribute.mName;
+            const std::string description = attribute.mDescription;
+
+            mA11y.add({ .widget = button,
+                .describe = [this, id] { return attributeOptionText(id); },
+                .tooltips =
+                    [name, description] {
+                        std::string line = name;
+                        if (!description.empty())
+                            line += ". " + description;
+                        return std::vector<std::string>{ line };
+                    },
+                .activate = [this, button, id] { onAttributeToggled(button, id); } });
+        }
+
+        mA11y.add({ .widget = mOkButton, .label = "#{sOK}",
+            .activate = [this] { onOkButtonClicked(mOkButton); } });
+    }
+
+    void LevelupDialog::onAttributeToggled(MyGUI::Widget* button, ESM::Attribute::AttributeID id)
+    {
+        // Mirror onAttributeClicked's decision so we can describe the outcome.
+        // When already at the coin limit, picking a NEW attribute silently
+        // replaces the last-selected one (mSpentAttributes[mCoinCount-1]); that
+        // displacement is invisible to a screen-reader user, so name it.
+        const bool wasChosen
+            = std::find(mSpentAttributes.begin(), mSpentAttributes.end(), id) != mSpentAttributes.end();
+        const bool atLimit = mSpentAttributes.size() == mCoinCount;
+        ESM::Attribute::AttributeID bumped{};
+        const bool willBump = !wasChosen && atLimit && mCoinCount > 0;
+        if (willBump)
+            bumped = mSpentAttributes[mCoinCount - 1];
+
+        onAttributeClicked(button);
+
+        // Re-read the option so its new selected / +N state is spoken. If a
+        // prior pick was displaced, say so first (the count is fixed, so the
+        // user needs to know which attribute they just gave up).
+        if (willBump)
+        {
+            const auto* attr = MWBase::Environment::get().getESMStore()->get<ESM::Attribute>().search(bumped);
+            const std::string bumpedName = attr ? attr->mName : std::string();
+            A11y::say("Replaced " + bumpedName + ".");
+            mA11y.announceCurrent();
+        }
+        else
+        {
+            mA11y.announceCurrent();
+        }
     }
 
     void LevelupDialog::onOkButtonClicked(MyGUI::Widget* /*sender*/)

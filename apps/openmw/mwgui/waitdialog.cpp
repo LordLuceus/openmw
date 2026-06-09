@@ -26,6 +26,8 @@
 #include "../mwmechanics/creaturestats.hpp"
 #include "../mwmechanics/npcstats.hpp"
 
+#include "accessibility/speech.hpp"
+
 namespace MWGui
 {
 
@@ -82,6 +84,13 @@ namespace MWGui
 
         mControllerButtons.mB = "#{Interface:Cancel}";
         mDisableGamepadCursor = Settings::gui().mControllerMenus;
+
+        // Screen-reader setup: invisible anchor holds key focus; the slider and
+        // buttons are registered as options by buildAccessibility() each setPtr().
+        mA11yAnchor = mMainWidget->createWidget<MyGUI::Widget>(
+            {}, MyGUI::IntCoord(0, 0, 1, 1), MyGUI::Align::Default);
+        mA11yAnchor->setNeedKeyFocus(true);
+        mA11y.setVirtualFocus(mA11yAnchor);
     }
 
     void WaitDialog::setPtr(const MWWorld::Ptr& ptr)
@@ -113,6 +122,75 @@ namespace MWGui
             MWBase::Environment::get().getWindowManager()->setKeyFocusWidget(mUntilHealedButton);
         else
             MWBase::Environment::get().getWindowManager()->setKeyFocusWidget(mWaitButton);
+
+        // Screen reader: announce the current date/time and whether this is a
+        // rest or a wait, then take input. The hour slider, action button(s),
+        // and Cancel are navigable options; the slider's value changes with
+        // Left/Right. Build after setCanRest() so the labels reflect rest vs
+        // wait. (onOpen, which sets mDateTimeText, runs before setPtr.)
+        buildAccessibility();
+        std::string intro = mDateTimeText->getCaption().asUTF8();
+        std::string restLine = mRestText->getCaption().asUTF8();
+        if (!restLine.empty())
+        {
+            // The date/time caption already ends in a period; don't add a second
+            // before joining the rest/wait status line.
+            if (!intro.empty() && intro.back() != '.')
+                intro += '.';
+            intro += ' ' + restLine;
+        }
+        A11y::say(intro);
+        mA11y.activate();
+    }
+
+    void WaitDialog::onClose()
+    {
+        mA11y.deactivate();
+    }
+
+    std::string WaitDialog::hourValueText() const
+    {
+        // mManualHours mirrors the slider (1..N). The option label is already
+        // the hour-unit word (#{sRestMenu2}), so the value is just the count;
+        // focus announces e.g. "hour(s): 5".
+        return MyGUI::utility::toString(mManualHours);
+    }
+
+    void WaitDialog::changeHours(bool next)
+    {
+        const int pos = static_cast<int>(mHourSlider->getScrollPosition());
+        const int maxPos = static_cast<int>(mHourSlider->getScrollRange()) - 1;
+        const int newPos = next ? std::min(pos + 1, maxPos) : std::max(pos - 1, 0);
+        if (newPos == pos)
+            return;
+        mHourSlider->setScrollPosition(static_cast<size_t>(newPos));
+        onHourSliderChangedPosition(mHourSlider, static_cast<size_t>(newPos));
+        // NOTE: don't announce here -- the framework's changeValue() speaks the
+        // option's value() right after calling this, so announcing would double.
+    }
+
+    void WaitDialog::buildAccessibility()
+    {
+        mA11y.clear();
+
+        // Hour selector: Left/Right adjusts the number of hours; its value is
+        // spoken on focus and after each change.
+        mA11y.add({ .widget = mHourSlider, .label = "#{sRestMenu2}",
+            .value = [this] { return hourValueText(); },
+            .change = [this](bool next) { changeHours(next); } });
+
+        // "Rest until healed" only appears when resting and not already full.
+        if (mUntilHealedButton->getVisible())
+            mA11y.add({ .widget = mUntilHealedButton,
+                .label = mUntilHealedButton->getCaption().asUTF8(),
+                .activate = [this] { onUntilHealedButtonClicked(mUntilHealedButton); } });
+
+        // The main action button is captioned "Rest" or "Wait" by setCanRest().
+        mA11y.add({ .widget = mWaitButton, .label = mWaitButton->getCaption().asUTF8(),
+            .activate = [this] { onWaitButtonClicked(mWaitButton); } });
+
+        mA11y.add({ .widget = mCancelButton, .label = mCancelButton->getCaption().asUTF8(),
+            .activate = [this] { onCancelButtonClicked(mCancelButton); } });
     }
 
     bool WaitDialog::exit()
@@ -314,6 +392,7 @@ namespace MWGui
 
     void WaitDialog::onFrame(float dt)
     {
+        mA11y.onFrame(dt);
         mTimeAdvancer.onFrame(dt);
 
         if (mFadeTimeRemaining <= 0)

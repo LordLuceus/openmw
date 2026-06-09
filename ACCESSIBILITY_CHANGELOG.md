@@ -6,6 +6,19 @@ Newest changes are listed first. (OpenMW's own engine changelog lives in
 
 ## 2026-06-09
 
+- **Level-up screen is now accessible.** When you gain a level, the screen
+  announces your new level and its flavour text, then lets you arrow through the
+  eight attributes. Each attribute is spoken with its current value and the bonus
+  it would gain if chosen (e.g. "Strength: 40, +5 if chosen"; maxed attributes
+  say "maxed"). Press Enter to pick or unpick an attribute (it re-reads the
+  updated state), press T for the attribute's description, then arrow to OK and
+  press Enter to confirm.
+
+- **Rest / Wait screen is now accessible.** Opening Rest or Wait announces the
+  current date and time and whether you're resting or waiting. Arrow to the hour
+  selector and use Left/Right to set how many hours; arrow to "Rest until healed"
+  (when available), the Rest/Wait button, or Cancel and press Enter to choose.
+
 - **Snap-to-direction and turn-around keys.** New facing controls for orienting
   without a mouse: **Ctrl+Left** snaps your facing to the previous compass point
   and **Ctrl+Right** to the next (the eight points: north, northeast, east,

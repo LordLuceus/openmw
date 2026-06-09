@@ -5,6 +5,8 @@
 #include "windowbase.hpp"
 #include <components/esm/refid.hpp>
 
+#include "accessibility/screen.hpp"
+
 namespace MWGui
 {
 
@@ -30,6 +32,7 @@ namespace MWGui
         void setPtr(const MWWorld::Ptr& ptr) override;
 
         void onOpen() override;
+        void onClose() override;
 
         bool exit() override;
 
@@ -82,6 +85,17 @@ namespace MWGui
 
         void startWaiting(int hoursToWait);
         void stopWaiting();
+
+        // Screen-reader controller. Virtual focus via an invisible anchor: the
+        // hour slider, action buttons and Cancel are navigated as widget-backed
+        // options. Rebuilt each setPtr() (rest vs wait state changes the labels).
+        A11y::Screen mA11y;
+        MyGUI::Widget* mA11yAnchor = nullptr;
+        void buildAccessibility();
+        // Spoken value for the hour slider, e.g. "1 hour" / "5 hours".
+        std::string hourValueText() const;
+        // Adjust the hour slider by +/-1 and announce (used by the a11y option).
+        void changeHours(bool next);
     };
 
 }
