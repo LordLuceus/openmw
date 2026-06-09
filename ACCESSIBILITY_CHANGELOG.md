@@ -6,6 +6,12 @@ Newest changes are listed first. (OpenMW's own engine changelog lives in
 
 ## 2026-06-09
 
+- **Weapon and spell quick-cycling now speaks the selection.** Cycling your
+  readied spell with the - and = keys, or your weapon with the [ and ] keys,
+  now announces the spell or weapon you've just switched to. Previously this
+  cycling gave no spoken feedback (the selection only showed on the closed HUD),
+  so you couldn't tell what was selected without opening a menu.
+
 - **Missing stats-pane tooltips added.** Several tooltips you can see by hovering
   the visual stats sheet were not exposed to the accessible menu; press T on
   these items to hear them now:

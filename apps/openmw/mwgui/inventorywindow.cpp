@@ -1524,7 +1524,16 @@ namespace MWGui
         if (!found || selected == cycled)
             return;
 
-        useItem(model.getItem(cycled).mBase);
+        MWWorld::Ptr selectedWeapon = model.getItem(cycled).mBase;
+        useItem(selectedWeapon);
+
+        // Announce the newly-selected weapon for screen-reader users: this
+        // cycling happens with the menu closed, so there's no visible selection
+        // feedback they can read. Interrupt so rapid cycling always reflects the
+        // current selection.
+        std::string_view name = selectedWeapon.getClass().getName(selectedWeapon);
+        if (!name.empty())
+            A11y::say(name, /*interrupt=*/true);
     }
 
     void InventoryWindow::rebuildAvatar()

@@ -568,6 +568,13 @@ namespace MWGui
                 onEnchantedItemSelected(selectedSpell.mItem, selectedSpell.mActive);
             else
                 onSpellSelected(selectedSpell.mId);
+
+            // Announce the newly-selected spell/item for screen-reader users:
+            // this cycling happens with the menu closed, so there's no visible
+            // selection feedback they can read. Interrupt so rapid cycling
+            // always reflects the current selection.
+            if (!selectedSpell.mName.empty())
+                A11y::say(selectedSpell.mName, /*interrupt=*/true);
         }
     }
 
