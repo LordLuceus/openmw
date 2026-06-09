@@ -6,6 +6,21 @@ Newest changes are listed first. (OpenMW's own engine changelog lives in
 
 ## 2026-06-09
 
+- **Missing stats-pane tooltips added.** Several tooltips you can see by hovering
+  the visual stats sheet were not exposed to the accessible menu; press T on
+  these items to hear them now:
+  - **Level** -- your progress toward the next level (e.g. "Level Progress: 6 /
+    10") and which attributes will get a level-up multiplier and how big (e.g.
+    "Strength x5"). This is the info the wiki describes hovering the level for.
+  - **Health / Magicka / Fatigue** -- the description of what each represents.
+  - **Race** -- the racial description.
+  - **Class** -- specialisation and description.
+  - **Faction** -- per faction, your current rank plus the next rank and what's
+    needed for it (required attributes, favoured skills).
+  - **Birthsign** -- its description and the powers, abilities, and spells it
+    grants, each with its full effect breakdown.
+  - **Reputation / Bounty** -- the in-game help text explaining each.
+
 - **Scanner actor list no longer shifts under you while browsing.** The live
   refresh of the Actors list now happens only on the "Hostile" subcategory,
   where it's useful for tracking attackers in a fight. On the other views (All,

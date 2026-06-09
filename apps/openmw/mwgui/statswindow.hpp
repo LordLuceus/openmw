@@ -112,6 +112,11 @@ namespace MWGui
         // Live value strings for the top-level vital / character / status items.
         std::string vitalValue(int dynamicIndex) const; // 0=health 1=magicka 2=fatigue
         std::string factionValue() const;
+        // Tooltip line builders mirroring the visual stats-pane tooltips.
+        std::vector<std::string> raceTooltip() const;
+        std::vector<std::string> classTooltip() const;
+        std::vector<std::string> factionTooltip() const;
+        std::vector<std::string> birthSignTooltip() const;
 
     protected:
         void onPinToggled() override;

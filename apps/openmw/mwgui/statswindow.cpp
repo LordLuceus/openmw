@@ -18,6 +18,7 @@
 #include <components/esm3/loadfact.hpp>
 #include <components/esm3/loadgmst.hpp>
 #include <components/esm3/loadrace.hpp>
+#include <components/esm3/loadspel.hpp>
 
 #include <components/settings/values.hpp>
 
@@ -35,6 +36,7 @@
 #include <components/esm3/loadskil.hpp>
 
 #include "accessibility/panegroup.hpp"
+#include "accessibility/spelltext.hpp"
 #include "tooltips.hpp"
 
 namespace MWGui
@@ -896,6 +898,143 @@ namespace MWGui
         return result;
     }
 
+    std::vector<std::string> StatsWindow::raceTooltip() const
+    {
+        std::vector<std::string> lines;
+        const MWWorld::ESMStore& store = *MWBase::Environment::get().getESMStore();
+        MWWorld::Ptr player = MWMechanics::getPlayer();
+        const ESM::Race* race = store.get<ESM::Race>().search(player.get<ESM::NPC>()->mBase->mRace);
+        if (!race)
+            return lines;
+        std::string line = race->mName;
+        if (!race->mDescription.empty())
+            line += ". " + race->mDescription;
+        lines.push_back(std::move(line));
+        return lines;
+    }
+
+    std::vector<std::string> StatsWindow::classTooltip() const
+    {
+        std::vector<std::string> lines;
+        const MWWorld::ESMStore& store = *MWBase::Environment::get().getESMStore();
+        MWWorld::Ptr player = MWMechanics::getPlayer();
+        const ESM::Class* playerClass = store.get<ESM::Class>().search(player.get<ESM::NPC>()->mBase->mClass);
+        if (!playerClass || playerClass->mName.empty())
+            return lines;
+        // Name + specialisation, then the flavour description, mirroring the
+        // visual ClassToolTip (which shows "Specialization: <spec>").
+        std::string specTag = "#{";
+        specTag += ESM::Class::sGmstSpecializationIds[playerClass->mData.mSpecialization];
+        specTag += "}";
+        std::string line = playerClass->mName + ". #{sSpecialization}: " + specTag;
+        if (!playerClass->mDescription.empty())
+            line += ". " + playerClass->mDescription;
+        lines.push_back(std::move(line));
+        return lines;
+    }
+
+    std::vector<std::string> StatsWindow::factionTooltip() const
+    {
+        std::vector<std::string> lines;
+        const MWWorld::ESMStore& store = *MWBase::Environment::get().getESMStore();
+        MWWorld::Ptr player = MWMechanics::getPlayer();
+        const MWMechanics::NpcStats& playerStats = player.getClass().getNpcStats(player);
+        const std::set<ESM::RefId>& expelled = playerStats.getExpelled();
+
+        // One line per faction: current rank, plus the next rank and its
+        // requirements (attributes, favoured skills), mirroring the visual
+        // FactionToolTip.
+        for (const auto& [factionId, factionRank] : mFactions)
+        {
+            const ESM::Faction* faction = store.get<ESM::Faction>().search(factionId);
+            if (!faction || faction->mData.mIsHidden == 1)
+                continue;
+
+            std::string line = faction->mName;
+            if (expelled.find(factionId) != expelled.end())
+            {
+                line += ". #{sExpelled}";
+                lines.push_back(std::move(line));
+                continue;
+            }
+
+            const auto rank = static_cast<size_t>(std::max(0, factionRank));
+            if (rank < faction->mRanks.size() && !faction->mRanks[rank].empty())
+                line += ". " + faction->mRanks[rank];
+
+            if (rank + 1 < faction->mRanks.size() && !faction->mRanks[rank + 1].empty())
+            {
+                line += ". #{sNextRank} " + faction->mRanks[rank + 1];
+
+                const ESM::RankData& rankData = faction->mData.mRankData[rank + 1];
+                const ESM::Attribute* attr1
+                    = store.get<ESM::Attribute>().search(ESM::Attribute::indexToRefId(faction->mData.mAttribute[0]));
+                const ESM::Attribute* attr2
+                    = store.get<ESM::Attribute>().search(ESM::Attribute::indexToRefId(faction->mData.mAttribute[1]));
+                if (attr1 && attr2)
+                    line += ". " + attr1->mName + ": " + MyGUI::utility::toString(rankData.mAttribute1) + ", "
+                        + attr2->mName + ": " + MyGUI::utility::toString(rankData.mAttribute2);
+
+                std::string skills;
+                for (int id : faction->mData.mSkills)
+                {
+                    const ESM::Skill* skill = store.get<ESM::Skill>().search(ESM::Skill::indexToRefId(id));
+                    if (skill)
+                    {
+                        if (!skills.empty())
+                            skills += ", ";
+                        skills += skill->mName;
+                    }
+                }
+                if (!skills.empty())
+                    line += ". #{sFavoriteSkills}: " + skills;
+
+                if (rankData.mPrimarySkill > 0)
+                    line += ". #{sNeedOneSkill} " + MyGUI::utility::toString(rankData.mPrimarySkill);
+                if (rankData.mFavouredSkill > 0)
+                    line += " #{sand} #{sNeedTwoSkills} " + MyGUI::utility::toString(rankData.mFavouredSkill);
+            }
+
+            lines.push_back(std::move(line));
+        }
+        return lines;
+    }
+
+    std::vector<std::string> StatsWindow::birthSignTooltip() const
+    {
+        std::vector<std::string> lines;
+        const MWWorld::ESMStore& store = *MWBase::Environment::get().getESMStore();
+        const ESM::BirthSign* sign = store.get<ESM::BirthSign>().search(mBirthSignId);
+        if (!sign)
+            return lines;
+
+        std::string intro = sign->mName;
+        if (!sign->mDescription.empty())
+            intro += ". " + sign->mDescription;
+        lines.push_back(std::move(intro));
+
+        // One line per granted power / ability / spell with its full effect
+        // breakdown, mirroring the visual BirthSignToolTip categories.
+        for (const ESM::RefId& spellId : sign->mPowers.mList)
+        {
+            const ESM::Spell* spell = store.get<ESM::Spell>().search(spellId);
+            if (!spell)
+                continue;
+            const auto type = static_cast<ESM::Spell::SpellType>(spell->mData.mType);
+            if (type != ESM::Spell::ST_Spell && type != ESM::Spell::ST_Ability && type != ESM::Spell::ST_Power)
+                continue;
+            std::string line = spell->mName;
+            for (const ESM::IndexedENAMstruct& effect : spell->mEffects.mList)
+            {
+                std::string effLine = A11y::formatSpellEffectLine(effect);
+                if (!effLine.empty())
+                    line += ". " + effLine;
+            }
+            lines.push_back(std::move(line));
+        }
+        return lines;
+    }
+
     void StatsWindow::buildAccessibility()
     {
         // Preserve the current selection across the rebuild (the options are
@@ -916,38 +1055,74 @@ namespace MWGui
             .value = [this] { return mMainWidget->castType<MyGUI::Window>()->getCaption().asUTF8(); } });
 
         // Level, race, class (read the on-screen captions, which the watcher keeps current).
+        // The Level item also carries the native level-up tooltip (the
+        // "hover the level to see your progress" info): the progress bar value
+        // toward the next level plus the per-attribute level-up multipliers,
+        // mirroring the visual LevelToolTip (sLevelProgress header + progress /
+        // total + the "Attribute xN" detail lines built in onFrame).
         mA11y.add({ .widget = nullptr,
             .label = std::string(winMgr->getGameSettingString("sLevel", "Level")),
             .value = [this] {
                 MyGUI::TextBox* w = nullptr;
                 getWidget(w, "LevelText");
                 return w ? w->getCaption().asUTF8() : std::string();
+            },
+            .tooltips = [this] {
+                MWWorld::Ptr player = MWMechanics::getPlayer();
+                const MWMechanics::NpcStats& playerStats = player.getClass().getNpcStats(player);
+                const auto& store = MWBase::Environment::get().getESMStore();
+
+                std::vector<std::string> lines;
+                const int max = store->get<ESM::GameSetting>().find("iLevelUpTotal")->mValue.getInteger();
+                lines.push_back("#{sLevelProgress}: " + MyGUI::utility::toString(playerStats.getLevelProgress()) + " / "
+                    + MyGUI::utility::toString(max));
+
+                // The attributes that will gain a level-up bonus, with their
+                // multiplier (only those above x1, as the visual tooltip shows).
+                for (const auto& attribute : store->get<ESM::Attribute>())
+                {
+                    int mult = playerStats.getLevelupAttributeMultiplier(attribute.mId);
+                    mult = std::min(mult, static_cast<int>(100 - playerStats.getAttribute(attribute.mId).getBase()));
+                    if (mult > 1)
+                        lines.push_back(attribute.mName + " x" + MyGUI::utility::toString(mult));
+                }
+                return lines;
             } });
+        // Race: name (value) + flavour description (tooltip), mirroring the
+        // visual RaceToolTip.
         mA11y.add({ .widget = nullptr,
             .label = std::string(winMgr->getGameSettingString("sRace", "Race")),
             .value = [this] {
                 MyGUI::TextBox* w = nullptr;
                 getWidget(w, "RaceText");
                 return w ? w->getCaption().asUTF8() : std::string();
-            } });
+            },
+            .tooltips = [this] { return raceTooltip(); } });
+        // Class: name (value) + specialisation and description (tooltip),
+        // mirroring the visual ClassToolTip.
         mA11y.add({ .widget = nullptr,
             .label = std::string(winMgr->getGameSettingString("sClass", "Class")),
             .value = [this] {
                 MyGUI::TextBox* w = nullptr;
                 getWidget(w, "ClassText");
                 return w ? w->getCaption().asUTF8() : std::string();
-            } });
+            },
+            .tooltips = [this] { return classTooltip(); } });
 
-        // Health, magicka, fatigue (current / max).
+        // Health, magicka, fatigue (current / max). The native bars carry a
+        // one-line description tooltip (sHealthDesc / sMagDesc / sFatDesc).
         mA11y.add({ .widget = nullptr,
             .label = std::string(winMgr->getGameSettingString("sHealth", "Health")),
-            .value = [this] { return vitalValue(0); } });
+            .value = [this] { return vitalValue(0); },
+            .tooltips = [] { return std::vector<std::string>{ "#{sHealthDesc}" }; } });
         mA11y.add({ .widget = nullptr,
             .label = std::string(winMgr->getGameSettingString("sMagic", "Magicka")),
-            .value = [this] { return vitalValue(1); } });
+            .value = [this] { return vitalValue(1); },
+            .tooltips = [] { return std::vector<std::string>{ "#{sMagDesc}" }; } });
         mA11y.add({ .widget = nullptr,
             .label = std::string(winMgr->getGameSettingString("sFatigue", "Fatigue")),
-            .value = [this] { return vitalValue(2); } });
+            .value = [this] { return vitalValue(2); },
+            .tooltips = [] { return std::vector<std::string>{ "#{sFatDesc}" }; } });
 
         // Attributes and skills as expandable submenus (Enter to enter the list).
         mA11y.add({ .widget = nullptr,
@@ -957,15 +1132,19 @@ namespace MWGui
             .label = std::string(winMgr->getGameSettingString("sSkills", "Skills")),
             .children = [this] { return skillItems(); } });
 
-        // Factions (combined into one spoken line; empty if none).
+        // Factions (combined into one spoken line; empty if none). The tooltip
+        // gives each faction's rank and what's needed for the next rank,
+        // mirroring the visual FactionToolTip.
         if (!mFactions.empty())
         {
             mA11y.add({ .widget = nullptr,
                 .label = std::string(winMgr->getGameSettingString("sFaction", "Faction")),
-                .value = [this] { return factionValue(); } });
+                .value = [this] { return factionValue(); },
+                .tooltips = [this] { return factionTooltip(); } });
         }
 
-        // Birthsign.
+        // Birthsign: name (value) + description and granted powers/abilities/
+        // spells (tooltip), mirroring the visual BirthSignToolTip.
         if (!mBirthSignId.empty())
         {
             mA11y.add({ .widget = nullptr,
@@ -974,16 +1153,19 @@ namespace MWGui
                     const ESM::BirthSign* sign
                         = MWBase::Environment::get().getESMStore()->get<ESM::BirthSign>().search(mBirthSignId);
                     return sign ? sign->mName : std::string();
-                } });
+                },
+                .tooltips = [this] { return birthSignTooltip(); } });
         }
 
-        // Reputation and bounty.
+        // Reputation and bounty carry the native help-text tooltips.
         mA11y.add({ .widget = nullptr,
             .label = std::string(winMgr->getGameSettingString("sReputation", "Reputation")),
-            .value = [this] { return MyGUI::utility::toString(mReputation); } });
+            .value = [this] { return MyGUI::utility::toString(mReputation); },
+            .tooltips = [] { return std::vector<std::string>{ "#{sSkillsMenuReputationHelp}" }; } });
         mA11y.add({ .widget = nullptr,
             .label = std::string(winMgr->getGameSettingString("sBounty", "Bounty")),
-            .value = [this] { return MyGUI::utility::toString(mBounty); } });
+            .value = [this] { return MyGUI::utility::toString(mBounty); },
+            .tooltips = [] { return std::vector<std::string>{ "#{sCrimeHelp}" }; } });
 
         // Restore the prior selection silently if this was a rebuild of a
         // screen that already had one (active, or suspended behind another
