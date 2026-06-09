@@ -6,6 +6,16 @@ Newest changes are listed first. (OpenMW's own engine changelog lives in
 
 ## 2026-06-09
 
+- **Save and Load screens are now accessible.** Opening Save or Load announces
+  which one it is, then lets you arrow through the controls. When loading, a
+  character selector (Left/Right cycles characters) precedes the list of saves;
+  each save is read with its name and details (level, day, health, in-game time,
+  time played, location) as you arrow onto it. Press Enter to load. When saving,
+  arrow to the name field and press Enter to type a name (Escape leaves the
+  field), or arrow onto an existing save to overwrite it, then arrow to OK. The
+  Delete button (and overwrite/load confirmations) are spoken too; deleting a
+  save announces the result. If there are no saves to load, it says so.
+
 - **Level-up screen is now accessible.** When you gain a level, the screen
   announces your new level and its flavour text, then lets you arrow through the
   eight attributes. Each attribute is spoken with its current value and the bonus

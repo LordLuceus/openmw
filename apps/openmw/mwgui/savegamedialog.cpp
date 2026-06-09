@@ -1,5 +1,6 @@
 #include "savegamedialog.hpp"
 
+#include <algorithm>
 #include <iomanip>
 #include <sstream>
 
@@ -33,10 +34,13 @@
 
 #include "../mwstate/character.hpp"
 
+#include "accessibility/speech.hpp"
 #include "confirmationdialog.hpp"
 
 namespace MWGui
 {
+    std::string formatTimeplayed(const double timeInSeconds);
+
     SaveGameDialog::SaveGameDialog()
         : WindowModal("openmw_savegame_dialog.layout")
         , mSaving(true)
@@ -69,6 +73,41 @@ namespace MWGui
 
         mControllerButtons.mA = "#{Interface:Select}";
         mControllerButtons.mB = "#{Interface:Cancel}";
+
+        // Screen-reader setup: an invisible anchor owns key focus so the native
+        // ListBox / ComboBox / EditBox can't grab the arrow keys. ownModal=true
+        // because this dialog is itself a WindowModal (a virtual screen would
+        // otherwise yield to its own modal and go deaf to the arrows). Child
+        // confirmation dialogs (overwrite / load / delete) suspend us on open and
+        // resume us on close, so they get the keys while shown. Options are
+        // rebuilt by buildAccessibility() each time the contents change.
+        mA11yAnchor = mMainWidget->createWidget<MyGUI::Widget>(
+            {}, MyGUI::IntCoord(0, 0, 1, 1), MyGUI::Align::Default);
+        mA11yAnchor->setNeedKeyFocus(true);
+        mA11y.setVirtualFocus(mA11yAnchor, /*ownModal=*/true);
+        mNameField.attach(mSaveNameEdit);
+        mNameField.setActive(false);
+
+        // Delete key removes the focused save (mirrors the native list's Delete
+        // shortcut). This is the only way to delete an arbitrary slot: the Delete
+        // button always targets whatever slot navigation last dragged the native
+        // selection onto, and Enter on a slot loads/overwrites it.
+        mA11y.setExtraKeyHandler([this](MyGUI::KeyCode key) -> bool {
+            if (key != MyGUI::KeyCode::Delete)
+                return false;
+            const size_t cur = mA11y.currentIndex();
+            if (cur == A11y::Screen::npos || cur < mA11ySlotBase)
+                return false; // not on a slot (e.g. the name field or a button)
+            const size_t slotIndex = cur - mA11ySlotBase;
+            if (slotIndex >= mSaveList->getItemCount())
+                return false;
+            // Point the native selection + mCurrentSlot at the focused slot so
+            // confirmDeleteSave() targets and names the right one, then confirm.
+            a11ySelectSlot(slotIndex);
+            if (mCurrentSlot)
+                confirmDeleteSave();
+            return true;
+        });
     }
 
     void SaveGameDialog::onSlotActivated(MyGUI::ListBox* sender, size_t pos)
@@ -88,7 +127,17 @@ namespace MWGui
     void SaveGameDialog::confirmDeleteSave()
     {
         ConfirmationDialog* dialog = MWBase::Environment::get().getWindowManager()->getConfirmationDialog();
-        dialog->askForConfirmation("#{OMWEngine:DeleteGameConfirmation}");
+        // Name the save in the prompt so a screen-reader user knows exactly which
+        // one they're about to delete (the bare "delete this game?" gives no clue
+        // which slot is targeted). mCurrentSlot is the slot focus last landed on.
+        std::string message = "#{OMWEngine:DeleteGameConfirmation}";
+        if (mCurrentSlot)
+        {
+            const std::string name = mCurrentSlot->mProfile.mDescription;
+            if (!name.empty())
+                message = "#{OMWEngine:DeleteGameConfirmation} (" + name + ")";
+        }
+        dialog->askForConfirmation(message);
         dialog->eventOkClicked.clear();
         dialog->eventOkClicked += MyGUI::newDelegate(this, &SaveGameDialog::onDeleteSlotConfirmed);
         dialog->eventCancelClicked.clear();
@@ -116,6 +165,16 @@ namespace MWGui
             else
                 mCharacterSelection->setIndexSelected(MyGUI::ITEM_NONE);
         }
+
+        // The slot list (and possibly the character list) changed under us. The
+        // ConfirmationDialog has already resumed our screen; rebuild the options
+        // and announce the deletion plus wherever focus now lands.
+        const size_t remaining = mSaveList->getItemCount();
+        buildAccessibility();
+        A11y::say(remaining == 0 ? "Save deleted. No saves remaining."
+                                 : "Save deleted.",
+            /*interrupt=*/true);
+        mA11y.focusFirst(/*announce=*/true);
     }
 
     void SaveGameDialog::onDeleteSlotCancel()
@@ -140,6 +199,7 @@ namespace MWGui
 
     void SaveGameDialog::onClose()
     {
+        mA11y.deactivate();
         mSaveList->setIndexSelected(MyGUI::ITEM_NONE);
 
         WindowModal::onClose();
@@ -254,6 +314,227 @@ namespace MWGui
             mCharacterSelection->setCaptionWithReplacing("#{OMWEngine:SelectCharacter}");
 
         fillSaveList();
+
+        // Screen reader: build the option list (mirrors the native controls),
+        // announce the dialog's purpose, then activate -- activate() lands on and
+        // announces the first option (the save-name field when saving, the first
+        // save when loading), so the lead-in must be said first.
+        buildAccessibility();
+        announceOnOpen();
+        mA11y.activate();
+    }
+
+    void SaveGameDialog::announceOnOpen()
+    {
+        // No native title widget exists, so compose the dialog's purpose here.
+        // Said before activate() so it precedes the first option's announcement.
+        std::string intro = mSaving ? "Save game." : "Load game.";
+        // When loading with nothing to load, say so -- otherwise focus just lands
+        // silently on Cancel with no hint that the list is empty.
+        if (!mSaving && mSaveList->getItemCount() == 0)
+            intro += " No saved games.";
+        A11y::say(intro, /*interrupt=*/true);
+    }
+
+    void SaveGameDialog::onFrame(float dt)
+    {
+        if (mA11yRebuildPending)
+        {
+            mA11yRebuildPending = false;
+            // Rebuild after a character change refilled the slot list. Keep focus
+            // on the character selector (the value the user is cycling) without
+            // re-announcing -- changeValue already spoke the new character name.
+            buildAccessibility();
+            mA11y.selectByLabel("#{OMWEngine:LoadingSelectCharacter}", /*announce=*/false);
+        }
+
+        mNameField.onFrame();
+        mA11y.onFrame(dt);
+    }
+
+    const MWState::Slot* SaveGameDialog::slotAt(size_t index) const
+    {
+        if (!mCurrentCharacter)
+            return nullptr;
+        size_t i = 0;
+        for (MWState::Character::SlotIterator it = mCurrentCharacter->begin(); it != mCurrentCharacter->end();
+             ++it, ++i)
+        {
+            if (i == index)
+                return &*it;
+        }
+        return nullptr;
+    }
+
+    std::string SaveGameDialog::slotOptionText(size_t index)
+    {
+        // In LOAD mode, focusing a slot drives the native selection so the
+        // on-screen info panel + screenshot follow and mCurrentSlot becomes the
+        // load target (the framework only calls describe() on focus, with no
+        // separate onFocus hook). In SAVE mode we must NOT do this: onSlotSelected
+        // overwrites the save-name edit box with the slot's name, so just arrowing
+        // past slots would clobber a name the user typed. There we describe the
+        // slot read-only and only commit it as an overwrite target on Enter.
+        const MWState::Slot* slot = mSaving ? slotAt(index) : (a11ySelectSlot(index), mCurrentSlot);
+
+        // Compose a clean spoken description directly from the slot profile rather
+        // than scraping the on-screen info panel -- the panel runs everything
+        // together and reads poorly aloud. Same facts as on screen, as short
+        // clauses: save name, then (when it differs) the character, level, cell,
+        // health, in-game day, time played, real-world save time, in-game time.
+        std::string text = mSaveList->getItemNameAt(index);
+        if (!slot)
+            return text;
+
+        const ESM::SavedGame& p = slot->mProfile;
+        std::vector<std::string> parts;
+
+        // The character's own name, shown (as on screen) only when it differs
+        // from the one selected in the character list -- i.e. a save belonging to
+        // a renamed/other character surfaced under this heading.
+        const size_t profileIndex = mCharacterSelection->getIndexSelected();
+        if (profileIndex != MyGUI::ITEM_NONE)
+        {
+            const ESM::SavedGame& heading
+                = (*mCharacterSelection->getItemDataAt<const MWState::Character*>(profileIndex))->getSignature();
+            if (p.mPlayerName != heading.mPlayerName && !p.mPlayerName.empty())
+                parts.push_back(p.mPlayerName);
+        }
+
+        parts.push_back("#{OMWEngine:Level} " + std::to_string(p.mPlayerLevel));
+
+        if (!p.mPlayerCellName.empty())
+            parts.push_back("#{sCell=" + p.mPlayerCellName + "}");
+
+        if (p.mMaximumHealth > 0)
+            parts.push_back("#{OMWEngine:Health} " + std::to_string(static_cast<int>(p.mCurrentHealth)) + " of "
+                + std::to_string(static_cast<int>(p.mMaximumHealth)));
+
+        if (p.mCurrentDay > 0)
+            parts.push_back("#{Calendar:day} " + std::to_string(p.mCurrentDay));
+
+        if (p.mTimePlayed > 0)
+            parts.push_back("#{OMWEngine:TimePlayed}: " + formatTimeplayed(p.mTimePlayed));
+
+        // Real-world time the save was written (labelled so it isn't confused
+        // with the in-game date), e.g. "Saved 2026.06.09 19:18:09".
+        parts.push_back("Saved " + Misc::fileTimeToString(slot->mTimeStamp, "%Y.%m.%d %T"));
+
+        // In-game date and time, e.g. "21 Last Seed, 7 p.m." -- ordered LAST
+        // because the a.m./p.m. tag resolves to a string ending in a period, and
+        // it's the only clause that does. Keeping it last means no following ". "
+        // separator produces a double period (the tag is still unresolved here,
+        // so a back()=='.' check can't catch it -- the raw text ends in '}').
+        int hour = static_cast<int>(p.mInGameTime.mGameHour);
+        const bool pm = hour >= 12;
+        if (hour >= 13)
+            hour -= 12;
+        if (hour == 0)
+            hour = 12;
+        std::string when = std::to_string(p.mInGameTime.mDay) + " "
+            + std::string(MWBase::Environment::get().getWorld()->getTimeManager()->getMonthName(p.mInGameTime.mMonth))
+            + ", " + std::to_string(hour) + " " + (pm ? "#{Calendar:pm}" : "#{Calendar:am}");
+        parts.push_back(std::move(when));
+
+        for (const std::string& part : parts)
+            text += ". " + part;
+        return text;
+    }
+
+    void SaveGameDialog::a11ySelectSlot(size_t index)
+    {
+        // Drive the native list selection so the info panel + screenshot update,
+        // exactly as a mouse click would, before the option is announced.
+        mSaveList->setIndexSelected(index);
+        onSlotSelected(mSaveList, index);
+    }
+
+    void SaveGameDialog::a11yActivateSlot(size_t index)
+    {
+        a11ySelectSlot(index);
+        accept();
+    }
+
+    void SaveGameDialog::a11yCycleCharacter(bool next)
+    {
+        const size_t count = mCharacterSelection->getItemCount();
+        if (count == 0)
+            return;
+        size_t index = mCharacterSelection->getIndexSelected();
+        if (index == MyGUI::ITEM_NONE)
+            index = 0;
+        else
+            index = wrap(index, count, next ? 1 : -1);
+        mCharacterSelection->setIndexSelected(index);
+        onCharacterSelected(mCharacterSelection, index);
+        // The framework's changeValue() speaks the option's value() (the new
+        // character name) right after this returns, so DON'T announce here -- that
+        // would double up. The slot list was refilled, so the option list is now
+        // stale; defer its rebuild to the next frame (the framework still holds a
+        // pointer into the current element vector, so rebuilding now is UB).
+        mA11yRebuildPending = true;
+    }
+
+    void SaveGameDialog::buildAccessibility()
+    {
+        mA11y.clear();
+
+        if (mSaving)
+        {
+            // Save mode: type a name (Enter edits the box; Up/Down leave it), or
+            // pick an existing slot to overwrite, then OK / Cancel.
+            mA11y.add({ .widget = mSaveNameEdit, .label = "Save name",
+                .value =
+                    [this] {
+                        const std::string text = mSaveNameEdit->getOnlyText().asUTF8();
+                        return text.empty() ? std::string("blank") : text;
+                    },
+                .edit = &mNameField });
+        }
+        else if (mCharacterSelection->getItemCount() > 0)
+        {
+            // Load mode: a character selector (Left/Right cycles characters,
+            // refilling the slot list) precedes the slots.
+            mA11y.add({ .widget = mCharacterSelection,
+                .label = "#{OMWEngine:LoadingSelectCharacter}",
+                .value = [this] { return mCharacterSelection->getCaption().asUTF8(); },
+                .change = [this](bool next) { a11yCycleCharacter(next); } });
+        }
+
+        // The save slots. Each is a widget-less option (the native ListBox draws
+        // them); selecting one drives the native selection so the on-screen info
+        // panel + screenshot follow. Enter loads (load mode) or selects-to-
+        // overwrite then confirms (save mode). The Delete KEY (handled below)
+        // removes the focused slot -- needed because navigating to the Delete
+        // button drags the native selection to the last slot, so the button alone
+        // can't target an arbitrary slot. mA11ySlotBase records where slots start
+        // so the key handler can map the focused option onto a slot index.
+        mA11ySlotBase = mA11y.size();
+        for (size_t i = 0; i < mSaveList->getItemCount(); ++i)
+        {
+            mA11y.add({ .widget = nullptr,
+                .describe = [this, i] { return slotOptionText(i); },
+                .activate = [this, i] { a11yActivateSlot(i); } });
+        }
+
+        if (mDeleteButton->getVisible())
+            mA11y.add({ .widget = mDeleteButton, .label = "#{OMWEngine:DeleteGame}",
+                .activate =
+                    [this] {
+                        // Guard against deleting with no slot selected: rather than
+                        // silently doing nothing (onDeleteButtonClicked's guard) or
+                        // prompting with no named target, say there's nothing to
+                        // delete. confirmDeleteSave names the slot in its prompt.
+                        if (mCurrentSlot)
+                            confirmDeleteSave();
+                        else
+                            A11y::say("No save selected to delete.", /*interrupt=*/true);
+                    } });
+
+        mA11y.add({ .widget = mOkButton, .label = "#{Interface:OK}",
+            .activate = [this] { onOkButtonClicked(mOkButton); } });
+        mA11y.add({ .widget = mCancelButton, .label = "#{Interface:Cancel}",
+            .activate = [this] { onCancelButtonClicked(mCancelButton); } });
     }
 
     void SaveGameDialog::setLoadOrSave(bool load)
@@ -272,6 +553,16 @@ namespace MWGui
         }
 
         center();
+    }
+
+    bool SaveGameDialog::exit()
+    {
+        // The Escape that leaves text-edit mode on the save-name field must not
+        // also close the dialog. Swallow exactly that Escape; an Escape pressed
+        // while merely navigating still cancels the dialog as usual.
+        if (mA11y.inEditMode() || mA11y.consumeEditModeEscape())
+            return false;
+        return true;
     }
 
     void SaveGameDialog::onCancelButtonClicked(MyGUI::Widget* /*sender*/)
