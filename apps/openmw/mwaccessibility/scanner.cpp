@@ -626,13 +626,21 @@ namespace MWAccessibility
         if (mMeleeReachCooldown > 0.f)
             mMeleeReachCooldown = std::max(0.f, mMeleeReachCooldown - dt);
 
-        // Keep the Actors list live: actors move and turn hostile mid-fight, so
-        // a list cached at selection time goes stale (a new attacker won't
-        // appear under Hostile, distances drift). Rebuild it on a throttle while
-        // that category is active. Cheap categories of static objects (doors,
-        // items) don't need this. The refresh is silent and preserves the
-        // cursor, so it won't interrupt the player.
-        if (mCategory == Category::Npcs)
+        // Keep the Actors list live ONLY while the Hostile subcategory is
+        // active: in a fight, attackers move and new ones turn hostile, so a
+        // list cached at selection time goes stale (a new attacker won't appear,
+        // membership shifts). But for the other Actors views (All / NPCs /
+        // Creatures) -- and every other category -- a live rebuild is harmful:
+        // when just browsing a town, NPCs wandering around would re-sort the
+        // list under the cursor, making you lose your place and skip people.
+        // (Distances are recomputed on demand each time you read an item, so
+        // they stay accurate without a live rebuild.) The refresh is silent and
+        // preserves the cursor.
+        const auto [npcSubs, npcSubCount] = subcategoriesFor(mCategory);
+        const int activeSub = mLists[static_cast<size_t>(mCategory)].mSubIndex;
+        const bool hostileView = mCategory == Category::Npcs && activeSub >= 0
+            && activeSub < static_cast<int>(npcSubCount) && npcSubs[activeSub].mName == std::string_view("Hostile");
+        if (hostileView)
         {
             mActorRefreshTimer += dt;
             if (mActorRefreshTimer >= kActorRefreshInterval)

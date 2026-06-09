@@ -4,6 +4,16 @@ A running log of screen-reader accessibility features added to this OpenMW fork.
 Newest changes are listed first. (OpenMW's own engine changelog lives in
 `CHANGELOG.md`.)
 
+## 2026-06-09
+
+- **Scanner actor list no longer shifts under you while browsing.** The live
+  refresh of the Actors list now happens only on the "Hostile" subcategory,
+  where it's useful for tracking attackers in a fight. On the other views (All,
+  NPCs, Creatures) the list stays put as you read it, so wandering townsfolk no
+  longer re-sort the list under your cursor and make you lose your place or skip
+  people. Distances are still accurate -- they're measured fresh each time you
+  read an item, so they were never dependent on the live refresh.
+
 ## 2026-06-08
 
 - **Enchanted items now say how they're triggered, and their charges.** An
@@ -121,9 +131,9 @@ Newest changes are listed first. (OpenMW's own engine changelog lives in
   locked target instead of relying on a clear line of sight.
 - **Find what's attacking you.** The scanner's actor list (renamed from "NPCs"
   to "Actors") has a new "Hostile" subcategory listing only the actors currently
-  in combat with you. Cycle to it with Shift+PageUp/PageDown. The actor list now
-  also refreshes while you're in it, so a new attacker appears right away and
-  distances stay accurate as everyone moves around during a fight.
+  in combat with you. Cycle to it with Shift+PageUp/PageDown. While you're on
+  this Hostile view the list refreshes live, so a new attacker appears right
+  away as everyone moves around during a fight.
 - **Weapon and spell readiness.** Drawing a weapon or readying a spell now
   announces what you've readied -- for example "Iron Dagger ready", "Hand to
   hand ready", or "Fireball ready" -- and you'll hear "Weapon sheathed" or
