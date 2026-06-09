@@ -801,6 +801,33 @@ namespace MWAccessibility
                     return true;
                 }
                 return false;
+            case SDL_SCANCODE_LEFT:
+                // Ctrl+Left snaps facing to the previous (counter-clockwise)
+                // compass point. (Ctrl is the default sneak key, but the arrow
+                // keys aren't bound to movement, so this doesn't conflict with
+                // sneaking + WASD.)
+                if (ctrl && !shift && !alt)
+                {
+                    snapToDirection(/*clockwise=*/false);
+                    return true;
+                }
+                return false;
+            case SDL_SCANCODE_RIGHT:
+                // Ctrl+Right snaps facing to the next (clockwise) compass point.
+                if (ctrl && !shift && !alt)
+                {
+                    snapToDirection(/*clockwise=*/true);
+                    return true;
+                }
+                return false;
+            case SDL_SCANCODE_DOWN:
+                // Ctrl+Down turns the player 180 degrees.
+                if (ctrl && !shift && !alt)
+                {
+                    turnAround();
+                    return true;
+                }
+                return false;
             case SDL_SCANCODE_END:
                 clearSelection();
                 return true;
@@ -1695,6 +1722,61 @@ namespace MWAccessibility
         // increasing toward +X = east), so it maps directly to a compass point
         // -- the same vocabulary used for target bearings.
         const float yaw = player.getRefData().getPosition().rot[2];
+        speak(std::string("Facing ") + compassLabel(yaw) + ".");
+    }
+
+    void Scanner::snapToDirection(bool clockwise)
+    {
+        MWBase::World* world = MWBase::Environment::get().getWorld();
+        MWWorld::Ptr player = world->getPlayerPtr();
+        if (player.isEmpty())
+            return;
+
+        // Eight compass points, 45 degrees apart. Snap to the next point in the
+        // chosen direction.
+        const float sector = 2.f * kPi / 8.f;
+
+        // IMPORTANT: normalize the read yaw into [0, 2*PI) first. The engine
+        // stores yaw normalized to roughly [-PI, PI], so a heading like 315 deg
+        // comes back as -45 deg; if we didn't normalize, the index arithmetic
+        // near that wrap boundary kept re-selecting the same point (the snap
+        // "got stuck" after a few presses). Working in [0, 2*PI) makes the
+        // sector index well-defined everywhere.
+        float yaw = player.getRefData().getPosition().rot[2];
+        while (yaw < 0.f)
+            yaw += 2.f * kPi;
+        while (yaw >= 2.f * kPi)
+            yaw -= 2.f * kPi;
+
+        // Position within the 8-sector ring, in [0, 8). The next point in a
+        // direction is the next integer that way; a small tolerance means that
+        // being essentially ON a point advances a full step rather than snapping
+        // back to the same one.
+        const float s = yaw / sector;
+        const float tol = 1e-3f;
+        int idx = clockwise ? static_cast<int>(std::floor(s + tol)) + 1
+                            : static_cast<int>(std::ceil(s - tol)) - 1;
+        idx = ((idx % 8) + 8) % 8;
+        const float targetYaw = idx * sector;
+
+        // Level the pitch (rot[0]) so snapping also looks straight ahead; keep
+        // roll at 0. Absolute orientation, same mechanism as focusCamera().
+        world->rotateObject(player, osg::Vec3f(0.f, 0.f, targetYaw), MWBase::RotationFlag_none);
+        speak(std::string("Facing ") + compassLabel(targetYaw) + ".");
+    }
+
+    void Scanner::turnAround()
+    {
+        MWBase::World* world = MWBase::Environment::get().getWorld();
+        MWWorld::Ptr player = world->getPlayerPtr();
+        if (player.isEmpty())
+            return;
+
+        // Add 180 degrees to the current yaw, preserving the current pitch/roll
+        // so this is a pure about-face.
+        const auto& pos = player.getRefData().getPosition();
+        float yaw = pos.rot[2] + kPi;
+        world->rotateObject(player, osg::Vec3f(pos.rot[0], pos.rot[1], yaw), MWBase::RotationFlag_none);
         speak(std::string("Facing ") + compassLabel(yaw) + ".");
     }
 

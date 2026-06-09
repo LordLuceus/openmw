@@ -216,6 +216,13 @@ namespace MWAccessibility
         // (e.g. "Facing northeast"). A quick orientation aid bound to Shift+L,
         // complementing L (where am I) with which-way-am-I-looking.
         void announceFacing();
+        // Snap the player's facing to the previous/next of the eight compass
+        // points (Ctrl+A = counter-clockwise, Ctrl+D = clockwise). Levels the
+        // pitch and announces the new heading. A keyboard-friendly way to aim
+        // along a cardinal/intercardinal direction without a mouse.
+        void snapToDirection(bool clockwise);
+        // Turn the player 180 degrees (Ctrl+S), announcing the new facing.
+        void turnAround();
 
         void rebuildCurrentList();
         // Compute stable A/B/C suffixes for same-named objects in the active

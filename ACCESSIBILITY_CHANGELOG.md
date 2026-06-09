@@ -6,6 +6,13 @@ Newest changes are listed first. (OpenMW's own engine changelog lives in
 
 ## 2026-06-09
 
+- **Snap-to-direction and turn-around keys.** New facing controls for orienting
+  without a mouse: **Ctrl+Left** snaps your facing to the previous compass point
+  and **Ctrl+Right** to the next (the eight points: north, northeast, east,
+  southeast, south, southwest, west, northwest), so repeated presses step all the
+  way around the compass. **Ctrl+Down** turns you 180 degrees to face the
+  opposite way. Each announces your new heading.
+
 - **Weapon and spell quick-cycling now speaks the selection.** Cycling your
   readied spell with the - and = keys, or your weapon with the [ and ] keys,
   now announces the spell or weapon you've just switched to. Previously this
