@@ -59,7 +59,6 @@
 
 #include "../mwrender/vismask.hpp"
 
-#include "../mwgui/accessibility/activeeffects.hpp"
 #include "../mwgui/tooltips.hpp"
 
 #include "../mwbase/environment.hpp"
@@ -81,7 +80,6 @@
 #include "../mwworld/player.hpp"
 #include "../mwworld/ptr.hpp"
 #include "../mwworld/refdata.hpp"
-#include "../mwworld/datetimemanager.hpp"
 #include "../mwworld/worldmodel.hpp"
 
 namespace
@@ -131,10 +129,6 @@ namespace
     // are announced at any distance regardless of this. See
     // Scanner::announceActorSpellCast.
     constexpr float kSpellCastNearbyRange = 28.f * kUnitsPerMetre;
-
-    // Time-manager pause tag for the accessible HUD. Pausing is additive/tagged
-    // (see DateTimeManager), so our pause coexists with any other pause source.
-    constexpr std::string_view sHudPauseTag = "a11y_hud";
 
     // Player position-vector "forward" is along +Y in OpenMW's coordinate
     // system, and yaw rotates around Z. A target bearing relative to the
@@ -489,22 +483,10 @@ namespace MWAccessibility
         mCellNamePrimed = false;
         mMeleeReachCooldown = 0.f;
 
-        // If the AHUD was open when the world was torn down (e.g. the player
-        // loaded a save from the HUD), drop our pause tag so the new game isn't
-        // left frozen. The time manager is reset on load, but unpausing our tag
-        // explicitly keeps the bookkeeping honest and harmless if already gone.
-        if (mHudActive)
-        {
-            mHudActive = false;
-            if (MWBase::World* world = MWBase::Environment::get().getWorld())
-                world->getTimeManager()->unpause(sHudPauseTag);
-        }
-        mHudInEffects = false;
-        mHudItems.clear();
-        mHudEffects.clear();
-        mHudIndex = 0;
-        mHudEffectIndex = 0;
-        mHudLastTargetLabel.clear();
+        // Drop all AHUD state and lift our pause tag if held, so a HUD left open
+        // when the world is torn down (e.g. the player loaded a save from the
+        // HUD) can't strand the new game frozen.
+        mHud.reset();
     }
 
     void Scanner::onFrame(float dt)
@@ -540,7 +522,7 @@ namespace MWAccessibility
 
         // While the HUD is open and parked on the target row, keep that row in
         // sync with whichever actor the player cycles the scanner to.
-        hudFollowTarget();
+        mHud.followTarget();
 
         // Invalidate caches when the player's cell changes (handles both
         // interior/exterior transitions). In an exterior the active cell grid
@@ -663,7 +645,7 @@ namespace MWAccessibility
         // which keep working while the HUD is up (the player can still cycle
         // scan targets, lock on, etc.). H / Escape that aren't consumed here
         // reach the main switch and close the HUD.
-        if (mHudActive && handleHudKey(scancode, ctrl, shift, alt))
+        if (mHud.isActive() && mHud.handleKey(scancode, ctrl, shift, alt))
             return true;
 
         // Pressing a movement key while auto-walk is active should cancel it
@@ -753,16 +735,16 @@ namespace MWAccessibility
                 // quick health readout handled above.
                 if (!ctrl && !shift && !alt)
                 {
-                    toggleHud();
+                    mHud.toggle();
                     return true;
                 }
                 return false;
             case SDL_SCANCODE_ESCAPE:
                 // Escape closes the AHUD if it's open (and only then do we
                 // consume it, so Escape behaves normally otherwise).
-                if (mHudActive)
+                if (mHud.isActive())
                 {
-                    toggleHud();
+                    mHud.toggle();
                     return true;
                 }
                 return false;
@@ -1897,231 +1879,10 @@ namespace MWAccessibility
             speak(text + ".");
     }
 
-    void Scanner::buildHudItems()
-    {
-        mHudItems.clear();
-        mHudIndex = 0;
-        mHudInEffects = false;
-        mHudEffects.clear();
-        mHudEffectIndex = 0;
-        mHudLastTargetLabel.clear();
-
-        MWBase::World* world = MWBase::Environment::get().getWorld();
-        MWWorld::Ptr player = world->getPlayerPtr();
-        if (player.isEmpty())
-            return;
-
-        // Build the list in the order the screen reads: where you are, your
-        // three vitals, breath (only underwater), sneaking, readied weapon /
-        // spell, an "Active effects" drill-in row, and the current enemy. Rows
-        // with nothing to say are omitted so navigation only lands on real
-        // info. The world is paused while the HUD is open, so this snapshot
-        // stays accurate until close.
-        if (std::string loc = locationText(); !loc.empty())
-            mHudItems.push_back({ loc, false });
-
-        mHudItems.push_back({ playerStatText(0, "Health"), false });
-        mHudItems.push_back({ playerStatText(1, "Magicka"), false });
-        mHudItems.push_back({ playerStatText(2, "Fatigue"), false });
-
-        if (std::string breath = breathText(); !breath.empty())
-            mHudItems.push_back({ breath, false });
-
-        if (MWBase::Environment::get().getMechanicsManager()->isSneaking(player))
-            mHudItems.push_back({ "Sneaking", false });
-
-        if (std::string w = readiedWeaponText(); !w.empty())
-            mHudItems.push_back({ w, false });
-        if (std::string s = readiedSpellText(); !s.empty())
-            mHudItems.push_back({ s, false });
-
-        // Active effects: a single drill-in row reporting the count. Snapshot
-        // the detailed lines (shared with the magic pane) so Enter can walk
-        // them. Omitted entirely when nothing is active.
-        for (const MWGui::A11y::ActiveEffectLine& line : MWGui::A11y::activeEffects(player))
-            mHudEffects.emplace_back(line.source, line.effect);
-        if (!mHudEffects.empty())
-        {
-            HudItem fx;
-            fx.mLabel = "Active effects, " + std::to_string(mHudEffects.size());
-            fx.mIsEffects = true;
-            mHudItems.push_back(std::move(fx));
-        }
-
-        // Target row: always present so the player can park on it and have it
-        // track whichever actor they cycle to with the scanner keys (its label
-        // is recomputed live in announceHudCurrent). mLabel here is just the
-        // initial snapshot shown on open.
-        HudItem target;
-        target.mIsTarget = true;
-        target.mLabel = targetHealthLabel();
-        mHudItems.push_back(std::move(target));
-    }
-
     std::string Scanner::targetHealthLabel()
     {
         std::string text = enemyHealthText();
         return text.empty() ? "Target: none" : "Target: " + text;
-    }
-
-    void Scanner::announceHudCurrent()
-    {
-        if (mHudInEffects)
-        {
-            if (mHudEffects.empty())
-                return;
-            const auto& [source, effect] = mHudEffects[mHudEffectIndex];
-            speak(source + ": " + effect + ".");
-            return;
-        }
-
-        if (mHudItems.empty())
-        {
-            speak("HUD empty.");
-            return;
-        }
-        const HudItem& item = mHudItems[mHudIndex];
-        // The target row is recomputed live so it reflects whichever actor the
-        // player has cycled the scanner to since the HUD opened.
-        std::string label = item.mIsTarget ? targetHealthLabel() : item.mLabel;
-        // Record the spoken target label so the per-frame follow poll only
-        // re-announces on an actual change.
-        if (item.mIsTarget)
-            mHudLastTargetLabel = label;
-        // Hint that the effects row is enterable.
-        if (item.mIsEffects)
-            label += ". Press Enter for details";
-        speak(label + ".");
-    }
-
-    void Scanner::hudFollowTarget()
-    {
-        // Only while the HUD is open, in the main list, parked on the target
-        // row. Re-announce when the live target label changes (the player
-        // cycled the scanner to a different actor, or its health moved -- though
-        // the world is paused, so in practice this fires on target switches).
-        if (!mHudActive || mHudInEffects || mHudItems.empty())
-            return;
-        if (!mHudItems[mHudIndex].mIsTarget)
-            return;
-        std::string label = targetHealthLabel();
-        if (label != mHudLastTargetLabel)
-            announceHudCurrent();
-    }
-
-    void Scanner::hudMove(int delta)
-    {
-        if (mHudInEffects)
-        {
-            if (mHudEffects.empty())
-                return;
-            const int n = static_cast<int>(mHudEffects.size());
-            mHudEffectIndex = (mHudEffectIndex + delta % n + n) % n;
-            announceHudCurrent();
-            return;
-        }
-        if (mHudItems.empty())
-            return;
-        const int n = static_cast<int>(mHudItems.size());
-        mHudIndex = (mHudIndex + delta % n + n) % n;
-        announceHudCurrent();
-    }
-
-    void Scanner::hudEnterEffects()
-    {
-        if (mHudItems.empty() || !mHudItems[mHudIndex].mIsEffects || mHudEffects.empty())
-            return;
-        mHudInEffects = true;
-        mHudEffectIndex = 0;
-        announceHudCurrent();
-    }
-
-    void Scanner::hudLeaveEffects()
-    {
-        if (!mHudInEffects)
-            return;
-        mHudInEffects = false;
-        // Return to the Effects row that was drilled into, and re-announce it
-        // so the player knows they're back in the main list.
-        announceHudCurrent();
-    }
-
-    void Scanner::toggleHud()
-    {
-        MWWorld::DateTimeManager* timeMgr = MWBase::Environment::get().getWorld()->getTimeManager();
-        if (mHudActive)
-        {
-            mHudActive = false;
-            mHudInEffects = false;
-            timeMgr->unpause(sHudPauseTag);
-            speak("HUD closed.");
-            return;
-        }
-
-        mHudActive = true;
-        // Pause via a time-manager tag (not a GuiMode): this freezes the world
-        // -- player and AI movement, time, combat -- while leaving our key
-        // handler live, so the player can calmly navigate the HUD and read
-        // stats mid-ambush. Unpaused on close, and defensively in clear().
-        timeMgr->pause(sHudPauseTag);
-        buildHudItems();
-        // Land on the first row and read it (a brief "HUD" cue prefixes it). The
-        // quick-info keys (Alt+H/M/F, Shift+Alt+H) stay available for spot
-        // checks, and Up/Down walk the list.
-        if (mHudItems.empty())
-        {
-            speak("HUD empty.");
-            return;
-        }
-        speak("HUD.");
-        announceHudCurrent();
-    }
-
-    bool Scanner::handleHudKey(int scancode, bool ctrl, bool shift, bool alt)
-    {
-        // Only called while the HUD is open. Arrow Up/Down walk the list (or the
-        // effects sub-list); Enter drills into the effects row; Escape/Left back
-        // out of the sub-list, else H/Escape (handled by the caller) close the
-        // HUD. Plain presses only -- modified combos fall through so the
-        // quick-info keys and scanner keys keep working.
-        if (ctrl || shift || alt)
-            return false;
-
-        switch (scancode)
-        {
-            case SDL_SCANCODE_UP:
-                hudMove(-1);
-                return true;
-            case SDL_SCANCODE_DOWN:
-                hudMove(+1);
-                return true;
-            case SDL_SCANCODE_RETURN:
-            case SDL_SCANCODE_KP_ENTER:
-                // Drill into the effects row. In the sub-list there's nothing
-                // to enter, but still consume Enter so it doesn't leak to the
-                // scanner's focus-camera action while the HUD is up.
-                if (!mHudInEffects)
-                    hudEnterEffects();
-                return true;
-            case SDL_SCANCODE_LEFT:
-            case SDL_SCANCODE_ESCAPE:
-                // Escape / Left back out of the effects sub-list (consuming the
-                // key). When already in the main list, return false so the
-                // caller's Escape handling closes the whole HUD.
-                if (mHudInEffects)
-                {
-                    hudLeaveEffects();
-                    return true;
-                }
-                return false;
-            case SDL_SCANCODE_HOME:
-                // Re-read the current row (consistent with Home elsewhere as a
-                // "repeat" key) without leaving the HUD.
-                announceHudCurrent();
-                return true;
-            default:
-                return false;
-        }
     }
 
     void Scanner::rebuildCurrentList()
