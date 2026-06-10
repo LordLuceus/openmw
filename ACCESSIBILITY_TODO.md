@@ -244,18 +244,21 @@ P13 6, P14 7, P15 10, P16 1, P17 6, P18 4.
 ### Maintainability (P17=6) — not urgent
 - [~] **God-class decomposition.** `scanner.cpp` was 2545 lines / ~70 methods /
       ~8 responsibilities (the bigger offender); `screen.cpp` 1182 lines, 52
-      methods, 28 members. STARTED 2026-06-10 on scanner: extracted the pure
-      formatting helpers (`spokenformat`) as the first slice (now 2501 lines).
-      Plan is incremental, one reviewable commit per cluster, testing pure logic
-      as it comes out. Remaining scanner clusters to carve (rough sizes): pure
-      classification predicates (~360, mostly pure — next), category list-mgmt
-      (`rebuildCurrentList` is 180 lines alone), lock-on combat (~280), the
-      Accessible HUD (~250, self-contained state + own key handler → its own
-      class), quick-info text builders (~150), waypoints/locations (~220).
-      `screen.cpp`: tooltip-cache invalidation (`mTooltipElement`, `mSubTooltip*`)
-      is scattered across 5+ reset sites = silent-desync risk; extract
-      `TooltipCycler` + `Submenu` sub-objects before next features push it past
-      ~1500 lines.
+      methods, 28 members. STARTED 2026-06-10 on scanner, incremental, one
+      reviewable commit per cluster. Done so far (scanner now 2282 lines):
+      `spokenformat` (pure distance/elevation/letter/compass helpers + tests),
+      `itembucket` (pure item classification + tests), and the **Accessible HUD**
+      lifted into its own `Hud` class (`hud.{hpp,cpp}`, 241 lines) talking back
+      via a narrow `HudHost` interface — a structural slice, NOT unit-tested
+      (engine-coupled), so needs an in-game smoke test (open/close, effects
+      drill-in, target-row follow). Remaining scanner clusters to carve (rough
+      sizes): category list-mgmt (`rebuildCurrentList` 180 lines), lock-on combat
+      (~280), quick-info text builders (~150), waypoints/locations (~220). These
+      are engine-coupled (need a Ptr/world seam to be testable) — bigger design
+      step than the drop-in slices so far. `screen.cpp`: tooltip-cache
+      invalidation (`mTooltipElement`, `mSubTooltip*`) is scattered across 5+
+      reset sites = silent-desync risk; extract `TooltipCycler` + `Submenu`
+      sub-objects before next features push it past ~1500 lines.
 - [ ] **(P17) De-dup `formatSpellEffectLine` overloads** (spelltext.cpp:35-43 vs
       127-135, and the magnitude switch 52-76 vs 142-170) — copy-pasted verbatim.
 
