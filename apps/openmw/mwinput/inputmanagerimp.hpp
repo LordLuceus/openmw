@@ -74,6 +74,7 @@ namespace MWInput
         std::string_view getActionDescription(int action) const override;
         std::string getActionKeyBindingName(int action) const override;
         std::string getActionControllerBindingName(int action) const override;
+        SDL_Scancode getActionKeyBinding(int action) const override;
         bool actionIsActive(int action) const override;
 
         float getActionValue(int action) const override;

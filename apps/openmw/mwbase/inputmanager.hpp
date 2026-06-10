@@ -6,6 +6,7 @@
 #include <vector>
 
 #include <SDL_gamecontroller.h>
+#include <SDL_scancode.h>
 #include <cstdint>
 
 namespace Loading
@@ -59,6 +60,11 @@ namespace MWBase
         virtual std::string_view getActionDescription(int action) const = 0;
         virtual std::string getActionKeyBindingName(int action) const = 0;
         virtual std::string getActionControllerBindingName(int action) const = 0;
+        /// The keyboard key currently bound to \p action, or SDL_SCANCODE_UNKNOWN
+        /// if none. Lets non-input code (e.g. the accessibility scanner) react to
+        /// the player's *real* movement bindings instead of hardcoded scancodes,
+        /// so remapped / non-QWERTY layouts behave correctly.
+        virtual SDL_Scancode getActionKeyBinding(int action) const = 0;
         virtual bool actionIsActive(int action) const = 0;
 
         virtual float getActionValue(int action) const = 0; // returns value in range [0, 1]

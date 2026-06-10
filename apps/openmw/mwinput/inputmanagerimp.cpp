@@ -159,6 +159,11 @@ namespace MWInput
         return mBindingsManager->getActionControllerBindingName(action);
     }
 
+    SDL_Scancode InputManager::getActionKeyBinding(int action) const
+    {
+        return mBindingsManager->getKeyBinding(action);
+    }
+
     bool InputManager::actionIsActive(int action) const
     {
         return mBindingsManager->actionIsActive(action);

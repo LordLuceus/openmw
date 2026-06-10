@@ -186,19 +186,24 @@ P13 6, P14 7, P15 10, P16 1, P17 6, P18 4.
       null-anchor / unexpected-widget-state) through it too.
 
 ### Correctness bugs surfaced
-- [ ] **(P7) `EditField` diff mishandles selection-replace / paste.**
-      `editfield.cpp:206-304` handles pure insert + pure delete only. A
-      selection-replace where `now.size()==before.size()` falls through `default`
-      and says nothing; differing sizes diff as a simple insert/delete and may
-      announce the wrong characters. Repro path: paste over a selected save name.
-      Fix alongside adding tests.
+- [x] **(P7) `EditField` diff mishandles selection-replace / paste.**
+      DONE 2026-06-10: replaced the separate insert-only / delete-only branches
+      with a single-span diff (`diffSpan` -> common prefix/suffix stripped) feeding
+      a shared `announceSpan`. Now handles insertion, deletion AND replacement
+      (typing or pasting over a selection) uniformly, and never goes silent on a
+      real change. Backspace/Delete still speak what was removed; replacement
+      speaks the new text. Unit tests for diffSpan still pending (see P16 epic).
 - [ ] **(P3) Omitted spell effects should be audible.** `formatSpellEffectLine`
       one overload says "Unknown effect" (spelltext.cpp:117-118) but the other
       `return {}`s silently (28-29), so the two overloads are inconsistent and an
       enchant/spell can read as complete while missing an effect.
-- [ ] **(P12/P8) Autowalk-cancel hardcodes physical W/A/S/D** (scanner.cpp:705-715)
-      → breaks for remapped / AZERTY / Dvorak / Colemak players. Use
-      `BindingsManager::getKeyBinding(A_MoveForward/Left/Backward/Right)`.
+- [x] **(P12/P8) Autowalk-cancel hardcodes physical W/A/S/D** (scanner.cpp:705-715)
+      DONE 2026-06-10: added `MWBase::InputManager::getActionKeyBinding(action)`
+      (delegates to `BindingsManager::getKeyBinding`, returns the bound
+      SDL_Scancode) and a scanner `isMovementKey()` helper that checks the live
+      A_MoveForward/Backward/Left/Right bindings. Remapped / AZERTY / Dvorak /
+      Colemak players can now cancel with their own movement keys, and an unbound
+      action (UNKNOWN) never spuriously matches.
 
 ### Localization (P9=4, P10=5) — post-beta epic (does NOT affect English testers)
 - [ ] **~45 hardcoded English fragments across 15 files.** Highest priority is the

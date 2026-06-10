@@ -60,11 +60,14 @@
 #include "../mwgui/tooltips.hpp"
 
 #include "../mwbase/environment.hpp"
+#include "../mwbase/inputmanager.hpp"
 #include "../mwbase/luamanager.hpp"
 #include "../mwbase/mechanicsmanager.hpp"
 #include "../mwbase/statemanager.hpp"
 #include "../mwbase/windowmanager.hpp"
 #include "../mwbase/world.hpp"
+
+#include "../mwinput/actions.hpp"
 
 #include "../mwworld/cell.hpp"
 #include "../mwworld/cellref.hpp"
@@ -80,6 +83,26 @@
 
 namespace
 {
+    // True if \p scancode is the player's currently-bound forward / back / left
+    // / right movement key. Reads the live key bindings (not hardcoded WASD) so
+    // remapped and non-QWERTY layouts work, and an unbound action (UNKNOWN)
+    // never spuriously matches. Used to cancel auto-walk when the player takes
+    // manual control.
+    bool isMovementKey(int scancode)
+    {
+        const MWBase::InputManager* input = MWBase::Environment::get().getInputManager();
+        if (!input)
+            return false;
+        for (int action : { MWInput::A_MoveForward, MWInput::A_MoveBackward, MWInput::A_MoveLeft,
+                 MWInput::A_MoveRight })
+        {
+            const SDL_Scancode bound = input->getActionKeyBinding(action);
+            if (bound != SDL_SCANCODE_UNKNOWN && static_cast<int>(bound) == scancode)
+                return true;
+        }
+        return false;
+    }
+
     constexpr float kPi = 3.14159265358979323846f;
 
     // Morrowind world units: 64 units = 1 yard = 0.9144 metres, so
@@ -702,20 +725,15 @@ namespace MWAccessibility
         // binding, so the player auto-walks to an object and presses Space to
         // interact with it on arrival. Cancelling on Space would make that
         // impossible (and Space wouldn't reach the activate handler).
-        if (mAutoWalker.isActive())
+        //
+        // Use the player's *real* movement bindings rather than hardcoded WASD,
+        // so a remapped or non-QWERTY (AZERTY/Dvorak/Colemak) player can still
+        // cancel with their own forward/left/back/right keys -- and so a key
+        // that's no longer movement for them doesn't cancel unexpectedly.
+        if (mAutoWalker.isActive() && isMovementKey(scancode))
         {
-            switch (scancode)
-            {
-                case SDL_SCANCODE_W:
-                case SDL_SCANCODE_A:
-                case SDL_SCANCODE_S:
-                case SDL_SCANCODE_D:
-                    speak("Auto-walk cancelled.");
-                    mAutoWalker.cancel();
-                    break;
-                default:
-                    break;
-            }
+            speak("Auto-walk cancelled.");
+            mAutoWalker.cancel();
         }
 
         switch (scancode)

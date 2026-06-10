@@ -6,6 +6,18 @@ Newest changes are listed first. (OpenMW's own engine changelog lives in
 
 ## 2026-06-10
 
+- **Fix: editing a text field no longer goes silent when you overwrite a
+  selection.** Typing or pasting over selected text (e.g. replacing a highlighted
+  save name) now speaks the new text instead of saying nothing or reading the
+  wrong characters. Plain typing, backspace/delete, and paste are all handled by
+  one consistent diff now.
+
+- **Fix: auto-walk now cancels with your own movement keys.** Pressing a movement
+  key to cancel a runaway auto-walk previously only worked if you used the
+  default WASD layout. It now reads your actual key bindings, so remapped and
+  non-QWERTY (AZERTY, Dvorak, Colemak) players can cancel too — and a key that's
+  no longer movement for you won't cancel by surprise.
+
 - **Fix: confirmation dialogs could (in theory) leave you locked out.** The
   yes/no confirmation box (used by spell delete, save overwrite, settings resets,
   etc.) suspends whatever screen is underneath it and resumes it on close. That
