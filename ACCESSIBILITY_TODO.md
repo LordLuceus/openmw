@@ -214,23 +214,42 @@ P13 6, P14 7, P15 10, P16 1, P17 6, P18 4.
       `withPosition` + the scattered `" of "` joins in one change.
 
 ### Testability + tests (P16=1, P13=6) — post-beta epic
-- [ ] **Add unit tests** (harness already exists: `apps/openmw_tests` GTests link
-      `openmw-lib` and already test `mwgui/tooltips.cpp` — additive). Top units:
-      `bookMarkupToParagraphs` (booktext.cpp — the unmatched-`<` P7 case),
-      `editfield` diff + hand-rolled UTF-8 encoder, `withPosition` (screen.cpp:19-28),
-      `letterForIndex` (scanner.cpp:371-382), `formatSpellEffectLine`,
-      `itemTooltipLines` dedup, screen nav math (moveSelection/jumpSection).
-- [ ] **(P13) Extract a pure, injectable-seam layer** (speech sink, clock, state
+- [~] **Add unit tests** (harness already exists: `apps/openmw_tests` GTests link
+      `openmw-lib` and already test `mwgui/tooltips.cpp` — additive). STARTED
+      2026-06-10: first-ever a11y unit tests landed —
+      `apps/openmw_tests/mwaccessibility/spokenformat.cpp`, 11 tests covering
+      `formatDistance`/`formatElevation`/`letterForIndex` (all green). Enabling
+      them flips `BUILD_OPENMW_TESTS=ON` (was OFF); build the `openmw-tests`
+      target and run `openmw-tests.exe --gtest_filter=MWAccessibility*`. Remaining
+      top units: `bookMarkupToParagraphs` (booktext.cpp — the unmatched-`<` P7
+      case), `editfield` diffSpan + hand-rolled UTF-8 encoder, `withPosition`
+      (screen.cpp:19-28), `formatSpellEffectLine`, `itemTooltipLines` dedup,
+      screen nav math (moveSelection/jumpSection).
+- [~] **(P13) Extract a pure, injectable-seam layer** (speech sink, clock, state
       reads) so the above become testable without standing up MyGUI + the engine.
-      Decision logic is organizationally separated (good `Element`/`Screen`
-      abstraction) but physically fused to engine singletons.
+      STARTED 2026-06-10: pulled the engine-free pure helpers out of scanner.cpp
+      into a standalone TU (`mwaccessibility/spokenformat.{hpp,cpp}`) — the first
+      testable seam. Decision logic is organizationally separated (good
+      `Element`/`Screen` abstraction) but still physically fused to engine
+      singletons; keep carving pure logic out incrementally (next: scanner's
+      `matchesCategory`/`matchesSubcategory`/`is*` classification predicates,
+      which only need a type id, and the `letterForIndex`-adjacent text builders).
 
 ### Maintainability (P17=6) — not urgent
-- [ ] **`screen.cpp` god-class-in-waiting** (1182 lines, 52 methods, 28 members;
-      `scanner.cpp` 2781 lines). Tooltip-cache invalidation (`mTooltipElement`,
-      `mSubTooltip*`) is scattered across 5+ reset sites = silent-desync risk.
-      Extract `TooltipCycler` + `Submenu` sub-objects before next features push it
-      past ~1500 lines.
+- [~] **God-class decomposition.** `scanner.cpp` was 2545 lines / ~70 methods /
+      ~8 responsibilities (the bigger offender); `screen.cpp` 1182 lines, 52
+      methods, 28 members. STARTED 2026-06-10 on scanner: extracted the pure
+      formatting helpers (`spokenformat`) as the first slice (now 2501 lines).
+      Plan is incremental, one reviewable commit per cluster, testing pure logic
+      as it comes out. Remaining scanner clusters to carve (rough sizes): pure
+      classification predicates (~360, mostly pure — next), category list-mgmt
+      (`rebuildCurrentList` is 180 lines alone), lock-on combat (~280), the
+      Accessible HUD (~250, self-contained state + own key handler → its own
+      class), quick-info text builders (~150), waypoints/locations (~220).
+      `screen.cpp`: tooltip-cache invalidation (`mTooltipElement`, `mSubTooltip*`)
+      is scattered across 5+ reset sites = silent-desync risk; extract
+      `TooltipCycler` + `Submenu` sub-objects before next features push it past
+      ~1500 lines.
 - [ ] **(P17) De-dup `formatSpellEffectLine` overloads** (spelltext.cpp:35-43 vs
       127-135, and the magnitude switch 52-76 vs 142-170) — copy-pasted verbatim.
 

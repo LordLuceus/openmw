@@ -1,5 +1,7 @@
 #include "scanner.hpp"
 
+#include "spokenformat.hpp"
+
 #include <SDL_keycode.h>
 #include <SDL_scancode.h>
 
@@ -105,9 +107,10 @@ namespace
 
     constexpr float kPi = 3.14159265358979323846f;
 
-    // Morrowind world units: 64 units = 1 yard = 0.9144 metres, so
-    // ~70 units per metre.
-    constexpr float kUnitsPerMetre = 69.99f;
+    // Morrowind world units per metre. Defined in spokenformat.hpp alongside the
+    // pure distance/elevation helpers (kept engine-free so they're unit-testable)
+    // and reused here for the spellcast-range maths.
+    using MWAccessibility::kUnitsPerMetre;
 
     // How often (seconds) to silently rebuild the Actors list so combat state
     // and distances stay current. Frequent enough that a newly-hostile attacker
@@ -132,39 +135,6 @@ namespace
     // Time-manager pause tag for the accessible HUD. Pausing is additive/tagged
     // (see DateTimeManager), so our pause coexists with any other pause source.
     constexpr std::string_view sHudPauseTag = "a11y_hud";
-
-    std::string formatDistance(float units)
-    {
-        float metres = units / kUnitsPerMetre;
-        char buf[32];
-        if (metres < 10.0f)
-            std::snprintf(buf, sizeof(buf), "%.1f metres", metres);
-        else
-            std::snprintf(buf, sizeof(buf), "%d metres", static_cast<int>(metres + 0.5f));
-        return buf;
-    }
-
-    // Describe vertical offset of a target relative to the player, e.g.
-    // "2 metres up" / "3 metres down". Returns "" when within roughly one
-    // floor-step of level, so we don't clutter announcements for things on the
-    // same level. \p dzUnits is target.z - player.z in world units (positive =
-    // target is higher).
-    std::string formatElevation(float dzUnits)
-    {
-        // ~0.75 m dead-band: a single stair step is well under this, so minor
-        // height differences on the "same" level stay silent.
-        constexpr float kLevelDeadBand = 52.5f; // ~0.75 m
-        if (std::abs(dzUnits) <= kLevelDeadBand)
-            return std::string();
-        const float metres = std::abs(dzUnits) / kUnitsPerMetre;
-        char buf[32];
-        if (metres < 10.0f)
-            std::snprintf(buf, sizeof(buf), "%.1f metres %s", metres, dzUnits > 0.0f ? "up" : "down");
-        else
-            std::snprintf(buf, sizeof(buf), "%d metres %s", static_cast<int>(metres + 0.5f),
-                dzUnits > 0.0f ? "up" : "down");
-        return buf;
-    }
 
     // Player position-vector "forward" is along +Y in OpenMW's coordinate
     // system, and yaw rotates around Z. A target bearing relative to the
@@ -386,22 +356,6 @@ namespace
         static const char* kPoints[8]
             = { "north", "northeast", "east", "southeast", "south", "southwest", "west", "northwest" };
         return kPoints[idx];
-    }
-
-    // Spoken disambiguation suffix for the i-th (0-based) duplicate: A, B, ...
-    // Z, then AA, AB, ... for the (rare) case of more than 26 same-named
-    // objects in one cell.
-    std::string letterForIndex(size_t i)
-    {
-        std::string out;
-        ++i; // 1-based for bijective base-26 (A=1).
-        while (i > 0)
-        {
-            size_t rem = (i - 1) % 26;
-            out.insert(out.begin(), static_cast<char>('A' + rem));
-            i = (i - 1) / 26;
-        }
-        return out;
     }
 
     std::string objectDisplayName(const MWWorld::Ptr& ptr)
