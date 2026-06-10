@@ -105,11 +105,10 @@ namespace
         return false;
     }
 
-    constexpr float kPi = 3.14159265358979323846f;
-
-    // Morrowind world units per metre. Defined in spokenformat.hpp alongside the
-    // pure distance/elevation helpers (kept engine-free so they're unit-testable)
-    // and reused here for the spellcast-range maths.
+    // Pi and Morrowind-units-per-metre live in spokenformat.hpp alongside the
+    // pure distance/elevation/compass helpers (kept engine-free so they're
+    // unit-testable); reused here for the spellcast-range and yaw maths.
+    using MWAccessibility::kPi;
     using MWAccessibility::kUnitsPerMetre;
 
     // How often (seconds) to silently rebuild the Actors list so combat state
@@ -335,27 +334,6 @@ namespace
             return true;
         const Subcategory& s = subs[subIndex];
         return s.mMatch == nullptr || s.mMatch(ptr);
-    }
-
-    // 8-point absolute compass label for a world-space bearing in radians,
-    // where 0 = +Y = north and angle increases toward +X = east (matching the
-    // engine's own atan2(x, y) convention; see camera north handling). This is
-    // a fixed reference frame: a given door is always "to the north" regardless
-    // of which way the player looks.
-    const char* compassLabel(float absYaw)
-    {
-        // Normalize to [0, 2*PI).
-        while (absYaw < 0)
-            absYaw += 2 * kPi;
-        while (absYaw >= 2 * kPi)
-            absYaw -= 2 * kPi;
-        // Each 45-degree sector centered on a compass point; offset by half a
-        // sector so e.g. north covers [-22.5, +22.5) degrees.
-        const float sector = 2 * kPi / 8.0f;
-        int idx = static_cast<int>((absYaw + sector / 2) / sector) % 8;
-        static const char* kPoints[8]
-            = { "north", "northeast", "east", "southeast", "south", "southwest", "west", "northwest" };
-        return kPoints[idx];
     }
 
     std::string objectDisplayName(const MWWorld::Ptr& ptr)

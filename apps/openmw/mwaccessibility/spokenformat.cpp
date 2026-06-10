@@ -45,4 +45,20 @@ namespace MWAccessibility
         }
         return out;
     }
+
+    const char* compassLabel(float absYaw)
+    {
+        // Normalize to [0, 2*PI).
+        while (absYaw < 0)
+            absYaw += 2 * kPi;
+        while (absYaw >= 2 * kPi)
+            absYaw -= 2 * kPi;
+        // Each 45-degree sector centered on a compass point; offset by half a
+        // sector so e.g. north covers [-22.5, +22.5) degrees.
+        const float sector = 2 * kPi / 8.0f;
+        int idx = static_cast<int>((absYaw + sector / 2) / sector) % 8;
+        static const char* kPoints[8]
+            = { "north", "northeast", "east", "southeast", "south", "southwest", "west", "northwest" };
+        return kPoints[idx];
+    }
 }

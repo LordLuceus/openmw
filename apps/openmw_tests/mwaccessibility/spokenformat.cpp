@@ -91,5 +91,49 @@ namespace MWAccessibility
             EXPECT_EQ(letterForIndex(701), "ZZ");
             EXPECT_EQ(letterForIndex(702), "AAA");
         }
+
+        // --- compassLabel ----------------------------------------------------
+        // 0 = north (+Y), increasing toward east (+X); eight 45-degree sectors
+        // centred on each point, so north spans [-22.5, +22.5) degrees. Helper
+        // converts degrees to the radians the function expects.
+        float deg(float d) { return d * kPi / 180.f; }
+
+        TEST(MWAccessibilitySpokenFormat, compassLabelCardinalCentres)
+        {
+            EXPECT_STREQ(compassLabel(deg(0.f)), "north");
+            EXPECT_STREQ(compassLabel(deg(90.f)), "east");
+            EXPECT_STREQ(compassLabel(deg(180.f)), "south");
+            EXPECT_STREQ(compassLabel(deg(270.f)), "west");
+        }
+
+        TEST(MWAccessibilitySpokenFormat, compassLabelIntercardinalCentres)
+        {
+            EXPECT_STREQ(compassLabel(deg(45.f)), "northeast");
+            EXPECT_STREQ(compassLabel(deg(135.f)), "southeast");
+            EXPECT_STREQ(compassLabel(deg(225.f)), "southwest");
+            EXPECT_STREQ(compassLabel(deg(315.f)), "northwest");
+        }
+
+        TEST(MWAccessibilitySpokenFormat, compassLabelSectorBoundariesRoundToNextPoint)
+        {
+            // Just inside north's upper edge (<22.5) is still north; at/just past
+            // it rolls into northeast.
+            EXPECT_STREQ(compassLabel(deg(22.f)), "north");
+            EXPECT_STREQ(compassLabel(deg(23.f)), "northeast");
+        }
+
+        TEST(MWAccessibilitySpokenFormat, compassLabelNormalisesNegativeAngles)
+        {
+            // -90 degrees == 270 == west; -45 == 315 == northwest.
+            EXPECT_STREQ(compassLabel(deg(-90.f)), "west");
+            EXPECT_STREQ(compassLabel(deg(-45.f)), "northwest");
+        }
+
+        TEST(MWAccessibilitySpokenFormat, compassLabelNormalisesAnglesAboveTwoPi)
+        {
+            // 360 wraps to north, 450 (== 90) to east.
+            EXPECT_STREQ(compassLabel(deg(360.f)), "north");
+            EXPECT_STREQ(compassLabel(deg(450.f)), "east");
+        }
     }
 }
