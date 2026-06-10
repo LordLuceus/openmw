@@ -78,6 +78,11 @@ namespace MWGui::A11y
         // Speak a run of characters: a single character is spoken via sayChar,
         // longer runs are spoken as plain text.
         void sayRun(const std::u32string& run);
+        // Speak the result of a single-span edit diff (see diffSpan): a
+        // replacement speaks the inserted text, a pure insertion echoes it, a
+        // pure deletion announces what was removed. Keeps typing, paste, and
+        // overwrite-a-selection from ever going silent.
+        void announceSpan(const std::u32string& removed, const std::u32string& inserted);
 
         MyGUI::EditBox* mEdit = nullptr;
 

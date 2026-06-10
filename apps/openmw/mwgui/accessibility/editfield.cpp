@@ -62,6 +62,37 @@ namespace MWGui::A11y
             return text.substr(start, end - start);
         }
 
+        // Diff two strings as a single changed span: the maximal common prefix
+        // and (non-overlapping) common suffix are stripped, and whatever's left
+        // in the middle of each is the removed / inserted run. This generalises
+        // pure insertion (removed empty), pure deletion (inserted empty) AND
+        // replacement (both non-empty) -- e.g. typing or pasting over a
+        // selection, where the older insert-only / delete-only diffs either said
+        // nothing (equal-length replace) or announced the wrong characters.
+        struct SpanDiff
+        {
+            std::u32string removed;
+            std::u32string inserted;
+        };
+
+        SpanDiff diffSpan(const std::u32string& before, const std::u32string& now)
+        {
+            size_t prefix = 0;
+            const size_t maxPrefix = std::min(before.size(), now.size());
+            while (prefix < maxPrefix && before[prefix] == now[prefix])
+                ++prefix;
+            // Common suffix, but never overlapping the prefix already matched in
+            // either string (so a span can't be counted twice).
+            size_t suffix = 0;
+            const size_t maxSuffix = std::min(before.size(), now.size()) - prefix;
+            while (suffix < maxSuffix && before[before.size() - 1 - suffix] == now[now.size() - 1 - suffix])
+                ++suffix;
+            SpanDiff diff;
+            diff.removed = before.substr(prefix, before.size() - prefix - suffix);
+            diff.inserted = now.substr(prefix, now.size() - prefix - suffix);
+            return diff;
+        }
+
         // Spoken name for a single character, mapping whitespace / invisible
         // characters to words so the TTS backend doesn't silently drop them.
         std::string spokenChar(char32_t ch)
@@ -124,6 +155,20 @@ namespace MWGui::A11y
             sayChar(run[0]);
         else
             say(toUtf8(run), /*interrupt=*/true);
+    }
+
+    void EditField::announceSpan(const std::u32string& removed, const std::u32string& inserted)
+    {
+        // Decide what to speak for a single changed span. Replacement (both
+        // non-empty -- e.g. typing or pasting over a selection) speaks the new
+        // text, since the freshest, most useful feedback is what the field now
+        // holds at the caret. Pure insertion echoes what was added; pure
+        // deletion announces what was removed. An empty span (no change) is a
+        // no-op -- callers already filter now == before.
+        if (!inserted.empty())
+            sayRun(inserted);
+        else if (!removed.empty())
+            sayRun(removed);
     }
 
     void EditField::announceContents(const std::string& label)
@@ -261,44 +306,36 @@ namespace MWGui::A11y
             case MyGUI::KeyCode::Backspace:
             case MyGUI::KeyCode::Delete:
             {
-                // Announce whatever was removed by diffing old vs new around the
-                // caret. Find the common prefix and suffix; the middle of the
-                // old string that's gone is what was deleted.
-                if (now.size() >= before.size())
+                // Announce whatever was removed by diffing old vs new. The span
+                // diff covers both a single-character backspace and deleting a
+                // whole selection at once; if a selection was *replaced* (rare on
+                // these keys) we fall through to the general announce below.
+                if (now == before)
                 {
-                    // Nothing actually removed (e.g. already empty).
+                    // Nothing changed (e.g. Backspace in an already-empty field,
+                    // or at the very start with nothing to the left).
                     say("blank", /*interrupt=*/true);
                     return;
                 }
-                size_t prefix = 0;
-                const size_t minLen = now.size();
-                while (prefix < minLen && now[prefix] == before[prefix])
-                    ++prefix;
-                size_t suffix = 0;
-                while (suffix < (minLen - prefix) && now[now.size() - 1 - suffix] == before[before.size() - 1 - suffix])
-                    ++suffix;
-                const size_t removedCount = before.size() - now.size();
-                const std::u32string removed = before.substr(prefix, removedCount);
-                if (removed.empty())
-                    return;
-                sayRun(removed);
+                const SpanDiff diff = diffSpan(before, now);
+                // Pure deletion speaks what was removed; a replacement (selection
+                // overwritten) or any other shape is handled by the shared
+                // announce so we never go silent.
+                announceSpan(diff.removed, diff.inserted);
                 return;
             }
             default:
             {
-                // Any other key: if exactly one or more characters were inserted
-                // just before the caret, echo them. Otherwise stay silent (e.g.
-                // modifier keys, Tab, Enter handled elsewhere).
-                if (now.size() > before.size())
-                {
-                    size_t prefix = 0;
-                    const size_t minLen = before.size();
-                    while (prefix < minLen && now[prefix] == before[prefix])
-                        ++prefix;
-                    const size_t insertedCount = now.size() - before.size();
-                    const std::u32string inserted = now.substr(prefix, insertedCount);
-                    sayRun(inserted);
-                }
+                // Any other key (typing, paste, IME commit): diff old vs new as a
+                // single changed span. This handles a plain insertion, typing or
+                // pasting *over a selection* (replacement -- which the old
+                // size-only check missed when the new text was the same length or
+                // shorter), and a selection delete-via-typing. Pure caret moves /
+                // modifier keys leave the text unchanged and stay silent.
+                if (now == before)
+                    return;
+                const SpanDiff diff = diffSpan(before, now);
+                announceSpan(diff.removed, diff.inserted);
                 return;
             }
         }
