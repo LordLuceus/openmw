@@ -94,6 +94,7 @@ Thumbs.db
 .letta
 agent-docs/
 build_dev.bat
+build_beta.bat
 build_openmw.bat
 reconfigure_dev.bat
 run_prebuild.sh
