@@ -216,24 +216,30 @@ P13 6, P14 7, P15 10, P16 1, P17 6, P18 4.
 ### Testability + tests (P16=1, P13=6) — post-beta epic
 - [~] **Add unit tests** (harness already exists: `apps/openmw_tests` GTests link
       `openmw-lib` and already test `mwgui/tooltips.cpp` — additive). STARTED
-      2026-06-10: first-ever a11y unit tests landed —
-      `apps/openmw_tests/mwaccessibility/spokenformat.cpp`, 11 tests covering
-      `formatDistance`/`formatElevation`/`letterForIndex` (all green). Enabling
-      them flips `BUILD_OPENMW_TESTS=ON` (was OFF); build the `openmw-tests`
-      target and run `openmw-tests.exe --gtest_filter=MWAccessibility*`. Remaining
-      top units: `bookMarkupToParagraphs` (booktext.cpp — the unmatched-`<` P7
-      case), `editfield` diffSpan + hand-rolled UTF-8 encoder, `withPosition`
+      2026-06-10: first a11y unit tests landed — 20 green GTests across
+      `apps/openmw_tests/mwaccessibility/spokenformat.cpp` (formatDistance/
+      formatElevation/letterForIndex/compassLabel) and `.../itembucket.cpp`
+      (classifyItemType). Enabling them flips `BUILD_OPENMW_TESTS=ON` (was OFF);
+      build the `openmw-tests` target and run `openmw-tests.exe
+      --gtest_filter=MWAccessibility*`. Remaining top units:
+      `bookMarkupToParagraphs` (booktext.cpp — the unmatched-`<` P7 case),
+      `editfield` diffSpan + hand-rolled UTF-8 encoder, `withPosition`
       (screen.cpp:19-28), `formatSpellEffectLine`, `itemTooltipLines` dedup,
       screen nav math (moveSelection/jumpSection).
 - [~] **(P13) Extract a pure, injectable-seam layer** (speech sink, clock, state
       reads) so the above become testable without standing up MyGUI + the engine.
-      STARTED 2026-06-10: pulled the engine-free pure helpers out of scanner.cpp
-      into a standalone TU (`mwaccessibility/spokenformat.{hpp,cpp}`) — the first
-      testable seam. Decision logic is organizationally separated (good
-      `Element`/`Screen` abstraction) but still physically fused to engine
-      singletons; keep carving pure logic out incrementally (next: scanner's
-      `matchesCategory`/`matchesSubcategory`/`is*` classification predicates,
-      which only need a type id, and the `letterForIndex`-adjacent text builders).
+      STARTED 2026-06-10: carved two engine-free TUs out of scanner.cpp —
+      `mwaccessibility/spokenformat.{hpp,cpp}` (formatDistance/formatElevation/
+      letterForIndex/compassLabel + shared kPi/kUnitsPerMetre) and
+      `mwaccessibility/itembucket.{hpp,cpp}` (classifyItemType, the Items
+      subcategory bucketing incl. the Misc catch-all). Both fully unit-tested.
+      The scanner `is*` item predicates now delegate to classifyItemType.
+      Decision logic is organizationally separated (good `Element`/`Screen`
+      abstraction) but still physically fused to engine singletons; keep carving
+      pure logic out incrementally. Engine-coupled predicates that resisted this
+      slice (need a live Ptr/world, not just a type id): `matchesCategory`
+      (Items/Activators call isItem/isActivator/getModel), `isHostileActor`
+      (combat state), `matchesSubcategory` (mixes pure + Hostile).
 
 ### Maintainability (P17=6) — not urgent
 - [~] **God-class decomposition.** `scanner.cpp` was 2545 lines / ~70 methods /
