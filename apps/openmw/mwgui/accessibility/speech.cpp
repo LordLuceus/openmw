@@ -6,6 +6,7 @@
 #include <MyGUI_UString.h>
 
 #include <components/accessibility/accessibilitymanager.hpp>
+#include <components/debug/debuglog.hpp>
 
 namespace MWGui::A11y
 {
@@ -32,7 +33,15 @@ namespace MWGui::A11y
         // Resolve #{Group:Key} tags (GMST and L10n) to display text.
         std::string utf8 = resolveTags(text);
         if (utf8.empty())
+        {
+            // Non-empty input resolved to nothing -- almost always a broken or
+            // renamed #{Group:Key} tag (e.g. after an upstream l10n change). The
+            // user would just hear silence with no clue why; log which input
+            // failed so it's diagnosable. (An all-tag string with no fallback
+            // text is the classic culprit.)
+            logWarn(std::string("say: input resolved to empty (broken tag?): ").append(text));
             return;
+        }
 
         Accessibility::AccessibilityManager::instance().speak(utf8, interrupt);
     }
@@ -44,7 +53,10 @@ namespace MWGui::A11y
 
         std::string utf8 = resolveTags(text);
         if (utf8.empty())
+        {
+            logWarn(std::string("sayRereadable: input resolved to empty (broken tag?): ").append(text));
             return;
+        }
 
         sLastRereadable = utf8;
         Accessibility::AccessibilityManager::instance().speak(utf8, interrupt);
@@ -61,6 +73,13 @@ namespace MWGui::A11y
         std::string spokenUtf8 = resolveTags(spoken);
         if (!spokenUtf8.empty())
             Accessibility::AccessibilityManager::instance().speak(spokenUtf8, interrupt);
+        else if (!spoken.empty())
+        {
+            // Caller had something to say but it resolved to nothing -- a broken
+            // tag in the spoken half. (An intentionally-empty spoken half, used
+            // to set reread-only text, is fine and not logged.)
+            logWarn(std::string("sayRereadable: spoken input resolved to empty (broken tag?): ").append(spoken));
+        }
     }
 
     void reread()
@@ -74,5 +93,13 @@ namespace MWGui::A11y
     void clearReread()
     {
         sLastRereadable.clear();
+    }
+
+    void logWarn(std::string_view message)
+    {
+        // Single, consistently-prefixed sink for framework diagnostics. The
+        // [a11y] prefix matches the project's other accessibility log lines so
+        // a tester's openmw.log can be filtered with one grep.
+        Log(Debug::Warning) << "[a11y] " << message;
     }
 }

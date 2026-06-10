@@ -17,6 +17,7 @@
 #include "../../mwworld/class.hpp"
 #include "../../mwworld/esmstore.hpp"
 
+#include "speech.hpp"
 #include "spelltext.hpp"
 
 namespace MWGui::A11y
@@ -97,7 +98,16 @@ namespace MWGui::A11y
         if (!info.enchant.empty())
         {
             const MWWorld::ESMStore& store = *MWBase::Environment::get().getESMStore();
-            if (const ESM::Enchantment* enchant = store.get<ESM::Enchantment>().search(info.enchant))
+            const ESM::Enchantment* enchant = store.get<ESM::Enchantment>().search(info.enchant);
+            if (!enchant)
+            {
+                // The item claims an enchantment but it's not in the store, so
+                // its whole effects/charge block silently vanishes from the
+                // spoken tooltip while the item still reads as enchanted. Log it.
+                logWarn("itemTooltipLines: enchantment " + info.enchant.toDebugString()
+                    + " not found; enchant effects omitted from spoken tooltip");
+            }
+            else
             {
                 const bool constant = (enchant->mData.mType == ESM::Enchantment::ConstantEffect);
                 MWGui::Widgets::SpellEffectList effects

@@ -19,6 +19,8 @@
 
 #include "../widgets.hpp"
 
+#include "speech.hpp"
+
 namespace MWGui::A11y
 {
     std::string formatSpellEffectLine(const ESM::IndexedENAMstruct& effect, bool isConstant)
@@ -26,7 +28,14 @@ namespace MWGui::A11y
         const MWWorld::ESMStore& store = *MWBase::Environment::get().getESMStore();
         const ESM::MagicEffect* magicEffect = store.get<ESM::MagicEffect>().search(effect.mData.mEffectID);
         if (!magicEffect)
+        {
+            // Effect ID not in the store -- the effect silently vanishes from
+            // the spoken description and the spell/item reads as if complete.
+            // Log so a data/store change doesn't go unnoticed.
+            logWarn("formatSpellEffectLine: unknown magic effect ID " + effect.mData.mEffectID.toDebugString()
+                + "; effect omitted from spoken description");
             return {};
+        }
         const ESM::Attribute* attribute = store.get<ESM::Attribute>().search(effect.mData.mAttribute);
         const ESM::Skill* skill = store.get<ESM::Skill>().search(effect.mData.mSkill);
 
@@ -120,7 +129,11 @@ namespace MWGui::A11y
         const MWWorld::ESMStore& store = *MWBase::Environment::get().getESMStore();
         const ESM::MagicEffect* magicEffect = store.get<ESM::MagicEffect>().search(effect.mEffectID);
         if (!magicEffect)
+        {
+            logWarn("formatSpellEffectLine: unknown magic effect ID " + effect.mEffectID.toDebugString()
+                + "; effect omitted from spoken description");
             return {};
+        }
         const ESM::Attribute* attribute = store.get<ESM::Attribute>().search(effect.mAttribute);
         const ESM::Skill* skill = store.get<ESM::Skill>().search(effect.mSkill);
 

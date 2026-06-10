@@ -6,6 +6,20 @@ Newest changes are listed first. (OpenMW's own engine changelog lives in
 
 ## 2026-06-10
 
+- **Fix: confirmation dialogs could (in theory) leave you locked out.** The
+  yes/no confirmation box (used by spell delete, save overwrite, settings resets,
+  etc.) suspends whatever screen is underneath it and resumes it on close. That
+  resume is now anchored to the dialog's guaranteed close hook, so no dismissal
+  path can leave you with a suspended screen and no input — and reopening it back
+  to back can no longer strand the original screen.
+
+- **Reliability: the accessibility layer no longer fails silently.** Added a
+  single `[a11y]`-prefixed diagnostic log used wherever the speech layer gives up
+  with nothing to say — a broken localization tag, or a spell/enchant/active
+  effect whose data is missing from the game files. Previously these produced
+  silence with no trace; now they leave a locatable line in `openmw.log` so
+  problems are diagnosable instead of invisible.
+
 - **Fix: Save screen was silent with no existing saves.** On a fresh game with
   no saved games yet (e.g. saving for the very first time), the Save screen came
   up completely silent and unusable for screen-reader users. It now announces

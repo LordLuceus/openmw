@@ -40,6 +40,19 @@ namespace MWGui::A11y
     /// nothing. Called when leaving a screen so its content can't be re-read
     /// from an unrelated context later.
     void clearReread();
+
+    /// Log a single diagnostic warning from the accessibility framework, with a
+    /// consistent \c [a11y] prefix so failures are greppable in openmw.log.
+    ///
+    /// A speech-only interface has no visual fallback, so a silent give-up
+    /// (an unresolved localization tag, a missing effect/enchant lookup, an
+    /// unexpected-null widget) is invisible to BOTH the player and the
+    /// developer. Route every such "I have nothing to say and that's not
+    /// normal" branch through here so a future engine/data change surfaces as a
+    /// locatable log line rather than as silence or plausible-but-wrong speech.
+    /// Keep messages terse and contextual (what was being announced, what was
+    /// missing). This is intentionally NOT spoken -- it's for diagnosis.
+    void logWarn(std::string_view message);
 }
 
 #endif

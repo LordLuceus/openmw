@@ -19,6 +19,8 @@
 
 #include "../tooltips.hpp"
 
+#include "speech.hpp"
+
 namespace MWGui::A11y
 {
     namespace
@@ -80,7 +82,13 @@ namespace MWGui::A11y
 
                 const ESM::MagicEffect* effect = store.get<ESM::MagicEffect>().search(source.mEffectId);
                 if (!effect)
+                {
+                    // Active effect references an ID not in the store -- it would
+                    // silently drop from the player's effects readout. Log it.
+                    logWarn("activeEffects: unknown magic effect ID " + source.mEffectId.toDebugString()
+                        + "; effect omitted from readout");
                     continue;
+                }
 
                 const ESM::RefId arg = source.getSkillOrAttribute();
                 const ESM::Attribute* attribute = nullptr;

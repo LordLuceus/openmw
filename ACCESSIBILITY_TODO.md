@@ -155,6 +155,91 @@ auto-walk, location announcements, and audio beacon (gameplay, not a screen).
         every cached Ptr before the next frame. Future code holding a Ptr across
         frames MUST be released in `clear()`.
 
+## Design-principles review (2026-06-10)
+
+Full audit of the a11y layer against the 18 accessibility-mod design principles.
+Avg ~6.4/10. Strong where it's hardest (honesty of output, cache validity,
+authoritative state); weak on diagnosability, tests, and localization. Scores:
+P1 8, P2 3, P3 8, P4 8, P5 9, P6 9, P7 5, P8 8, P9 4, P10 5, P11 7, P12 8,
+P13 6, P14 7, P15 10, P16 1, P17 6, P18 4.
+
+### Beta-blockers (fix before test release)
+- [x] **(P14, lockout risk) `ConfirmationDialog` resume not on guaranteed hook.**
+      DONE 2026-06-10: added `onClose()` that restores via `a11yRestorePrevious`
+      (idempotent on the normal paths, which now restore before hiding) + a
+      re-entrancy guard so a back-to-back open can't orphan the covered screen.
+      `confirmationdialog.cpp:64-66` suspends the underlying a11y screen but only
+      resumes in `exit()`/`onOkButtonClicked()` — NO `onClose()` override, unlike
+      siblings `ItemSelectionDialog` (itemselection.cpp:74-87) and `EditNoteDialog`
+      (mapwindow.cpp:1844-1849). It's a shared singleton used by 8 call sites
+      (mainmenu, savegame, settings, spellwindow, mapwindow…). Any dismissal that
+      bypasses `exit()` → suspended screen + no active screen = total silent input
+      lockout for a blind player. Fix: add `onClose()` calling
+      `a11yRestorePrevious()` with a double-resume guard; also guard re-entrancy on
+      the singleton's single `mA11yPrev`.
+- [~] **(P2/P18) No diagnostic logging anywhere in the a11y layer.** PARTIALLY
+      DONE 2026-06-10: added `A11y::logWarn()` (single `[a11y]`-prefixed sink in
+      speech.cpp) and wired the highest-value silent-drop sites — failed tag
+      resolution in `say`/`sayRereadable`, and unresolved effect/enchant IDs in
+      `spelltext.cpp`/`itemtext.cpp`/`activeeffects.cpp`. STILL TODO: route the
+      MyGUI coupling points (delegate rebind / focus restore in `screen.cpp`,
+      null-anchor / unexpected-widget-state) through it too.
+
+### Correctness bugs surfaced
+- [ ] **(P7) `EditField` diff mishandles selection-replace / paste.**
+      `editfield.cpp:206-304` handles pure insert + pure delete only. A
+      selection-replace where `now.size()==before.size()` falls through `default`
+      and says nothing; differing sizes diff as a simple insert/delete and may
+      announce the wrong characters. Repro path: paste over a selected save name.
+      Fix alongside adding tests.
+- [ ] **(P3) Omitted spell effects should be audible.** `formatSpellEffectLine`
+      one overload says "Unknown effect" (spelltext.cpp:117-118) but the other
+      `return {}`s silently (28-29), so the two overloads are inconsistent and an
+      enchant/spell can read as complete while missing an effect.
+- [ ] **(P12/P8) Autowalk-cancel hardcodes physical W/A/S/D** (scanner.cpp:705-715)
+      → breaks for remapped / AZERTY / Dvorak / Colemak players. Use
+      `BindingsManager::getKeyBinding(A_MoveForward/Left/Backward/Right)`.
+
+### Localization (P9=4, P10=5) — post-beta epic (does NOT affect English testers)
+- [ ] **~45 hardcoded English fragments across 15 files.** Highest priority is the
+      framework chrome (heard on every screen): `screen.cpp` ("No description
+      available.", "Empty.", "Editing. Press Escape when done.", tooltip hints,
+      the `" of "` position indicator), `editfield.cpp` ("space/tab/newline/blank"),
+      `spelltext.cpp` ("Unknown effect"), `activeeffects.cpp` (", permanent").
+      Then screen-specific: savegamedialog (~9), mapwindow (5), race (4), dialogue,
+      journal, levelup, book/scroll, spellwindow, tradewindow, countdialog.
+- [ ] **(P10) Language-specific assembly:** binary plural "tooltip/tooltips"
+      (screen.cpp:977,996 — use ICU `formatMessage`), punctuation-sniffing on
+      localized text in `withPosition` (screen.cpp:23-25), English word-order/
+      separators in the save-timestamp assembly (savegamedialog.cpp:447-453).
+- [ ] Build a shared **localized position-indicator + plural helper** to replace
+      `withPosition` + the scattered `" of "` joins in one change.
+
+### Testability + tests (P16=1, P13=6) — post-beta epic
+- [ ] **Add unit tests** (harness already exists: `apps/openmw_tests` GTests link
+      `openmw-lib` and already test `mwgui/tooltips.cpp` — additive). Top units:
+      `bookMarkupToParagraphs` (booktext.cpp — the unmatched-`<` P7 case),
+      `editfield` diff + hand-rolled UTF-8 encoder, `withPosition` (screen.cpp:19-28),
+      `letterForIndex` (scanner.cpp:371-382), `formatSpellEffectLine`,
+      `itemTooltipLines` dedup, screen nav math (moveSelection/jumpSection).
+- [ ] **(P13) Extract a pure, injectable-seam layer** (speech sink, clock, state
+      reads) so the above become testable without standing up MyGUI + the engine.
+      Decision logic is organizationally separated (good `Element`/`Screen`
+      abstraction) but physically fused to engine singletons.
+
+### Maintainability (P17=6) — not urgent
+- [ ] **`screen.cpp` god-class-in-waiting** (1182 lines, 52 methods, 28 members;
+      `scanner.cpp` 2781 lines). Tooltip-cache invalidation (`mTooltipElement`,
+      `mSubTooltip*`) is scattered across 5+ reset sites = silent-desync risk.
+      Extract `TooltipCycler` + `Submenu` sub-objects before next features push it
+      past ~1500 lines.
+- [ ] **(P17) De-dup `formatSpellEffectLine` overloads** (spelltext.cpp:35-43 vs
+      127-135, and the magnitude switch 52-76 vs 142-170) — copy-pasted verbatim.
+
+### Distribution hygiene (P15)
+- [ ] Add a `THIRD-PARTY-LICENSES` note for Prism's **MPL-2.0** to the beta ZIP
+      (currently ships GPLv3 `LICENSE.txt` only). MPL §3.2 wants the notice kept.
+
 ## Notes
 - There are TWO repair windows: `GM_Repair` (own hammer) vs `GM_MerchantRepair`.
 - `ItemSelectionDialog` (the item picker modal) is now accessible — this is the
