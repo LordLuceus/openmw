@@ -26,8 +26,8 @@ auto-walk, location announcements, and audio beacon (gameplay, not a screen).
 - [x] **Merchant repair** (`GM_MerchantRepair`) — paying a smith (separate window)
 
 ### Progress / confirmation dialogs
-- [ ] **Level up** (`GM_Levelup`) — attribute picks
-- [ ] **Rest / wait** (`GM_Rest`, WaitDialog) — hour slider + progress bar
+- [x] **Level up** (`GM_Levelup`) — attribute picks
+- [x] **Rest / wait** (`GM_Rest`, WaitDialog) — hour slider + progress bar
 - [ ] **Jail** (`GM_Jail`) — sentence / skill-loss screen
 
 ### Player-action UIs
@@ -54,7 +54,7 @@ auto-walk, location announcements, and audio beacon (gameplay, not a screen).
       ("current of max"); Shift+Alt+H reads the current enemy's health (% only).
 
 ### System screens (no GuiMode — separate path)
-- [ ] **Save / Load** (`savegamedialog.cpp`)
+- [x] **Save / Load** (`savegamedialog.cpp`)
 - [ ] **Death screen** — bespoke yes/no dialogue (differs from the usual one)
 - [ ] **Scripts tab** in options — within the otherwise-accessible settings window
 
@@ -85,13 +85,6 @@ auto-walk, location announcements, and audio beacon (gameplay, not a screen).
       Waypoint/AutoWalker/ProximityCue machinery (isWaypointCategory() now covers
       both Waypoints and Locations). Reachable only while the player is in the
       default exterior worldspace; listed as "on the map" (no bearing) indoors.
-- [ ] **Door-to-door / interior routing** — the hard remaining piece. Auto-walk
-      can't cross a door (interiors are separate worldspaces with disjoint
-      navmesh/coords). A real "guide me to that dungeon/shop" needs a higher-level
-      route graph: walk to the exterior door marker, announce arrival, player
-      activates it (teleport), then resume pathing inside. Would also let interior
-      waypoints become reachable. Significant: needs door-marker discovery and a
-      multi-leg walk state machine that survives worldspace changes.
 
 ### Targeting / combat (lock-on backbone landed)
 - [x] **Lock-on targeting** — press K to lock the scanner selection; player is
