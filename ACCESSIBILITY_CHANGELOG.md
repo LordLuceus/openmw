@@ -4,6 +4,13 @@ A running log of screen-reader accessibility features added to this OpenMW fork.
 Newest changes are listed first. (OpenMW's own engine changelog lives in
 `CHANGELOG.md`.)
 
+## 2026-06-10
+
+- **Fix: Save screen was silent with no existing saves.** On a fresh game with
+  no saved games yet (e.g. saving for the very first time), the Save screen came
+  up completely silent and unusable for screen-reader users. It now announces
+  itself and lets you type a name and save as normal.
+
 ## 2026-06-09
 
 - **Save and Load screens are now accessible.** Opening Save or Load announces

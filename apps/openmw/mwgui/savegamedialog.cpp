@@ -255,7 +255,20 @@ namespace MWGui
 
         MWBase::StateManager* mgr = MWBase::Environment::get().getStateManager();
         if (mgr->characterBegin() == mgr->characterEnd())
+        {
+            // No characters exist yet -- e.g. a brand-new game being saved for the
+            // very first time (fresh install, no prior saves). The character-
+            // population loop below would do nothing, but we must STILL build,
+            // announce, and activate the a11y screen here; otherwise the early
+            // return skips all of that and the dialog is completely silent. In
+            // save mode the name field is always present, so the screen is fully
+            // usable (type a name -> OK). In load mode announceOnOpen() will say
+            // "No saved games." and focus lands on Cancel.
+            buildAccessibility();
+            announceOnOpen();
+            mA11y.activate();
             return;
+        }
 
         mCurrentCharacter = mgr->getCurrentCharacter();
 
