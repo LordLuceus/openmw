@@ -15,6 +15,10 @@ namespace MWGui
         bool exit() override;
 
         void onFrame(float dt) override;
+        // Guaranteed teardown hook: setVisible(false) always fires this, so it's
+        // the safe place to ensure the suspended underlying screen is resumed no
+        // matter how the dialog is dismissed (prevents a silent input lockout).
+        void onClose() override;
 
         typedef MyGUI::delegates::MultiDelegate<> EventHandle_Void;
 

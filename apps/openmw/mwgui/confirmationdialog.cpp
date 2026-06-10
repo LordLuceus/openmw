@@ -61,9 +61,17 @@ namespace MWGui
         // while the dialog is up, then take input ourselves. Announce the
         // question first, then land on Yes; the user arrows between Yes/No and
         // presses Enter. We resume the previous screen on close.
-        mA11yPrev = A11y::UiManager::instance().active();
-        if (mA11yPrev)
-            mA11yPrev->suspend();
+        // Re-entrancy guard: this is a shared singleton with a single mA11yPrev.
+        // If a prior askForConfirmation didn't resume yet (mA11yPrev still set),
+        // keep that original covered screen rather than overwriting it -- which
+        // would orphan it (suspended forever) and could even capture our own
+        // screen. Only capture when we have nothing pending.
+        if (!mA11yPrev)
+        {
+            mA11yPrev = A11y::UiManager::instance().active();
+            if (mA11yPrev)
+                mA11yPrev->suspend();
+        }
         // Rebuild the Yes/No options each open: deactivate() clears the element
         // list (and unbinds the per-widget key delegates), so re-adding here is
         // both necessary and safe. Real-focus mode -- the dialog is itself
@@ -97,13 +105,29 @@ namespace MWGui
         }
     }
 
+    void ConfirmationDialog::onClose()
+    {
+        // Safety net: setVisible(false) always routes here, so even a dismissal
+        // path that bypasses exit()/onOkButtonClicked() (or a future one) can
+        // never leave the covered screen suspended with no active screen --
+        // that would be a total, silent input lockout for a screen-reader user
+        // with no visual way to recover. The normal paths restore BEFORE hiding
+        // (so their chosen announce policy wins) and null mA11yPrev, making this
+        // a no-op there; this only fires for an unexpected close, where
+        // re-reading where the covered screen left off is the safe default.
+        a11yRestorePrevious(/*announce=*/true);
+        WindowModal::onClose();
+    }
+
     bool ConfirmationDialog::exit()
     {
-        setVisible(false);
-        // Resume the covered screen before firing the callback so any spoken
-        // feedback it produces lands on the now-active screen. Cancel usually
-        // has no announcing callback, so re-read the restored screen's row.
+        // Resume the covered screen before hiding (and before firing the
+        // callback) so any spoken feedback lands on the now-active screen, and
+        // so the onClose() that setVisible(false) triggers finds nothing left to
+        // do. Cancel usually has no announcing callback, so re-read the restored
+        // screen's row.
         a11yRestorePrevious(/*announce=*/true);
+        setVisible(false);
         eventCancelClicked();
         return true;
     }
@@ -115,14 +139,15 @@ namespace MWGui
 
     void ConfirmationDialog::onOkButtonClicked(MyGUI::Widget* /*sender*/)
     {
-        setVisible(false);
-
         // Resume the covered screen first: the OK callback may rebuild and
         // announce on it (e.g. the Magic pane's onDeleteSpellAccept), which
         // requires that screen to be the active one again. Don't re-announce
         // here -- the callback speaks the result (the new row after a delete);
-        // re-reading the stale row first would just stutter.
+        // re-reading the stale row first would just stutter. Restoring before
+        // setVisible(false) also means the onClose() it fires is a no-op (so it
+        // won't override this announce=false policy with a stale re-read).
         a11yRestorePrevious(/*announce=*/false);
+        setVisible(false);
         eventOkClicked();
     }
 
