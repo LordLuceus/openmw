@@ -1,5 +1,6 @@
 #include "scanner.hpp"
 
+#include "itembucket.hpp"
 #include "spokenformat.hpp"
 
 #include <SDL_keycode.h>
@@ -224,30 +225,44 @@ namespace
         bool (*mMatch)(const MWWorld::Ptr&);
     };
 
-    bool isWeapon(const MWWorld::Ptr& p) { return p.getType() == ESM::Weapon::sRecordId; }
-    bool isArmor(const MWWorld::Ptr& p) { return p.getType() == ESM::Armor::sRecordId; }
-    bool isClothing(const MWWorld::Ptr& p) { return p.getType() == ESM::Clothing::sRecordId; }
-    bool isPotion(const MWWorld::Ptr& p) { return p.getType() == ESM::Potion::sRecordId; }
-    bool isIngredient(const MWWorld::Ptr& p) { return p.getType() == ESM::Ingredient::sRecordId; }
-
-    bool isBookOrScroll(const MWWorld::Ptr& p) { return p.getType() == ESM::Book::sRecordId; }
-
-    // "Tools": apparatus, lockpicks, probes, repair items, and carryable
-    // lights (torches) -- the usable utility odds and ends.
+    // The Items subcategory predicates delegate to the pure, unit-tested
+    // classifyItemType (itembucket.hpp): membership is a function of the record
+    // type alone, so the bucketing -- including the Misc catch-all -- lives in
+    // one tested place rather than being re-spelled here.
+    // NB: fully qualify MWAccessibility::ItemBucket -- this anonymous namespace
+    // sits at global scope alongside the engine's Misc:: namespace, so an
+    // unqualified ItemBucket::Misc would be misparsed as that namespace.
+    bool isWeapon(const MWWorld::Ptr& p)
+    {
+        return MWAccessibility::classifyItemType(p.getType()) == MWAccessibility::ItemBucket::Weapon;
+    }
+    bool isArmor(const MWWorld::Ptr& p)
+    {
+        return MWAccessibility::classifyItemType(p.getType()) == MWAccessibility::ItemBucket::Armor;
+    }
+    bool isClothing(const MWWorld::Ptr& p)
+    {
+        return MWAccessibility::classifyItemType(p.getType()) == MWAccessibility::ItemBucket::Clothing;
+    }
+    bool isPotion(const MWWorld::Ptr& p)
+    {
+        return MWAccessibility::classifyItemType(p.getType()) == MWAccessibility::ItemBucket::Potion;
+    }
+    bool isIngredient(const MWWorld::Ptr& p)
+    {
+        return MWAccessibility::classifyItemType(p.getType()) == MWAccessibility::ItemBucket::Ingredient;
+    }
+    bool isBookOrScroll(const MWWorld::Ptr& p)
+    {
+        return MWAccessibility::classifyItemType(p.getType()) == MWAccessibility::ItemBucket::BookOrScroll;
+    }
     bool isTool(const MWWorld::Ptr& p)
     {
-        unsigned int t = p.getType();
-        return t == ESM::Apparatus::sRecordId || t == ESM::Lockpick::sRecordId
-            || t == ESM::Probe::sRecordId || t == ESM::Repair::sRecordId
-            || t == ESM::Light::sRecordId;
+        return MWAccessibility::classifyItemType(p.getType()) == MWAccessibility::ItemBucket::Tool;
     }
-
-    // "Misc": papers, keys, gold, soul gems -- everything carryable that is
-    // not covered by the buckets above.
     bool isMiscItem(const MWWorld::Ptr& p)
     {
-        return !isWeapon(p) && !isArmor(p) && !isClothing(p) && !isPotion(p)
-            && !isIngredient(p) && !isBookOrScroll(p) && !isTool(p);
+        return MWAccessibility::classifyItemType(p.getType()) == MWAccessibility::ItemBucket::Misc;
     }
 
     bool isNpcActor(const MWWorld::Ptr& p) { return p.getType() == ESM::NPC::sRecordId; }

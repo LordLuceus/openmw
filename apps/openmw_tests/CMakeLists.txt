@@ -18,6 +18,7 @@ file(GLOB UNITTEST_SRC_FILES
     mwgui/weightedsearch.cpp
 
     mwaccessibility/spokenformat.cpp
+    mwaccessibility/itembucket.cpp
 
     mwscript/testscripts.cpp
 )
