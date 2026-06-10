@@ -6,6 +6,24 @@ Newest changes are listed first. (OpenMW's own engine changelog lives in
 
 ## 2026-06-10
 
+- **New: "engage nearest enemy" in one key (Shift+K).** When a fight starts you
+  no longer have to open the HUD, cycle the scanner to Actors, find the Hostile
+  filter, pick the attacker, and lock on. **Shift+K** does all of it at once:
+  it jumps to the nearest actor that is actually attacking you and locks on, so
+  you can immediately ready a weapon and fight. If nothing is attacking you it
+  says "No hostiles nearby." and does nothing. (Plain **K** still toggles lock-on
+  for the current selection as before.)
+
+- **New: jump straight to a scanner category (Ctrl+number).** Instead of stepping
+  through every category with Ctrl+PageUp/PageDown, you can jump directly:
+  **Ctrl+1** Actors, **Ctrl+2** Doors, **Ctrl+3** Containers, **Ctrl+4** Items,
+  **Ctrl+5** Activators, **Ctrl+6** Detected, **Ctrl+7** Waypoints, **Ctrl+8**
+  Locations. Each announces the category and how many are in range, then selects
+  the nearest one. The last three only have anything when relevant (a Detect
+  effect is active, you've dropped a waypoint, you've discovered map locations);
+  jumping to an empty one just says "0 in range" rather than refusing. (Plain
+  number keys are unchanged - they're still the game's item/spell quick slots.)
+
 - **Fix: editing a text field no longer goes silent when you overwrite a
   selection.** Typing or pasting over selected text (e.g. replacing a highlighted
   save name) now speaks the new text instead of saying nothing or reading the

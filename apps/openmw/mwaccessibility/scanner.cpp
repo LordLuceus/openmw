@@ -665,6 +665,35 @@ namespace MWAccessibility
             mAutoWalker.cancel();
         }
 
+        // Ctrl+number: jump straight to a category, skipping the cycle. The
+        // order matches the Category enum / the cycle order, so the muscle
+        // memory is the same as Ctrl+PageDown stepping. Plain number keys are
+        // the engine's quick-keys (item/spell slots), so we only claim the
+        // Ctrl-modified combo and let bare numbers fall through. Conditional
+        // categories (Detected/Waypoints/Locations) are entered on request even
+        // when empty -- selectCategory announces "0 in range" honestly.
+        if (ctrl && !alt)
+        {
+            int catIndex = -1;
+            switch (scancode)
+            {
+                case SDL_SCANCODE_1: catIndex = static_cast<int>(Category::Npcs); break;
+                case SDL_SCANCODE_2: catIndex = static_cast<int>(Category::Doors); break;
+                case SDL_SCANCODE_3: catIndex = static_cast<int>(Category::Containers); break;
+                case SDL_SCANCODE_4: catIndex = static_cast<int>(Category::Items); break;
+                case SDL_SCANCODE_5: catIndex = static_cast<int>(Category::Activators); break;
+                case SDL_SCANCODE_6: catIndex = static_cast<int>(Category::Detected); break;
+                case SDL_SCANCODE_7: catIndex = static_cast<int>(Category::Waypoints); break;
+                case SDL_SCANCODE_8: catIndex = static_cast<int>(Category::Locations); break;
+                default: break;
+            }
+            if (catIndex >= 0)
+            {
+                selectCategory(static_cast<Category>(catIndex));
+                return true;
+            }
+        }
+
         switch (scancode)
         {
             case SDL_SCANCODE_PAGEDOWN:
@@ -724,10 +753,15 @@ namespace MWAccessibility
                 openDropNote();
                 return true;
             case SDL_SCANCODE_K:
-                // Toggle combat/interaction lock-on to the selected target.
+                // K toggles combat/interaction lock-on to the selected target.
                 // While locked, the player is kept aimed at it so melee,
                 // spells, and lockpicks/probes connect without manual aiming.
-                toggleLockOn();
+                // Shift+K is the one-key combat opener: jump to the nearest
+                // hostile (Actors / Hostile) and lock onto it in a single press.
+                if (shift && !ctrl && !alt)
+                    engageNearestHostile();
+                else
+                    toggleLockOn();
                 return true;
             case SDL_SCANCODE_H:
                 // Toggle the accessible HUD (pauses the world; scanner +
@@ -842,9 +876,14 @@ namespace MWAccessibility
             if (isCategoryAvailable(static_cast<Category>(cur)))
                 break;
         }
-        mCategory = static_cast<Category>(cur);
+        selectCategory(static_cast<Category>(cur));
+    }
+
+    void Scanner::selectCategory(Category cat)
+    {
+        mCategory = cat;
         // Force a rebuild of the new category's list and announce its
-        // size, then auto-select the first entry.
+        // size, then auto-select the first (nearest) entry.
         auto& state = mLists[static_cast<size_t>(mCategory)];
         state.mDirty = true;
         rebuildCurrentList();
@@ -962,20 +1001,24 @@ namespace MWAccessibility
             releaseLockOn(/*announce=*/true);
             return;
         }
+        lockOnCurrentTarget();
+    }
 
+    bool Scanner::lockOnCurrentTarget()
+    {
         // Lock-on is for world objects (actors to fight, chests/doors to pick),
         // not the position-based Waypoints category.
         if (isWaypointCategory())
         {
             speak("Cannot lock onto a waypoint.");
-            return;
+            return false;
         }
 
         MWWorld::Ptr target = currentTarget();
         if (target.isEmpty())
         {
             speak("No target selected.");
-            return;
+            return false;
         }
 
         // An auto-walk would fight the lock for control of the player's facing,
@@ -990,6 +1033,50 @@ namespace MWAccessibility
         // Aim immediately so the first attack/use this frame already connects,
         // rather than waiting for the next updateLockOn tick.
         updateLockOn();
+        return true;
+    }
+
+    void Scanner::engageNearestHostile()
+    {
+        // Jump straight to the Actors category, Hostile subcategory. Both are
+        // forced via mDirty so the list reflects who is attacking *right now*,
+        // then sorted nearest-first by rebuildCurrentList -- so index 0 is the
+        // closest attacker.
+        mCategory = Category::Npcs;
+        auto& state = mLists[static_cast<size_t>(Category::Npcs)];
+
+        // Find the "Hostile" subcategory index by name rather than hardcoding
+        // it, so reordering kNpcSubs can't silently point this at the wrong
+        // filter.
+        auto [subs, subCount] = subcategoriesFor(Category::Npcs);
+        int hostileSub = 0;
+        for (int i = 0; subs && i < static_cast<int>(subCount); ++i)
+        {
+            if (subs[i].mName == std::string_view("Hostile"))
+            {
+                hostileSub = i;
+                break;
+            }
+        }
+        state.mSubIndex = hostileSub;
+        state.mDirty = true;
+        rebuildCurrentList();
+
+        if (state.mObjects.empty())
+        {
+            // Honest negative feedback -- nothing is in combat with the player.
+            // Leave the category switched (the player asked for it) but don't
+            // pretend to have locked.
+            speak("No hostiles nearby.");
+            updateProximityCue();
+            return;
+        }
+
+        // Nearest attacker is first after the distance sort.
+        state.mIndex = 0;
+        // Re-aim/lock onto it. lockOnCurrentTarget announces "Locked onto X."
+        lockOnCurrentTarget();
+        updateProximityCue();
     }
 
     void Scanner::updateLockOn()

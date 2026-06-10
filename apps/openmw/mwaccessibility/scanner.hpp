@@ -170,6 +170,19 @@ namespace MWAccessibility
         void cycleCategory(int delta);
         void cycleTarget(int delta);
         void cycleSubcategory(int delta);
+        // Switch directly to a specific category (rebuild its list, announce
+        // its name + size, select the nearest entry). Shared by cycleCategory
+        // and the Ctrl+number category quick-keys. Switches regardless of
+        // isCategoryAvailable() -- a quick-key is an explicit request, so an
+        // empty conditional category (e.g. Detected) is entered and honestly
+        // announced as "0 in range" rather than silently skipped.
+        void selectCategory(Category cat);
+        // One-key combat opener: jump to Actors / Hostile, select the nearest
+        // attacker, and lock on -- collapsing the open-HUD / cycle-to-Actors /
+        // find-Hostile / pick / lock sequence into a single press. Announces
+        // "No hostiles nearby." and locks nothing when no actor is in combat
+        // with the player.
+        void engageNearestHostile();
         // Whether \p cat should be offered when cycling categories. All the
         // record-type categories are always available; Detected is hidden
         // unless the player's active Detect effects currently reveal at least
@@ -195,6 +208,11 @@ namespace MWAccessibility
         // key again, selecting nothing, target death, or starting an auto-walk
         // releases the lock.
         void toggleLockOn();
+        // Acquire a lock on the currently-selected target (no toggle: if a lock
+        // is already held it is replaced). Shared by toggleLockOn and
+        // engageNearestHostile. Returns false (and announces why) when the
+        // selection can't be locked -- nothing selected, or a waypoint.
+        bool lockOnCurrentTarget();
         // Per-frame re-aim while locked. No-op when not locked. Auto-releases
         // (with an announcement) if the locked target dies or leaves the world.
         void updateLockOn();
