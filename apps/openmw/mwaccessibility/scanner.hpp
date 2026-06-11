@@ -421,6 +421,35 @@ namespace MWAccessibility
         // status messages read sensibly even if the Ptr later goes stale.
         std::string mLockTargetName;
 
+        // --- Contextual combat range cue --------------------------------
+        // While locked on, a non-speech audio cue reinforces whether the player
+        // can currently HIT the locked enemy with what they have readied:
+        // enemy_in_range.wav when they cross into range, enemy_out_of_range.wav
+        // when they fall out. "In range" is contextual:
+        //   - melee weapon / hand-to-hand / touch spell  -> isInMeleeReach()
+        //   - bow / crossbow / thrown / target spell      -> clear line of fire
+        //   - nothing readied, or a self-only spell       -> no cue (Unknown)
+        // These mirror the existing spoken "Out of range" / "No clear shot"
+        // feedback but fire proactively every frame (not just on attack), so a
+        // ranged player learns they lack a shot BEFORE spending magicka.
+        enum class HitState
+        {
+            Unknown, // not locked, or no relevant weapon/spell readied
+            InRange, // the readied attack would connect from here
+            OutOfRange, // too far (melee/touch) or no clear shot (ranged)
+        };
+        // Last hit-state we played a cue for, so we only fire on a transition
+        // (edge), not every frame. Reset to Unknown whenever the lock drops.
+        HitState mLastHitState = HitState::Unknown;
+        // Per-frame: recompute the contextual hit-state for the locked target
+        // and play the in/out cue on a change. Called from updateLockOn(). No-op
+        // (and resets to Unknown) when not locked onto a live actor.
+        void updateRangeCue();
+        // Classify whether the player can currently hit \p target with what they
+        // have readied. \p player and \p target are assumed non-empty live
+        // actors. Returns Unknown when nothing relevant is readied.
+        HitState computeHitState(const MWWorld::Ptr& player, const MWWorld::Ptr& target) const;
+
         // --- Accessible HUD (AHUD) --------------------------------------
         // The navigable, world-pausing HUD. Owns all its own navigation state
         // and routing; calls back into this Scanner (as a HudHost) for the

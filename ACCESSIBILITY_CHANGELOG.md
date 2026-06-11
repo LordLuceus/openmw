@@ -4,6 +4,27 @@ A running log of screen-reader accessibility features added to this OpenMW fork.
 Newest changes are listed first. (OpenMW's own engine changelog lives in
 `CHANGELOG.md`.)
 
+## 2026-06-11
+
+- **New: audio cues for combat range, based on what you have readied.** While
+  locked onto an enemy, a short sound now tells you whether you can actually hit
+  it from where you stand - and it is contextual to your readied weapon or spell:
+  with a melee weapon (or hand to hand, or a touch spell) it tracks melee reach;
+  with a bow, crossbow, thrown weapon, or a ranged "target" spell it tracks
+  whether you have a clear line of fire to the target. You hear an "in range"
+  cue the moment you can hit and an "out of range" cue the moment you cannot,
+  including right when you lock on, so you know your situation immediately. For
+  ranged spells this means you learn you have no clear shot *before* you spend
+  the magicka, instead of only finding out after the cast fizzles. These cues
+  reinforce the existing spoken "Out of range" / "No clear shot" feedback, which
+  can be hard to catch over the noise of a fight. (Cues require a lock-on and
+  only fire when the situation changes, so they never nag.)
+
+- **New: audio cue when your locked target dies.** In addition to the spoken
+  "<Name> is dead.", a cue now plays the moment your locked-on enemy falls -
+  reinforcement for the loudest moment of combat, when the speech is easiest to
+  miss.
+
 ## 2026-06-10
 
 - **New: "engage nearest enemy" in one key (Shift+K).** When a fight starts you

@@ -20,10 +20,12 @@
 
 #include <MyGUI_LanguageManager.h>
 
+#include <components/esm/defs.hpp>
 #include <components/esm/esm3exteriorcellrefid.hpp>
 #include <components/esm/util.hpp>
 #include <components/misc/constants.hpp>
 #include <components/misc/strings/algorithm.hpp>
+#include <components/vfs/pathutil.hpp>
 
 #include <components/accessibility/accessibilitymanager.hpp>
 #include <components/esm3/loadacti.hpp>
@@ -36,6 +38,7 @@
 #include <components/esm3/loadcont.hpp>
 #include <components/esm3/loadcrea.hpp>
 #include <components/esm3/loaddoor.hpp>
+#include <components/esm3/loadench.hpp>
 #include <components/esm3/loadingr.hpp>
 #include <components/esm3/loadligh.hpp>
 #include <components/esm3/loadgmst.hpp>
@@ -53,6 +56,9 @@
 #include "../mwmechanics/drawstate.hpp"
 #include "../mwmechanics/npcstats.hpp"
 #include "../mwmechanics/spells.hpp"
+#include "../mwmechanics/weapontype.hpp"
+
+#include "../mwsound/type.hpp"
 
 #include "../mwphysics/collisiontype.hpp"
 #include "../mwphysics/raycasting.hpp"
@@ -65,6 +71,7 @@
 #include "../mwbase/inputmanager.hpp"
 #include "../mwbase/luamanager.hpp"
 #include "../mwbase/mechanicsmanager.hpp"
+#include "../mwbase/soundmanager.hpp"
 #include "../mwbase/statemanager.hpp"
 #include "../mwbase/windowmanager.hpp"
 #include "../mwbase/world.hpp"
@@ -120,6 +127,17 @@ namespace
     // rapidly-swinging weapon doesn't machine-gun the message. See
     // Scanner::announceMeleeReach.
     constexpr float kMeleeReachAnnounceInterval = 1.5f;
+
+    // Contextual combat cues, copied from files/data/sounds/a11y into the VFS at
+    // build time (see files/data/CMakeLists.txt). Played 2D (non-positional):
+    // they're a HUD-style status cue about the player's own readiness, not a
+    // sound emanating from the enemy, so spatialising them would be misleading.
+    // Missing files fail gracefully (the sound system logs and plays nothing).
+    // NormalizedView must reference a static-lifetime literal; constexpr globals
+    // satisfy that.
+    constexpr VFS::Path::NormalizedView kInRangeSound("sounds/a11y/enemy_in_range.wav");
+    constexpr VFS::Path::NormalizedView kOutOfRangeSound("sounds/a11y/enemy_out_of_range.wav");
+    constexpr VFS::Path::NormalizedView kEnemyDiedSound("sounds/a11y/enemy_died.wav");
 
     // How close (world units) another actor must be for its spellcast to be
     // announced when it is NOT targeting the player. ~28 m: roughly the audible/
@@ -1101,10 +1119,19 @@ namespace MWAccessibility
         if (mLockTarget.getClass().isActor()
             && mLockTarget.getClass().getCreatureStats(mLockTarget).isDead())
         {
+            // Reinforce the spoken "<Name> is dead." with a cue, since the
+            // death of your locked target is exactly the moment combat chatter
+            // is loudest and the speech is most likely to be missed.
+            MWBase::Environment::get().getSoundManager()->playSound(
+                kEnemyDiedSound, /*volume=*/1.0f, /*pitch=*/1.0f);
             speak(mLockTargetName + " is dead.");
             releaseLockOn(/*announce=*/false);
             return;
         }
+
+        // Proactive in/out-of-range cue for the locked target. Done before the
+        // re-aim below so the early "target on top of us" return can't skip it.
+        updateRangeCue();
 
         // Re-aim the player at the target (yaw + pitch). The engine's combat/use
         // systems all resolve their target from the player's facing direction,
@@ -1154,6 +1181,154 @@ namespace MWAccessibility
         const float desiredPitch = -std::atan2(delta.z(), horiz);
         world->rotateObject(player, osg::Vec3f(desiredPitch, 0.0f, desiredYaw),
             MWBase::RotationFlag_none);
+    }
+
+    Scanner::HitState Scanner::computeHitState(
+        const MWWorld::Ptr& player, const MWWorld::Ptr& target) const
+    {
+        MWBase::World* world = MWBase::Environment::get().getWorld();
+
+        const MWMechanics::CreatureStats& stats = player.getClass().getCreatureStats(player);
+        const MWMechanics::DrawState draw = stats.getDrawState();
+
+        // Helper: is the straight-line path from the player's torso to the
+        // target's centre clear? Mirrors announceNoClearShot's trajectory and
+        // collision set exactly, so the cue and the spoken warning agree.
+        auto hasClearShot = [&]() -> bool {
+            const float playerTorso = world->getHalfExtents(player, /*rendering=*/true).z() * 2.f * 0.75f;
+            osg::Vec3f from = player.getRefData().getPosition().asVec3();
+            from.z() += playerTorso;
+            osg::Vec3f to = target.getRefData().getPosition().asVec3();
+            to.z() += world->getHalfExtents(target, /*rendering=*/true).z();
+            const MWPhysics::RayCastingInterface* rayCasting = world->getRayCasting();
+            if (!rayCasting)
+                return true; // can't test -> don't claim a block
+            const int mask = MWPhysics::CollisionType_World | MWPhysics::CollisionType_HeightMap
+                | MWPhysics::CollisionType_Door | MWPhysics::CollisionType_Actor;
+            const MWPhysics::RayCastingResult result = rayCasting->castRay(from, to, { player }, {}, mask);
+            return !result.mHit || result.mHitObject == target;
+        };
+
+        // Helper: in melee/touch reach? Uses the same engine math (and the same
+        // fCombatDistance fallback) as announceOutOfReach.
+        auto inMeleeReach = [&](float reach) -> bool {
+            return MWMechanics::isInMeleeReach(player, target, reach);
+        };
+
+        if (draw == MWMechanics::DrawState::Weapon)
+        {
+            // Classify the readied weapon. Hand-to-hand (no weapon in the right
+            // hand) is melee. Ranged (bow/crossbow) and thrown use the clear-
+            // shot test; everything else is melee reach.
+            MWWorld::InventoryStore& inv = player.getClass().getInventoryStore(player);
+            auto slot = inv.getSlot(MWWorld::InventoryStore::Slot_CarriedRight);
+            if (slot == inv.end() || slot->isEmpty() || slot->getType() != ESM::Weapon::sRecordId)
+            {
+                // Hand to hand: melee reach with the unarmed (empty) weapon.
+                return inMeleeReach(MWMechanics::getMeleeWeaponReach(player, MWWorld::Ptr()))
+                    ? HitState::InRange
+                    : HitState::OutOfRange;
+            }
+            const int weaponType = slot->get<ESM::Weapon>()->mBase->mData.mType;
+            const ESM::WeaponType::Class weaponClass = MWMechanics::getWeaponType(weaponType)->mWeaponClass;
+            if (weaponClass == ESM::WeaponType::Ranged || weaponClass == ESM::WeaponType::Thrown)
+                return hasClearShot() ? HitState::InRange : HitState::OutOfRange;
+            return inMeleeReach(MWMechanics::getMeleeWeaponReach(player, *slot))
+                ? HitState::InRange
+                : HitState::OutOfRange;
+        }
+
+        if (draw == MWMechanics::DrawState::Spell)
+        {
+            // Resolve the readied spell's (or selected enchanted item's) effect
+            // ranges. A target-range effect launches a bolt (use the clear-shot
+            // test); a touch effect uses melee reach; a self-only spell has no
+            // meaningful "range to enemy", so we give no cue.
+            const ESM::EffectList* effects = nullptr;
+            const ESM::RefId selected = stats.getSpells().getSelectedSpell();
+            if (!selected.empty())
+            {
+                if (const ESM::Spell* spell = world->getStore().get<ESM::Spell>().search(selected))
+                    effects = &spell->mEffects;
+            }
+            else
+            {
+                MWWorld::InventoryStore& inv = player.getClass().getInventoryStore(player);
+                if (inv.getSelectedEnchantItem() != inv.end())
+                {
+                    const MWWorld::Ptr item = *inv.getSelectedEnchantItem();
+                    if (!item.isEmpty())
+                    {
+                        const ESM::Enchantment* ench
+                            = world->getStore().get<ESM::Enchantment>().search(
+                                item.getClass().getEnchantment(item));
+                        if (ench)
+                            effects = &ench->mEffects;
+                    }
+                }
+            }
+            if (!effects)
+                return HitState::Unknown;
+
+            bool hasTarget = false;
+            bool hasTouch = false;
+            for (const ESM::IndexedENAMstruct& e : effects->mList)
+            {
+                if (e.mData.mRange == ESM::RT_Target)
+                    hasTarget = true;
+                else if (e.mData.mRange == ESM::RT_Touch)
+                    hasTouch = true;
+            }
+            // A ranged ("target") effect dominates: that's the bolt the lock-on
+            // aims, and the relevant question is whether the path is clear.
+            if (hasTarget)
+                return hasClearShot() ? HitState::InRange : HitState::OutOfRange;
+            if (hasTouch)
+            {
+                const float fCombatDistance
+                    = world->getStore().get<ESM::GameSetting>().find("fCombatDistance")->mValue.getFloat();
+                return inMeleeReach(fCombatDistance) ? HitState::InRange : HitState::OutOfRange;
+            }
+            // Self-only spell: no enemy-range concept.
+            return HitState::Unknown;
+        }
+
+        // Nothing readied (DrawState::Nothing) -> no cue.
+        return HitState::Unknown;
+    }
+
+    void Scanner::updateRangeCue()
+    {
+        // Only while locked onto a live actor. Any other situation resets the
+        // edge tracker so the next lock starts clean (and the cue-on-lock fires).
+        if (!mLockedOn || mLockTarget.isEmpty() || !mLockTarget.getClass().isActor()
+            || mLockTarget.getClass().getCreatureStats(mLockTarget).isDead())
+        {
+            mLastHitState = HitState::Unknown;
+            return;
+        }
+
+        MWBase::World* world = MWBase::Environment::get().getWorld();
+        MWWorld::Ptr player = world->getPlayerPtr();
+        if (player.isEmpty())
+            return;
+
+        const HitState now = computeHitState(player, mLockTarget);
+
+        // No relevant weapon/spell readied: stay silent, but DON'T collapse the
+        // remembered in/out state to Unknown -- otherwise readying a weapon
+        // again would re-fire the cue for a state the player already knows.
+        // Only a genuine InRange<->OutOfRange transition plays a sound.
+        if (now == HitState::Unknown)
+            return;
+
+        if (now == mLastHitState)
+            return;
+        mLastHitState = now;
+
+        MWBase::Environment::get().getSoundManager()->playSound(
+            now == HitState::InRange ? kInRangeSound : kOutOfRangeSound,
+            /*volume=*/1.0f, /*pitch=*/1.0f);
     }
 
     void Scanner::announceOutOfReach(float reach)
@@ -1328,6 +1503,9 @@ namespace MWAccessibility
         if (announce)
             speak("Lock released.");
         mLockTargetName.clear();
+        // Reset the range-cue edge tracker so the next lock-on re-evaluates from
+        // scratch and fires its initial in/out cue.
+        mLastHitState = HitState::Unknown;
     }
 
     void Scanner::refreshActiveListPreservingSelection()

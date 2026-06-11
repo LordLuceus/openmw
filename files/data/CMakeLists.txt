@@ -55,6 +55,12 @@ set(BUILTIN_DATA_FILES
     sounds/a11y/approach.wav
     sounds/a11y/arrival.wav
 
+    # Accessibility combat cues: contextual in/out-of-range feedback while
+    # locked on, plus a locked-target-died cue (reinforce the spoken lines).
+    sounds/a11y/enemy_in_range.wav
+    sounds/a11y/enemy_out_of_range.wav
+    sounds/a11y/enemy_died.wav
+
     # Default animation blending config
     animations/animation-config.yaml
 
