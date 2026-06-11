@@ -113,14 +113,47 @@ namespace MWGui::A11y
         }
     }
 
+    EditField::~EditField()
+    {
+        detach();
+    }
+
     void EditField::attach(MyGUI::EditBox* edit)
     {
+        // Drop any previous binding first so we never leave stale delegates on a
+        // box we're no longer tracking, and never double-add to a reused box.
+        detach();
         mEdit = edit;
         if (!mEdit)
             return;
         mEdit->eventKeyButtonPressed += MyGUI::newDelegate(this, &EditField::onKey);
         mEdit->eventKeySetFocus += MyGUI::newDelegate(this, &EditField::onSetFocus);
+        // If the box is destroyed before we are (volatile Lua-page widgets get
+        // rebuilt out from under us), this fires so we forget it instead of
+        // later dereferencing / unhooking freed memory.
+        mEdit->eventWidgetDestroyed += MyGUI::newDelegate(this, &EditField::onWidgetDestroyed);
         sync();
+    }
+
+    void EditField::detach()
+    {
+        if (!mEdit)
+            return;
+        // The box is still alive here: cleanly remove our listeners so a
+        // destroyed/re-attached EditField leaves nothing dangling on it.
+        mEdit->eventKeyButtonPressed -= MyGUI::newDelegate(this, &EditField::onKey);
+        mEdit->eventKeySetFocus -= MyGUI::newDelegate(this, &EditField::onSetFocus);
+        mEdit->eventWidgetDestroyed -= MyGUI::newDelegate(this, &EditField::onWidgetDestroyed);
+        mEdit = nullptr;
+        mHasPending = false;
+    }
+
+    void EditField::onWidgetDestroyed(MyGUI::Widget* /*sender*/)
+    {
+        // The widget is tearing down; its event objects are about to be freed.
+        // Just forget it -- do NOT -= (that would touch the dying delegates).
+        mEdit = nullptr;
+        mHasPending = false;
     }
 
     std::u32string EditField::text() const
@@ -171,7 +204,7 @@ namespace MWGui::A11y
             sayRun(removed);
     }
 
-    void EditField::announceContents(const std::string& label)
+    void EditField::announceContents(const std::string& label, bool interrupt)
     {
         sync();
         const std::u32string current = text();
@@ -188,7 +221,7 @@ namespace MWGui::A11y
                 spoken += ": ";
             spoken += toUtf8(current);
         }
-        say(spoken, /*interrupt=*/true);
+        say(spoken, interrupt);
     }
 
     void EditField::onSetFocus(MyGUI::Widget* /*sender*/, MyGUI::Widget* /*oldFocus*/)

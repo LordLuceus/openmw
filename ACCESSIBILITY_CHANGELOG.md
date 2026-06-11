@@ -6,6 +6,18 @@ Newest changes are listed first. (OpenMW's own engine changelog lives in
 
 ## 2026-06-11
 
+- **New: the Scripts tab in Settings (mod-defined settings) is now navigable.**
+  The per-mod settings pages added by Lua mods - things like footstep volumes,
+  camera options, or combat tweaks - were previously unreadable. You can now
+  arrow through them: each setting reads as its name plus current value (e.g.
+  "Always Run: Yes"), with its longer help text available on the tooltip key.
+  Checkboxes toggle with Enter or Left/Right; multiple-choice settings step with
+  Left/Right; and numeric fields open for typing with Enter (type a value, then
+  Escape to confirm). Group headings are announced as you cross into them, and
+  each group's "Reset to defaults" button is offered at its end. Settings that
+  apply through the game's mod system (which take a moment to come back) are now
+  spoken only once they have actually changed, so you never hear a stale value.
+
 - **Fix: equipping an item no longer talks over a popup it triggers.** Equipping
   an item could trigger a game message (most visibly the early-game tutorial
   popup after you equip your first weapon), but the "equipped" announcement cut

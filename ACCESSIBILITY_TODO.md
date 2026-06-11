@@ -56,27 +56,17 @@ auto-walk, location announcements, and audio beacon (gameplay, not a screen).
 ### System screens (no GuiMode — separate path)
 - [x] **Save / Load** (`savegamedialog.cpp`)
 - [ ] **Death screen** — bespoke yes/no dialogue (differs from the usual one)
-- [ ] **Scripts tab in options = Lua-mod settings pages (post-beta; matters once
-      Lua mods with config UIs are installed, e.g. S3maphore, Friendly Autosave,
-      Graphic Herbalism, Distant Fixes).** The rest of the settings window IS
-      accessible, but the Scripts tab is a blind spot. Each Lua mod's options page
-      is rendered into the `mScriptAdapter` canvas via
-      `LuaUi::attachPageAt(mCurrentPage, mScriptAdapter)` (settingswindow.cpp) as
-      an arbitrary, mod-defined layout of custom Lua widget classes:
-      `LuaText` (derives MyGUI::EditBox — labels/values), `LuaTextEdit` (text
-      field), `LuaImage`, `LuaContainer`, `LuaFlex` (layout), plus plain buttons.
-      Our `collectSettingWidgets()` only recognizes ENGINE setting widgets — it
-      keys off `getSettingType()` (slider/CheckButton) + standard ComboBox/
-      ListBox/focusable-Button casts — so a Lua page is largely invisible/
-      unlabeled to the screen reader (at best a captioned focusable button leaks
-      through). FIX: a generic LuaUi widget walker over `mScriptAdapter`'s subtree
-      that exposes the Lua widget classes generically — `LuaText` → label/value,
-      `LuaTextEdit` → editable field, button → action — mirroring the bespoke
-      controls-list pairing in `registerControlsBox()`. Can't hardcode per-mod
-      knowledge (pages are dynamic + mod-defined). Best validated against a REAL
-      Lua settings page, so pairs naturally with installing one of those mods.
-      NOTE: also need to confirm Tab/section nav reaches the Scripts tab and that
-      switching mods within it (`ScriptList`/`mScriptFilter`) is announced.
+- [x] **Scripts tab in options = Lua-mod settings pages** (commit `ef9f6c9d9e`).
+      Generic walker over `mScriptAdapter`'s deterministic page scaffold (groups
+      flex → group flex → settings flex → named row) emits one option per setting
+      (name + live value, help text on tooltip key). Checkbox = Enter/Left/Right;
+      select = Left/Right; number/text field = Enter to type, Escape to confirm;
+      each group's Reset offered last; group titles announced as section prefix.
+      Widgets re-resolved live by stable name (never cached — Lua destroys/recreates
+      rows on change); global settings apply async so the new value is announced
+      only once it settles. Mod switching (`ScriptList`) + filter (`mScriptFilter`)
+      announced. Validated against real mod pages (Maxar Dynamic Footsteps, OpenMW
+      camera/combat). Added `LuaUi::WidgetExtension::hasEventCallback`.
 
 ### Open-world navigation
 - [x] **Global waypoint list** — Scanner Waypoints category lists ALL map notes +

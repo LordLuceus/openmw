@@ -41,8 +41,28 @@ namespace MWGui::A11y
     class EditField
     {
     public:
-        /// Bind to \p edit and hook its key + focus events.
+        EditField() = default;
+        /// Unhooks our delegates from the bound box (if it's still alive) so a
+        /// destroyed EditField never leaves dangling listeners on a surviving
+        /// widget -- critical for fields bound to volatile Lua-page boxes that
+        /// outlive the EditField (e.g. the Scripts tab rebuilding its options).
+        ~EditField();
+
+        // Non-copyable / non-movable: the box holds delegates bound to `this`,
+        // so the address must be stable for the field's whole lifetime. (Holders
+        // keep these in node-stable containers such as std::deque.)
+        EditField(const EditField&) = delete;
+        EditField& operator=(const EditField&) = delete;
+        EditField(EditField&&) = delete;
+        EditField& operator=(EditField&&) = delete;
+
+        /// Bind to \p edit and hook its key + focus events. Re-attaching detaches
+        /// any previous box first.
         void attach(MyGUI::EditBox* edit);
+
+        /// Unhook our delegates from the bound box and forget it. Safe to call
+        /// when nothing is attached. After detach(), widget() returns null.
+        void detach();
 
         /// Process any pending keystroke recorded since the last frame. Forward
         /// the owning window's onFrame() here.
@@ -54,7 +74,12 @@ namespace MWGui::A11y
 
         /// Speak the full current contents (or "blank" when empty), prefixed by
         /// \p label if non-empty. Useful on open / focus.
-        void announceContents(const std::string& label = {});
+        ///
+        /// \param interrupt when true (default), cancel any in-progress speech
+        ///        first -- right when this is the sole announcement on focus.
+        ///        Pass false to QUEUE behind a preceding line (e.g. the "Editing,
+        ///        press Escape when done" prompt) so it isn't clobbered.
+        void announceContents(const std::string& label = {}, bool interrupt = true);
 
         /// The bound edit box (null until attach()).
         MyGUI::EditBox* widget() const { return mEdit; }
@@ -69,6 +94,10 @@ namespace MWGui::A11y
     private:
         void onKey(MyGUI::Widget* sender, MyGUI::KeyCode key, MyGUI::Char ch);
         void onSetFocus(MyGUI::Widget* sender, MyGUI::Widget* oldFocus);
+        // The bound box is being destroyed (MyGUI eventWidgetDestroyed): forget
+        // it WITHOUT trying to unhook (the widget is already tearing down), so we
+        // never dereference or -= against freed memory afterwards.
+        void onWidgetDestroyed(MyGUI::Widget* sender);
 
         std::u32string text() const;
         size_t caret() const;

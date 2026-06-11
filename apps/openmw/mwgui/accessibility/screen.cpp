@@ -380,6 +380,12 @@ namespace MWGui::A11y
         return element ? element->widget : nullptr;
     }
 
+    MyGUI::Widget* Screen::currentEditWidget() const
+    {
+        const Element* element = current();
+        return (element && element->edit) ? element->edit->widget() : nullptr;
+    }
+
     void Screen::select(size_t index, bool doAnnounce)
     {
         if (index >= mElements.size())
@@ -531,7 +537,12 @@ namespace MWGui::A11y
         // The value changed, so any cached tooltip list is stale.
         mTooltipElement = npos;
 
-        if (element->value)
+        // Speak the new value immediately -- UNLESS the change is applied
+        // asynchronously (e.g. a global Lua setting that round-trips through the
+        // global script context and only re-renders some frames later). In that
+        // case element->value() still returns the OLD value right now, so the
+        // owner announces it once it settles (see SettingsWindow::onFrame).
+        if (element->value && !element->asyncValue)
             say(element->value());
 
         // Restart the delayed "has N tooltips" hint: the new value (e.g. a
@@ -680,10 +691,12 @@ namespace MWGui::A11y
             box->eventKeyButtonPressed += MyGUI::newDelegate(this, &Screen::onKey);
         }
         // Activate spoken editing feedback and announce the current contents so
-        // the user knows what they're editing.
+        // the user knows what they're editing. The prompt interrupts (a fresh
+        // start on entering edit mode); the contents QUEUE behind it so they
+        // don't immediately clobber the prompt (which made it inaudible).
         element->edit->setActive(true);
-        say("Editing. Press Escape when done.");
-        element->edit->announceContents();
+        say("Editing. Press Escape when done.", /*interrupt=*/true);
+        element->edit->announceContents(/*label=*/{}, /*interrupt=*/false);
     }
 
     void Screen::exitEditMode()
@@ -711,8 +724,14 @@ namespace MWGui::A11y
             MWBase::Environment::get().getWindowManager()->setKeyFocusWidget(element->widget);
             mSuppressFocusAnnounce = false;
         }
-        // Re-announce the option (label + updated value) and re-arm its hint.
-        announceCurrent();
+        // Re-announce the option (label + updated value) and re-arm its hint --
+        // UNLESS the value is applied asynchronously (e.g. a Scripts-tab number
+        // field whose commit round-trips and re-renders some frames later). For
+        // those, announcing the value now would speak the STALE pre-commit value
+        // and then get clobbered when the real value settles; the owner instead
+        // announces the option once it settles (see SettingsWindow::onFrame).
+        if (!(element && element->asyncValue))
+            announceCurrent();
         resetHint();
     }
 

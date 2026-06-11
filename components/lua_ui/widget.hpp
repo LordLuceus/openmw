@@ -52,6 +52,12 @@ namespace LuaUi
         void setCallback(const std::string&, const LuaUtil::Callback&);
         void clearCallbacks();
 
+        // True if a Lua event callback by this name is registered (e.g.
+        // "mouseClick"). Lets non-Lua code (the screen-reader walker over a
+        // script settings page) detect generically which mod-defined widgets
+        // are actually interactive without knowing the page layout.
+        bool hasEventCallback(std::string_view name) const { return mCallbacks.find(name) != mCallbacks.end(); }
+
         void setProperties(const sol::main_object& props);
         void setTemplateProperties(const sol::main_object& props) { mTemplateProperties = props; }
 

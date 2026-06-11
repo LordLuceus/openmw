@@ -80,6 +80,15 @@ namespace MWGui::A11y
         /// for Left (decrement). Leave empty for options with no value.
         std::function<void(bool next)> change;
 
+        /// Set when \c change applies the new value *asynchronously* (the value
+        /// returned by \c value won't reflect the change for one or more frames,
+        /// e.g. a global Lua setting that round-trips through the global script
+        /// context). When true, \c changeValue does NOT speak the value
+        /// immediately after \c change -- doing so would announce the stale,
+        /// pre-change value. The owner is responsible for announcing the new
+        /// value once it settles (typically by polling in its onFrame).
+        bool asyncValue = false;
+
         /// Returns the tooltip lines cycled by T / Shift+T. Leave empty for
         /// options with no tooltip. Recomputed on demand so it always reflects
         /// the current value.

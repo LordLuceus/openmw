@@ -194,6 +194,13 @@ namespace MWGui::A11y
         /// Lets an owner implement option-type-specific extra keys.
         MyGUI::Widget* currentWidget() const;
 
+        /// The edit box of the current option (its EditField's widget), or null
+        /// if the current option isn't an editable field. Lets an owner key
+        /// per-field bookkeeping (e.g. which setting just entered edit mode) off
+        /// the actual box, since editable options carry their control in \c edit
+        /// rather than \c widget.
+        MyGUI::Widget* currentEditWidget() const;
+
         /// Install a handler for keys the framework doesn't consume (return
         /// true if handled). Lets a screen add bespoke shortcuts, e.g. settings'
         /// Ctrl+Left/Right tab cycling.
