@@ -781,7 +781,18 @@ namespace MWGui
         if (mA11y.isActive())
         {
             if (found >= 0)
-                mA11y.selectIndexInterrupting(mA11yItemBase + static_cast<size_t>(found));
+                // QUEUE this announcement (announce=true, non-interrupting)
+                // rather than interrupting in-progress speech. Equipping an item
+                // can itself trigger game speech -- most notably a tutorial popup
+                // (the early-game "you equipped a weapon" message): interrupting
+                // clobbered that popup's text, leaving the player with a modal
+                // dialog they couldn't hear and arrow keys that "didn't work"
+                // because focus was trapped on the unheard popup. Queuing lets
+                // the equip result follow any such message instead of cutting it
+                // off. We only announce once per action (mA11yFollowItem is
+                // cleared just below), so there's no stale-announcement pile-up
+                // to interrupt away.
+                mA11y.selectIndex(mA11yItemBase + static_cast<size_t>(found), /*announce=*/true);
             else
                 a11yRebuildKeepingCursor(); // item gone (fully dropped/used)
         }

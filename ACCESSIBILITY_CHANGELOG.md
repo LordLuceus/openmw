@@ -6,6 +6,15 @@ Newest changes are listed first. (OpenMW's own engine changelog lives in
 
 ## 2026-06-11
 
+- **Fix: equipping an item no longer talks over a popup it triggers.** Equipping
+  an item could trigger a game message (most visibly the early-game tutorial
+  popup after you equip your first weapon), but the "equipped" announcement cut
+  that popup's text off mid-sentence. You were then left with a modal popup you
+  hadn't heard and arrow keys that seemed dead (they were - the popup had to be
+  dismissed first, but you had no way to know it was there). The equip
+  announcement now waits its turn instead of interrupting, so you hear the popup
+  and then the equip result.
+
 - **Fix: interior doors no longer announce a bogus destination.** Ordinary doors
   inside buildings and dungeons - the kind that just open to another part of the
   same area rather than loading a new cell - were being read as leading somewhere
