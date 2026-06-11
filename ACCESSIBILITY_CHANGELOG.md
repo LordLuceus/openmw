@@ -6,6 +6,15 @@ Newest changes are listed first. (OpenMW's own engine changelog lives in
 
 ## 2026-06-11
 
+- **Fix: combat range cues (and spell names) now work with readied spells.** The
+  new in/out-of-range cues did nothing while a spell was readied (any spell,
+  touch or target), because the player's selected spell was read from the wrong
+  place - for the player, the spell chosen in the UI is not stored where it is
+  for NPCs. The same underlying bug also meant the readied-spell announcement
+  said only a generic "Magic ready." instead of the spell's name, and the HUD /
+  quick-info "Spell:" line was blank for spells. All three now read the player's
+  actual readied spell, so the range cues fire for spells and the spell is named.
+
 - **New: audio cues for combat range, based on what you have readied.** While
   locked onto an enemy, a short sound now tells you whether you can actually hit
   it from where you stand - and it is contextual to your readied weapon or spell:

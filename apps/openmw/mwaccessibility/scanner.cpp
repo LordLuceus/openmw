@@ -1245,7 +1245,15 @@ namespace MWAccessibility
             // test); a touch effect uses melee reach; a self-only spell has no
             // meaningful "range to enemy", so we give no cue.
             const ESM::EffectList* effects = nullptr;
-            const ESM::RefId selected = stats.getSpells().getSelectedSpell();
+            // CRITICAL: read the readied spell from the WindowManager, NOT from
+            // CreatureStats. For the PLAYER, selecting a spell in the UI does
+            // not update CreatureStats' selected spell (the engine keeps that
+            // frozen during casting; see mwlua/types/actor.cpp ~line 230), so
+            // stats.getSpells().getSelectedSpell() is empty here -- which made
+            // the whole spell branch resolve no effects and return Unknown (no
+            // cue for any readied spell). The WindowManager holds the player's
+            // actually-selected spell.
+            const ESM::RefId selected = MWBase::Environment::get().getWindowManager()->getSelectedSpell();
             if (!selected.empty())
             {
                 if (const ESM::Spell* spell = world->getStore().get<ESM::Spell>().search(selected))
@@ -1566,8 +1574,12 @@ namespace MWAccessibility
                 // Name the readied spell, or the selected enchanted item if a
                 // magic item is what's equipped for casting.
                 std::string name;
+                // WindowManager, not CreatureStats: the player's UI spell
+                // selection does not update CreatureStats (see computeHitState),
+                // so reading CreatureStats here would always fall through to the
+                // generic "Magic ready." instead of naming the spell.
                 const ESM::RefId selected
-                    = player.getClass().getCreatureStats(player).getSpells().getSelectedSpell();
+                    = MWBase::Environment::get().getWindowManager()->getSelectedSpell();
                 if (!selected.empty())
                 {
                     const ESM::Spell* spell = world->getStore().get<ESM::Spell>().search(selected);
@@ -2050,7 +2062,12 @@ namespace MWAccessibility
         if (player.isEmpty())
             return {};
 
-        const ESM::RefId selected = player.getClass().getCreatureStats(player).getSpells().getSelectedSpell();
+        // Read the player's readied spell from the WindowManager, not from
+        // CreatureStats: for the player the UI selection does not update the
+        // CreatureStats selected spell (see computeHitState / mwlua actor.cpp),
+        // so the CreatureStats value is empty and this line would never name the
+        // spell.
+        const ESM::RefId selected = MWBase::Environment::get().getWindowManager()->getSelectedSpell();
         if (!selected.empty())
         {
             const ESM::Spell* spell = world->getStore().get<ESM::Spell>().search(selected);
