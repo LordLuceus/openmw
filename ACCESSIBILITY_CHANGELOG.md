@@ -6,6 +6,14 @@ Newest changes are listed first. (OpenMW's own engine changelog lives in
 
 ## 2026-06-11
 
+- **Fix: interior doors no longer announce a bogus destination.** Ordinary doors
+  inside buildings and dungeons - the kind that just open to another part of the
+  same area rather than loading a new cell - were being read as leading somewhere
+  (often "to Ashlands Region", the default exterior region) because of leftover
+  data on the door. The scanner now only announces a destination for doors that
+  actually teleport you elsewhere, matching the game's own door tooltip. Real
+  doors between locations (e.g. "Door, to Balmora, Guild of Mages") are unchanged.
+
 - **Fix: combat range cues (and spell names) now work with readied spells.** The
   new in/out-of-range cues did nothing while a spell was readied (any spell,
   touch or target), because the player's selected spell was read from the wrong

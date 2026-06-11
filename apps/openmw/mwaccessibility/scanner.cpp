@@ -377,6 +377,16 @@ namespace
     {
         if (ptr.getType() != ESM::Door::sRecordId)
             return;
+        // CRITICAL: only teleporting doors actually lead somewhere. A non-
+        // teleport door (one that just swings open to another part of the same
+        // cell -- common inside buildings and dungeons) can still carry stale
+        // destination data in its cell ref, and an empty/default destCell
+        // resolves to the exterior region name. That produced bogus
+        // announcements like "Door, to Ashlands Region" for an ordinary
+        // interior door. Gate on getTeleport() exactly as the engine's own door
+        // tooltip does (see MWClass::Door::getToolTipInfo).
+        if (!ptr.getCellRef().getTeleport())
+            return;
         ESM::RefId destCell = ptr.getCellRef().getDestCell();
         if (destCell.empty())
             return;
