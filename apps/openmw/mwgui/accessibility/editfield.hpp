@@ -123,6 +123,10 @@ namespace MWGui::A11y
         // A key recorded by onKey, consumed on the next onFrame(). None means
         // nothing pending.
         MyGUI::KeyCode mPendingKey = MyGUI::KeyCode::None;
+        // Whether Ctrl was held when mPendingKey was recorded. A Ctrl-modified
+        // navigation key is an owner shortcut, not a caret move, so onFrame
+        // stays silent for it (avoids clobbering the shortcut's announcement).
+        bool mPendingCtrl = false;
         bool mHasPending = false;
 
         // Whether spoken editing feedback is currently on (see setActive).

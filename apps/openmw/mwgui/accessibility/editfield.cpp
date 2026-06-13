@@ -3,6 +3,7 @@
 #include <algorithm>
 
 #include <MyGUI_EditBox.h>
+#include <MyGUI_InputManager.h>
 #include <MyGUI_UString.h>
 
 #include "speech.hpp"
@@ -247,6 +248,7 @@ namespace MWGui::A11y
         // Record the key even while inactive: onFrame uses it to know a stray
         // native edit may have happened so it can revert it silently.
         mPendingKey = key;
+        mPendingCtrl = MyGUI::InputManager::getInstance().isControlPressed();
         mHasPending = true;
     }
 
@@ -272,6 +274,7 @@ namespace MWGui::A11y
         const std::u32string now = text();
         const size_t caretNow = caret();
         const MyGUI::KeyCode key = mPendingKey;
+        const bool ctrl = mPendingCtrl;
 
         const std::u32string before = mPrevText;
         const size_t caretBefore = mPrevCaret;
@@ -280,6 +283,26 @@ namespace MWGui::A11y
         // baseline for the next key.
         mPrevText = now;
         mPrevCaret = caretNow;
+
+        // A Ctrl-modified navigation key is never a plain caret move: the owning
+        // window claims Ctrl+Arrow/Home/End for its own shortcuts (output review
+        // in the console, section jumps, pane switches, etc.). Narrating it here
+        // as "blank"/a character would clobber the shortcut's own announcement
+        // (the exact interrupt-collision class of bug we keep hitting). Stay
+        // silent for those and let the owner speak. (Text-CHANGING keys with
+        // Ctrl held -- Ctrl+V paste, Ctrl+Backspace delete-word -- still fall
+        // through to the diff path below, which only speaks on a real change.)
+        if (ctrl
+            && (key == MyGUI::KeyCode::ArrowLeft || key == MyGUI::KeyCode::ArrowRight
+                || key == MyGUI::KeyCode::ArrowUp || key == MyGUI::KeyCode::ArrowDown
+                || key == MyGUI::KeyCode::Home || key == MyGUI::KeyCode::End))
+        {
+            // Only suppress when the text didn't change (a pure navigation
+            // shortcut). If something WAS edited, fall through so we don't go
+            // silent on a real mutation.
+            if (now == before)
+                return;
+        }
 
         switch (key.getValue())
         {
