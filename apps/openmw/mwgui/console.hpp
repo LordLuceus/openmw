@@ -83,6 +83,15 @@ namespace MWGui
         void commandBoxKeyPress(MyGUI::Widget* sender, MyGUI::KeyCode key, MyGUI::Char value);
         void acceptCommand(MyGUI::EditBox* sender);
 
+        // Screen-reader click-to-target replacement. A sighted player sets the
+        // console's implicit object by clicking it in the world; a blind player
+        // can't aim, so instead they select the object in the accessibility
+        // scanner (during gameplay) and then press the grab key (Ctrl+T) here to
+        // adopt that selection as the console target. Announces the adopted
+        // object's name, or that nothing is selected. No-op result is spoken so
+        // the action is never silent.
+        void adoptScannerTarget();
+
         enum class SearchDirection;
         void toggleCaseSensitiveSearch(MyGUI::Widget* sender);
         void toggleRegExSearch(MyGUI::Widget* sender);

@@ -78,6 +78,19 @@ namespace MWAccessibility
         /// their isEmpty() checks -- so we never hand one out.
         MWWorld::Ptr lockTarget() const;
 
+        /// The world object the screen-reader player currently has selected for
+        /// the accessible console's click-to-target flow: the locked-on target
+        /// if one is held, otherwise the current scanner cursor selection. A
+        /// blind player cannot click an object in the world to set the console's
+        /// implicit reference, so the console adopts this instead (see
+        /// Console::adoptScannerTarget). Unlike enemyInfoTarget() this accepts
+        /// ANY object type (item, door, NPC, container...), since console
+        /// commands target all of them. Returns an empty Ptr when no game is
+        /// running or nothing object-like is selected (e.g. a waypoint
+        /// category, whose entries are bare positions, not references). The
+        /// running-state guard keeps it UAF-proof, matching lockTarget().
+        MWWorld::Ptr selectedObject();
+
         /// Announce when the player attacks the locked target but can't reach
         /// it: "Out of range", or "Target too high"/"Target too low" when it's
         /// within horizontal reach but beyond the engine's vertical reach check.

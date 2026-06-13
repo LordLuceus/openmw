@@ -477,6 +477,25 @@ namespace MWAccessibility
         return mLockedOn ? mLockTarget : MWWorld::Ptr();
     }
 
+    MWWorld::Ptr Scanner::selectedObject()
+    {
+        // Mirror lockTarget()'s running-state guard: the console can read this
+        // while a game is being torn down (the console is a GuiMode that can
+        // outlive a quickload), and a dangling cursor/lock Ptr would not be
+        // caught by the caller's isEmpty() check, so never hand one out.
+        if (MWBase::Environment::get().getStateManager()->getState()
+            != MWBase::StateManager::State_Running)
+            return MWWorld::Ptr();
+        // Prefer the locked-on target (what the player is actively engaged
+        // with), else the current scanner cursor. currentTarget() already
+        // returns empty for the position-based waypoint categories (it indexes
+        // mObjects, which is empty there), so those can't leak in.
+        MWWorld::Ptr target = mLockedOn ? mLockTarget : MWWorld::Ptr();
+        if (target.isEmpty())
+            target = currentTarget();
+        return target;
+    }
+
     void Scanner::clear()
     {
         // Release the lock-on and drop every cached MWWorld::Ptr. Called when a

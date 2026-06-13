@@ -6,6 +6,15 @@ Newest changes are listed first. (OpenMW's own engine changelog lives in
 
 ## 2026-06-13
 
+- **New: you can target an object in the console without clicking it.** Many
+  console commands act on a selected object, which a sighted player picks by
+  clicking it in the world - impossible without aiming. Now you select the
+  object in the scanner during normal play (or lock onto it), then open the
+  console and press Ctrl+T to adopt that selection as the console target; it
+  announces the object name (e.g. "Target: Calvus Horatius"), or tells you if
+  nothing is selected. This makes target-scoped commands - setting a variable
+  on an NPC, resurrecting, unlocking, and so on - usable from the keyboard.
+
 - **New: the companion-share window is now usable.** Talking to a companion and
   choosing "Companion share" opens a window that lets you move items between
   your inventory and theirs (to manage what they carry, or to keep a contract

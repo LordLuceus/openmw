@@ -32,6 +32,10 @@
 #include "../mwworld/class.hpp"
 #include "../mwworld/esmstore.hpp"
 
+#include "../mwaccessibility/scanner.hpp"
+
+#include "accessibility/speech.hpp"
+
 namespace
 {
     bool isWhitespace(MyGUI::UString::code_point c)
@@ -314,6 +318,13 @@ namespace MWGui
                     mCommandLine->setOnlyText(text);
                     mCommandLine->setTextCursor(0);
                 }
+            }
+            else if (key == MyGUI::KeyCode::T)
+            {
+                // Ctrl+T: adopt the accessibility scanner's current selection as
+                // the console target (the keyboard-only replacement for clicking
+                // an object in the world to set the implicit reference).
+                adoptScannerTarget();
             }
         }
         else if (key == MyGUI::KeyCode::Tab && mConsoleMode.empty())
@@ -798,6 +809,34 @@ namespace MWGui
         else
             mPtr = MWWorld::Ptr();
         updateConsoleTitle();
+    }
+
+    void Console::adoptScannerTarget()
+    {
+        MWWorld::Ptr target = MWAccessibility::Scanner::instance().selectedObject();
+        if (target.isEmpty())
+        {
+            // Nothing selected in the scanner -- tell the player rather than
+            // silently doing nothing (a speech-only UI must never no-op mutely).
+            A11y::say("No object selected in the scanner.", /*interrupt=*/true);
+            return;
+        }
+
+        // Set the target directly rather than via setSelectedObject(), whose
+        // click semantics TOGGLE (clicking the already-selected object clears
+        // it) -- the grab key should deterministically adopt the selection, so
+        // re-pressing it on the same object keeps it as the target.
+        mPtr = target;
+        updateConsoleTitle();
+        MWBase::Environment::get().getWindowManager()->setKeyFocusWidget(mCommandLine);
+
+        // Announce what we adopted. Prefer the display name (e.g. "Calvus
+        // Horatius"); fall back to the record id when an object has no name
+        // (many activators/markers), so the feedback is never empty.
+        std::string name = std::string(target.getClass().getName(target));
+        if (name.empty())
+            name = target.getCellRef().getRefId().toDebugString();
+        A11y::say("Target: " + name, /*interrupt=*/true);
     }
 
     void Console::updateConsoleTitle()
