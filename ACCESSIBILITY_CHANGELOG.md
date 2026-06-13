@@ -6,6 +6,20 @@ Newest changes are listed first. (OpenMW's own engine changelog lives in
 
 ## 2026-06-13
 
+- **New: the console is now usable with a screen reader.** Opening the console
+  announces itself (and its current target, if any). Typing is spoken as you go,
+  arrow keys read the command line character by character, and Up/Down through
+  your command history reads each recalled command aloud. Command OUTPUT is now
+  spoken too - results like a position readout, script errors, and tab-
+  completion suggestions - so you are no longer typing blind. Ctrl+Up and
+  Ctrl+Down step back through previous output line by line to re-hear it.
+
+- **New: you can clear the console target.** Pressing Ctrl+T with nothing
+  selected in the scanner now clears the console's current target (it says
+  "Target cleared"), giving you a deliberate way to drop a target you grabbed
+  earlier. Grabbing a target takes a snapshot, so simply clearing your scanner
+  selection does not change the console target on its own.
+
 - **Fixed: taking or storing a whole stack no longer jumps the cursor to the
   search box.** When you moved an entire item stack out of your inventory (into
   a container or companion, or by dropping it), focus jumped all the way up to

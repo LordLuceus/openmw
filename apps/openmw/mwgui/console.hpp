@@ -17,6 +17,8 @@
 #include "referenceinterface.hpp"
 #include "windowbase.hpp"
 
+#include "accessibility/editfield.hpp"
+
 namespace MWGui
 {
     class Console : public WindowBase, private Compiler::ErrorHandler, public ReferenceInterface
@@ -64,7 +66,7 @@ namespace MWGui
 
         void updateSelectedObjectPtr(const MWWorld::Ptr& currentPtr, const MWWorld::Ptr& newPtr);
 
-        void onFrame(float dt) override { checkReferenceAvailable(); }
+        void onFrame(float dt) override;
         void clear() override;
 
         void resetReference() override;
@@ -91,6 +93,31 @@ namespace MWGui
         // object's name, or that nothing is selected. No-op result is spoken so
         // the action is never silent.
         void adoptScannerTarget();
+
+        // --- Screen-reader support for the console REPL --------------------
+        // The console is a read-eval-print loop, not an option list, so it
+        // doesn't use A11y::Screen. Instead: the command line is an EditField
+        // (spoken typing / caret / history-recall feedback), and command OUTPUT
+        // is spoken as it is printed (all output funnels through print()). A
+        // small set of review keys let the player re-hear output without sight.
+
+        // Spoken editing feedback for the command-line edit box.
+        A11y::EditField mCommandField;
+
+        // The most recent block of console output, kept so the reread key (R is
+        // taken by text entry, so we use a dedicated handler) and the
+        // line-review keys can repeat it. Stored as already-localized,
+        // tag-stripped plain text ready to speak.
+        std::vector<std::string> mA11yOutputLines;
+        // Review cursor into mA11yOutputLines (npos = not reviewing).
+        size_t mA11yReviewIndex = std::string::npos;
+
+        // Speak \p msg as console output (used by print()), remembering it for
+        // review. Strips MyGUI markup/colour tags first. Queued (interrupt=
+        // false) so multiple lines from one command don't clobber each other.
+        void a11yAnnounceOutput(const std::string& msg);
+        // Read the previous / next stored output line (Ctrl+Up / Ctrl+Down).
+        void a11yReviewOutput(bool previous);
 
         enum class SearchDirection;
         void toggleCaseSensitiveSearch(MyGUI::Widget* sender);

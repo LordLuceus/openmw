@@ -8,6 +8,7 @@
 #include <filesystem>
 #include <fstream>
 #include <regex>
+#include <sstream>
 
 #include <components/compiler/exception.hpp>
 #include <components/compiler/extensions0.hpp>
@@ -179,6 +180,9 @@ namespace MWGui
         mCommandLine->eventEditSelectAccept += newDelegate(this, &Console::acceptCommand);
         mCommandLine->eventKeyButtonPressed += newDelegate(this, &Console::commandBoxKeyPress);
 
+        // Screen-reader spoken feedback for typing in the command line.
+        mCommandField.attach(mCommandLine);
+
         // Set up the search term box
         mSearchTerm->eventEditSelectAccept += newDelegate(this, &Console::acceptSearchTerm);
         mNextButton->eventMouseButtonClick += newDelegate(this, &Console::findNextOccurrence);
@@ -209,11 +213,108 @@ namespace MWGui
         // turned on and place it over other widgets
         MWBase::Environment::get().getWindowManager()->setKeyFocusWidget(mCommandLine);
         MyGUI::LayerManager::getInstance().upLayerItem(mMainWidget);
+
+        // Announce the console to the screen reader, including the current
+        // target (if any) so the player knows what the next command will act
+        // on. Re-baseline the command field so typing diffs correctly.
+        mCommandField.sync();
+        mA11yReviewIndex = std::string::npos;
+        std::string opening = "Console.";
+        if (!mPtr.isEmpty())
+        {
+            std::string name = std::string(mPtr.getClass().getName(mPtr));
+            if (name.empty())
+                name = mPtr.getCellRef().getRefId().toDebugString();
+            opening += " Target: " + name + ".";
+        }
+        A11y::say(opening, /*interrupt=*/true);
+    }
+
+    void Console::onFrame(float dt)
+    {
+        checkReferenceAvailable();
+        // Drive the command-line edit field's spoken feedback (typing, caret
+        // moves). The console only ticks while open (windowmanagerimp gates on
+        // isConsoleMode), so this is exactly the right cadence.
+        mCommandField.onFrame();
     }
 
     void Console::print(const std::string& msg, std::string_view color)
     {
         mHistory->addText(std::string(color) + MyGUI::TextIterator::toTagsString(msg));
+        // Speak the output too. `msg` here is the raw, plain text (the colour is
+        // a separate tag, and toTagsString escapes any literal '#'), so there's
+        // nothing to strip -- a blind player would otherwise never know what a
+        // command reported (getpos, a script error, completion candidates...).
+        a11yAnnounceOutput(msg);
+    }
+
+    void Console::a11yAnnounceOutput(const std::string& msg)
+    {
+        // Split into lines so the review keys step through them one at a time,
+        // and so a blank line (printOK({}) is used as a separator before tab-
+        // completion candidates) doesn't speak as empty. Speak each non-blank
+        // line QUEUED so a multi-line result (e.g. a list of completions, or a
+        // script error spanning lines) is read in full instead of only the last
+        // line surviving an interrupt.
+        std::string line;
+        std::istringstream stream(msg);
+        bool spokeAny = false;
+        while (std::getline(stream, line))
+        {
+            // Trim a trailing carriage return (Windows-authored script files).
+            if (!line.empty() && line.back() == '\r')
+                line.pop_back();
+            if (line.empty())
+                continue;
+            mA11yOutputLines.push_back(line);
+            A11y::say(line, /*interrupt=*/false);
+            spokeAny = true;
+        }
+        // A message that was only whitespace/newlines still resets the review
+        // cursor so the next review starts from the freshest real output.
+        if (spokeAny)
+            mA11yReviewIndex = std::string::npos;
+
+        // Cap the retained history so a long session can't grow unbounded; the
+        // review keys only ever walk recent output.
+        constexpr size_t kMaxOutputLines = 200;
+        if (mA11yOutputLines.size() > kMaxOutputLines)
+            mA11yOutputLines.erase(
+                mA11yOutputLines.begin(), mA11yOutputLines.end() - static_cast<long>(kMaxOutputLines));
+    }
+
+    void Console::a11yReviewOutput(bool previous)
+    {
+        if (mA11yOutputLines.empty())
+        {
+            A11y::say("No output.", /*interrupt=*/true);
+            return;
+        }
+
+        // Start a fresh review at the newest line; thereafter step within
+        // bounds (no wrap, matching the topic-jump convention elsewhere).
+        if (mA11yReviewIndex == std::string::npos)
+            mA11yReviewIndex = mA11yOutputLines.size() - 1;
+        else if (previous)
+        {
+            if (mA11yReviewIndex == 0)
+            {
+                A11y::say("Top of output.", /*interrupt=*/true);
+                return;
+            }
+            --mA11yReviewIndex;
+        }
+        else
+        {
+            if (mA11yReviewIndex + 1 >= mA11yOutputLines.size())
+            {
+                A11y::say("End of output.", /*interrupt=*/true);
+                return;
+            }
+            ++mA11yReviewIndex;
+        }
+        A11y::say(mA11yOutputLines[mA11yReviewIndex], /*interrupt=*/true);
     }
 
     void Console::printOK(const std::string& msg)
@@ -326,6 +427,20 @@ namespace MWGui
                 // an object in the world to set the implicit reference).
                 adoptScannerTarget();
             }
+            else if (key == MyGUI::KeyCode::ArrowUp)
+            {
+                // Ctrl+Up/Down: review console OUTPUT line by line (the visual
+                // history scrollback a sighted player reads). Plain Up/Down are
+                // reserved for command-history recall below, so the review keys
+                // take the Ctrl modifier.
+                a11yReviewOutput(/*previous=*/true);
+                return;
+            }
+            else if (key == MyGUI::KeyCode::ArrowDown)
+            {
+                a11yReviewOutput(/*previous=*/false);
+                return;
+            }
         }
         else if (key == MyGUI::KeyCode::Tab && mConsoleMode.empty())
         {
@@ -405,6 +520,9 @@ namespace MWGui
         // It prevents the re-triggering of the acceptCommand() event for the same command
         // during the actual command execution
         mCommandLine->setCaption({});
+        // Re-baseline the spoken edit field to the now-empty line so the next
+        // keystroke diffs correctly (and doesn't "announce" the cleared text).
+        mCommandField.sync();
 
         execute(cm);
     }
@@ -816,9 +934,19 @@ namespace MWGui
         MWWorld::Ptr target = MWAccessibility::Scanner::instance().selectedObject();
         if (target.isEmpty())
         {
-            // Nothing selected in the scanner -- tell the player rather than
-            // silently doing nothing (a speech-only UI must never no-op mutely).
-            A11y::say("No object selected in the scanner.", /*interrupt=*/true);
+            // Nothing selected in the scanner. If the console already has a
+            // target, this CLEARS it -- the deliberate way to drop a target you
+            // grabbed earlier (clearing the scanner alone doesn't, by design:
+            // the grab snapshots the object, it isn't a live link). Either way
+            // we speak the result so the key is never a silent no-op.
+            if (!mPtr.isEmpty())
+            {
+                mPtr = MWWorld::Ptr();
+                updateConsoleTitle();
+                A11y::say("Target cleared.", /*interrupt=*/true);
+            }
+            else
+                A11y::say("No object selected in the scanner.", /*interrupt=*/true);
             return;
         }
 
