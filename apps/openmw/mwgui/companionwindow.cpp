@@ -23,6 +23,10 @@
 #include "tooltips.hpp"
 #include "widgets.hpp"
 
+#include "accessibility/itemtext.hpp"
+#include "accessibility/panegroup.hpp"
+#include "accessibility/speech.hpp"
+
 namespace
 {
 
@@ -63,6 +67,26 @@ namespace MWGui
         mCloseButton->eventMouseButtonClick += MyGUI::newDelegate(this, &CompanionWindow::onCloseButtonClicked);
 
         setCoord(200, 0, 600, 300);
+
+        // Screen-reader setup: an invisible anchor holds key focus while the
+        // item list is navigated by index (the items are drawn by the custom
+        // ItemView, not as individual widgets), as in ContainerWindow.
+        mA11yAnchor = mMainWidget->createWidget<MyGUI::Widget>(
+            {}, MyGUI::IntCoord(0, 0, 1, 1), MyGUI::Align::Default);
+        mA11yAnchor->setNeedKeyFocus(true);
+        mA11y.setVirtualFocus(mA11yAnchor);
+        mA11yFilterEdit.attach(mFilterEdit);
+        mA11yFilterEdit.setActive(false);
+        // Extra key on the item list: E reports the companion's encumbrance (and
+        // profit, for contract companions) on demand, mirroring the inventory.
+        mA11y.setExtraKeyHandler([this](MyGUI::KeyCode key) -> bool {
+            if (key == MyGUI::KeyCode::E)
+            {
+                A11y::say(a11yEncumbranceValue(), /*interrupt=*/true);
+                return true;
+            }
+            return false;
+        });
 
         mControllerButtons.mA = "#{Interface:Take}";
         mControllerButtons.mB = "#{Interface:Close}";
@@ -118,6 +142,15 @@ namespace MWGui
     {
         mSortModel->setNameFilter(sender->getCaption());
         mItemView->update();
+        // Keep the spoken item list in sync with the filtered view, pinning the
+        // cursor to the filter option so typing doesn't yank focus onto an item.
+        if (A11y::PaneGroup::instance().contains(&mA11y))
+        {
+            const size_t cursor = mA11y.currentIndex();
+            buildAccessibility();
+            if (cursor != A11y::Screen::npos && cursor < mA11y.size())
+                mA11y.selectIndex(cursor, /*announce=*/false);
+        }
     }
 
     void CompanionWindow::dragItem(MyGUI::Widget* /*sender*/, std::size_t count)
@@ -154,6 +187,145 @@ namespace MWGui
         mItemView->resetScrollBars();
 
         setTitle(actor.getClass().getName(actor));
+
+        // Screen reader: the companion window is shown next to the player's
+        // inventory. Build our item list and enrol as pane 0; the inventory
+        // enrols itself as pane 1, so Tab switches between taking (here) and
+        // storing (there). The PaneGroup claims focus for the lowest order first
+        // (this pane), matching the old behaviour of landing in the companion.
+        A11y::say(actor.getClass().getName(actor));
+        buildAccessibility();
+        A11y::PaneGroup::instance().enrol(&mA11y, std::string(actor.getClass().getName(actor)), 0);
+    }
+
+    void CompanionWindow::buildAccessibility()
+    {
+        mA11y.clear();
+
+        MWBase::WindowManager* winMgr = MWBase::Environment::get().getWindowManager();
+
+        // Leading option: the name-filter field (matches the inventory/loot
+        // panes so the player can narrow a long companion inventory).
+        mA11y.add({ .widget = nullptr, .label = std::string(winMgr->getGameSettingString("sName", "Name")),
+            .value =
+                [this] {
+                    const std::string text = mFilterEdit->getOnlyText().asUTF8();
+                    return text.empty() ? std::string("blank") : text;
+                },
+            .edit = &mA11yFilterEdit });
+
+        mA11yItemBase = 1;
+
+        // Each item stack is a widget-less option (the ItemView draws them, so
+        // there's no per-item widget to focus). Label = name + count; the T-key
+        // tooltip carries the on-screen detail (weight / value / effects). Enter
+        // takes the whole stack into the player's inventory; Shift+Enter opens
+        // the accessible count picker for a partial amount.
+        if (mSortModel)
+        {
+            for (size_t i = 0; i < mSortModel->getItemCount(); ++i)
+            {
+                const int index = static_cast<int>(i);
+                const ItemStack item = mSortModel->getItem(index);
+
+                std::string label = std::string(item.mBase.getClass().getName(item.mBase));
+                if (item.mCount > 1)
+                    label += " (" + std::to_string(item.mCount) + ")";
+
+                mA11y.add({ .widget = nullptr, .label = std::move(label),
+                    .tooltips = [base = item.mBase, count = item.mCount]
+                    { return A11y::itemTooltipLines(base, static_cast<int>(count)); },
+                    .activate = [this, index]
+                    { a11yTakeItem(index, !MyGUI::InputManager::getInstance().isShiftPressed()); } });
+            }
+        }
+
+        mA11y.add({ .widget = mCloseButton, .label = "#{sClose}",
+            .activate = [this] { onCloseButtonClicked(mCloseButton); } });
+    }
+
+    std::string CompanionWindow::a11yEncumbranceValue() const
+    {
+        MWBase::WindowManager* winMgr = MWBase::Environment::get().getWindowManager();
+        if (mPtr.isEmpty())
+            return std::string(winMgr->getGameSettingString("sEncumbrance", "Encumbrance"));
+
+        const int capacity = static_cast<int>(mPtr.getClass().getCapacity(mPtr));
+        const int encumbrance = static_cast<int>(std::ceil(mPtr.getClass().getEncumbrance(mPtr)));
+        std::string out = std::string(winMgr->getGameSettingString("sEncumbrance", "Encumbrance")) + ": "
+            + std::to_string(encumbrance) + " / " + std::to_string(capacity);
+
+        // Contract companions (e.g. Calvus) track a running profit/loss that
+        // gates closing the window; report it too so the player can tell whether
+        // they have given the companion their fair share.
+        if (mModel && mModel->hasProfit(mPtr))
+            out += ". " + std::string(winMgr->getGameSettingString("sProfitValue", "Profit"))
+                + ": " + std::to_string(getProfit(mPtr));
+        return out;
+    }
+
+    void CompanionWindow::a11yTakeItem(int sortIndex, bool wholeStack)
+    {
+        if (!mSortModel || mModel == nullptr)
+            return;
+        if (sortIndex < 0 || sortIndex >= static_cast<int>(mSortModel->getItemCount()))
+            return;
+
+        const ItemStack item = mSortModel->getItem(sortIndex);
+
+        // Conjured/bound items can't be taken from a companion (same guard as
+        // onItemSelected).
+        if (item.mFlags & ItemStack::Flag_Bound)
+        {
+            MWBase::Environment::get().getWindowManager()->messageBox("#{sBarterDialog12}");
+            return;
+        }
+
+        mSelectedItem = mSortModel->mapToSource(sortIndex);
+        const size_t count = item.mCount;
+
+        if (!wholeStack && count > 1)
+        {
+            // Open the accessible count picker; on OK it transfers the chosen
+            // amount into the player's inventory.
+            std::string name{ item.mBase.getClass().getName(item.mBase) };
+            name += MWGui::ToolTips::getSoulString(item.mBase.getCellRef());
+            CountDialog* dialog = MWBase::Environment::get().getWindowManager()->getCountDialog();
+            dialog->openCountDialog(name, "#{sTake}", static_cast<int>(count));
+            dialog->eventOkClicked.clear();
+            dialog->eventOkClicked += MyGUI::newDelegate(this, &CompanionWindow::onA11yCountTaken);
+            return;
+        }
+
+        // Take the whole stack straight into the player's inventory, then rebuild
+        // the list and keep the cursor near the same row.
+        transferItem(nullptr, count);
+        a11yRebuildKeepingCursor();
+    }
+
+    void CompanionWindow::onA11yCountTaken(MyGUI::Widget* sender, std::size_t count)
+    {
+        // The count picker confirmed a partial take: perform it (mSelectedItem
+        // was set before the dialog opened), then refresh the spoken list.
+        transferItem(sender, count);
+        a11yRebuildKeepingCursor();
+    }
+
+    void CompanionWindow::a11yRebuildKeepingCursor()
+    {
+        updateEncumbranceBar();
+        const size_t cursor = mA11y.currentIndex();
+        buildAccessibility();
+        const size_t itemCount = mSortModel ? mSortModel->getItemCount() : 0;
+        if (cursor == A11y::Screen::npos || cursor < mA11yItemBase || itemCount == 0)
+            // No items left (or cursor was on the filter): land on the last
+            // option, which is Close.
+            mA11y.selectIndex(mA11y.size() - 1, /*announce=*/true);
+        else
+        {
+            const size_t item = std::min(cursor - mA11yItemBase, itemCount - 1);
+            mA11y.selectIndex(mA11yItemBase + item, /*announce=*/true);
+        }
     }
 
     void CompanionWindow::onFrame(float dt)
@@ -165,7 +337,30 @@ namespace MWGui
             updateEncumbranceBar();
             mItemView->update();
             mUpdateNextFrame = false;
+            // The companion's contents changed (an item taken out here, or stored
+            // in from the inventory pane). Rebuild the spoken list so it stays in
+            // sync, keeping the cursor near its old row. Announce only when this
+            // pane is the active one -- a store happens from the inventory pane,
+            // which should be the one to speak.
+            if (A11y::PaneGroup::instance().contains(&mA11y))
+            {
+                const size_t cursor = mA11y.currentIndex();
+                buildAccessibility();
+                const size_t itemCount = mSortModel ? mSortModel->getItemCount() : 0;
+                if (mA11y.isActive() && cursor != A11y::Screen::npos && cursor >= mA11yItemBase && itemCount > 0)
+                    mA11y.selectIndex(
+                        mA11yItemBase + std::min(cursor - mA11yItemBase, itemCount - 1), /*announce=*/false);
+            }
         }
+
+        // Drive spoken editing feedback for the name-filter box.
+        mA11yFilterEdit.onFrame();
+
+        // Let the PaneGroup claim focus for the pane the user should land on.
+        if (A11y::PaneGroup::instance().contains(&mA11y))
+            A11y::PaneGroup::instance().maybeActivateInitial(&mA11y);
+
+        mA11y.onFrame(dt);
     }
 
     void CompanionWindow::updateEncumbranceBar()
@@ -242,6 +437,15 @@ namespace MWGui
     void CompanionWindow::onClose()
     {
         mItemTransfer->removeTarget(*mItemView);
+
+        // Make sure the window was actually closed and not temporarily hidden
+        // (e.g. the close-warning message box is up); only then tear down the
+        // screen-reader pane.
+        if (MWBase::Environment::get().getWindowManager()->containsMode(GM_Companion))
+            return;
+
+        A11y::PaneGroup::instance().withdraw(&mA11y);
+        mA11y.deactivate();
     }
 
     bool CompanionWindow::onControllerButtonEvent(const SDL_ControllerButtonEvent& arg)

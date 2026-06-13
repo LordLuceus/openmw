@@ -4,6 +4,20 @@ A running log of screen-reader accessibility features added to this OpenMW fork.
 Newest changes are listed first. (OpenMW's own engine changelog lives in
 `CHANGELOG.md`.)
 
+## 2026-06-13
+
+- **New: the companion-share window is now usable.** Talking to a companion and
+  choosing "Companion share" opens a window that lets you move items between
+  your inventory and theirs (to manage what they carry, or to keep a contract
+  companion in profit). It was previously unreadable. You can now arrow through
+  the companion's items - each reads as its name and count, with the full detail
+  on the tooltip key - and Tab switches between their inventory and yours. Enter
+  moves the whole stack across; Shift+Enter opens the count picker for part of a
+  stack. The same Enter / Shift+Enter now works for ordinary containers and
+  loot too (replacing the old separate "store" key), so taking and storing share
+  one key in both directions. Press E at any time to hear the companion's carry
+  weight, and their profit if they are a contract companion.
+
 ## 2026-06-11
 
 - **New: the Scripts tab in Settings (mod-defined settings) is now navigable.**

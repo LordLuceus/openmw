@@ -178,23 +178,6 @@ namespace MWGui
                 A11y::say(a11yEncumbranceValue(), /*interrupt=*/true);
                 return true;
             }
-            // S stores the selected item into the open container (the accessible
-            // counterpart to Alt+clicking it across). Only meaningful while a
-            // container window is open alongside; in plain inventory or barter
-            // there's nowhere to store, so let the key fall through. Shift+S
-            // stores the whole stack; otherwise the count picker opens for a
-            // stack.
-            if (key == MyGUI::KeyCode::S && mGuiMode == GM_Container)
-            {
-                const size_t cur = mA11y.currentIndex();
-                if (mSortModel && cur != A11y::Screen::npos && cur >= mA11yItemBase)
-                {
-                    const int index = static_cast<int>(cur - mA11yItemBase);
-                    if (index < static_cast<int>(mSortModel->getItemCount()))
-                        a11yStoreItem(index, MyGUI::InputManager::getInstance().isShiftPressed());
-                }
-                return true;
-            }
             // In barter, the balance/offer keys are shared with the merchant
             // pane: forward them so the player can read and adjust the running
             // total and submit the offer from the inventory side too.
@@ -565,6 +548,18 @@ namespace MWGui
             return;
         }
 
+        // Next to an open container/companion, Enter stores the item ACROSS
+        // rather than equipping it -- the natural counterpart to the take action
+        // on the other pane, so both directions share one key with the same
+        // convention: plain Enter moves the whole stack; Shift+Enter opens the
+        // count picker for a partial amount. (a11yStoreItem applies its own
+        // bound-item + mode guards.)
+        if (mGuiMode == GM_Container || mGuiMode == GM_Companion)
+        {
+            a11yStoreItem(sortIndex, /*wholeStack=*/!MyGUI::InputManager::getInstance().isShiftPressed());
+            return;
+        }
+
         // Equip / use the whole interaction the same way a click does. The
         // change is applied asynchronously (drag&drop now, the Lua-driven equip
         // a few frames later) and reorders the list, so we follow the item until
@@ -622,7 +617,7 @@ namespace MWGui
     {
         if (!mSortModel || mTradeModel == nullptr)
             return;
-        if (mGuiMode != GM_Container)
+        if (mGuiMode != GM_Container && mGuiMode != GM_Companion)
             return;
         if (sortIndex < 0 || sortIndex >= static_cast<int>(mSortModel->getItemCount()))
             return;
@@ -1034,13 +1029,12 @@ namespace MWGui
         // Stats/Spells/Map, so enrol in the PaneGroup (Inventory = pane 1) and
         // let Tab switch between them. In barter mode it's shown next to the
         // merchant's TradeWindow (which enrols itself as pane 0), so enrol here
-        // too -- selling happens in this pane. In container mode it's shown next
-        // to the loot window (which enrols itself as pane 0), so enrol here as
-        // well so the player can Tab to their own inventory and store items into
-        // the container with the S key. (Companion mode has no accessible pane on
-        // the other side yet, so it's excluded until that window is made
-        // accessible.)
-        if (mGuiMode == GM_Inventory || mGuiMode == GM_Barter || mGuiMode == GM_Container)
+        // too -- selling happens in this pane. In container AND companion mode
+        // it's shown next to the loot/companion window (which enrols itself as
+        // pane 0), so enrol here as well so the player can Tab to their own
+        // inventory and store items across with Enter.
+        if (mGuiMode == GM_Inventory || mGuiMode == GM_Barter || mGuiMode == GM_Container
+            || mGuiMode == GM_Companion)
         {
             mA11yLastTradeSig = -1; // force a barter rebuild on the first frame
             buildAccessibility();
