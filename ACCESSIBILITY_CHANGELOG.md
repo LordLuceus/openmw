@@ -6,6 +6,12 @@ Newest changes are listed first. (OpenMW's own engine changelog lives in
 
 ## 2026-06-13
 
+- **New: spell tooltips now tell you the school.** When you read a spell's
+  detail in your spellbook or at a spell merchant, it now announces the magic
+  school (for example "School: Destruction"), matching what the visual tooltip
+  shows. As in the base game, this appears only for ordinary castable spells,
+  not powers, abilities, or diseases.
+
 - **New: the console is now usable with a screen reader.** Opening the console
   announces itself (and its current target, if any). Typing is spoken as you go,
   arrow keys read the command line character by character, and Up/Down through

@@ -26,6 +26,7 @@
 #include "../mwmechanics/spells.hpp"
 #include "../mwmechanics/spellutil.hpp"
 
+#include <components/esm3/loadskil.hpp>
 #include <components/esm3/loadspel.hpp>
 
 #include "accessibility/activeeffects.hpp"
@@ -376,6 +377,21 @@ namespace MWGui
         if (spell.mType == Spell::Type_Spell && !spell.mCostColumn.empty())
             lines.push_back(
                 std::string(winMgr->getGameSettingString("sCostChance", "Cost/Chance")) + ": " + spell.mCostColumn);
+
+        // Spell school, mirroring the on-screen tooltip (ToolTips::createToolTip
+        // "Spell" branch): only shown for spells that contribute to skill
+        // progress (regular castable spells, not powers/abilities/diseases),
+        // and the school is the dominant one for this caster via getSpellSchool.
+        if (MWMechanics::spellIncreasesSkill(esmSpell))
+        {
+            const ESM::RefId schoolSkill = MWMechanics::getSpellSchool(esmSpell, MWMechanics::getPlayer());
+            if (!schoolSkill.empty())
+            {
+                const ESM::Skill* skill = MWBase::Environment::get().getESMStore()->get<ESM::Skill>().search(schoolSkill);
+                if (skill && skill->mSchool)
+                    lines.push_back("#{sSchool}: " + skill->mSchool->mName);
+            }
+        }
 
         const bool isConstant = (esmSpell->mData.mType == ESM::Spell::ST_Ability);
         for (const ESM::IndexedENAMstruct& effect : esmSpell->mEffects.mList)

@@ -6,6 +6,7 @@
 
 #include <components/esm3/loadgmst.hpp>
 #include <components/esm3/loadrace.hpp>
+#include <components/esm3/loadskil.hpp>
 #include <components/settings/values.hpp>
 
 #include "../mwbase/environment.hpp"
@@ -247,6 +248,21 @@ namespace MWGui
         const int chance = static_cast<int>(MWMechanics::getSpellSuccessChance(&spell, player));
         lines.push_back(std::string(winMgr->getGameSettingString("sCostChance", "Cost/Chance")) + ": "
             + std::to_string(cost) + "/" + std::to_string(chance));
+
+        // Spell school, mirroring the on-screen tooltip: only for skill-
+        // increasing spells (all buyable spells are regular castable spells, so
+        // this is normally true, but keep the guard for parity). School is the
+        // dominant one for the player via getSpellSchool.
+        if (MWMechanics::spellIncreasesSkill(&spell))
+        {
+            const ESM::RefId schoolSkill = MWMechanics::getSpellSchool(&spell, player);
+            if (!schoolSkill.empty())
+            {
+                const ESM::Skill* skill = MWBase::Environment::get().getESMStore()->get<ESM::Skill>().search(schoolSkill);
+                if (skill && skill->mSchool)
+                    lines.push_back("#{sSchool}: " + skill->mSchool->mName);
+            }
+        }
 
         for (const ESM::IndexedENAMstruct& effect : spell.mEffects.mList)
             lines.push_back(A11y::formatSpellEffectLine(effect, /*isConstant=*/false));
