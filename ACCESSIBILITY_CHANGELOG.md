@@ -6,6 +6,13 @@ Newest changes are listed first. (OpenMW's own engine changelog lives in
 
 ## 2026-06-13
 
+- **Fixed: taking or storing a whole stack no longer jumps the cursor to the
+  search box.** When you moved an entire item stack out of your inventory (into
+  a container or companion, or by dropping it), focus jumped all the way up to
+  the name-search field instead of staying near the item you just moved. It now
+  lands on the neighbouring item, matching the other pane. Partial moves were
+  unaffected.
+
 - **New: you can target an object in the console without clicking it.** Many
   console commands act on a selected object, which a sighted player picks by
   clicking it in the world - impossible without aiming. Now you select the

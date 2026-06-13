@@ -771,6 +771,12 @@ namespace MWGui
         if (!changed && mA11yFollowTimer <= 0.6f)
             return;
 
+        // Capture the cursor BEFORE rebuilding: buildAccessibility() calls
+        // mA11y.clear(), which resets the cursor to npos. The item-gone branch
+        // below needs the pre-rebuild position to land near the row we left, so
+        // remember it now rather than re-reading the cleared value.
+        const size_t priorCursor = mA11y.currentIndex();
+
         // Settled (or timed out): refresh the list and announce the result once.
         buildAccessibility();
         if (mA11y.isActive())
@@ -789,7 +795,20 @@ namespace MWGui
                 // to interrupt away.
                 mA11y.selectIndex(mA11yItemBase + static_cast<size_t>(found), /*announce=*/true);
             else
-                a11yRebuildKeepingCursor(); // item gone (fully dropped/used)
+            {
+                // Item fully gone (dropped/used/stored): land near the row it
+                // occupied, using the cursor we saved above. Clamp into the item
+                // range so a take/store from the last row drops onto the new last
+                // item rather than jumping to the filter field at the top.
+                const size_t newCount = mSortModel ? mSortModel->getItemCount() : 0;
+                if (priorCursor == A11y::Screen::npos || priorCursor < mA11yItemBase || newCount == 0)
+                    a11yRebuildKeepingCursor(); // was on a filter option, or list now empty
+                else
+                {
+                    const size_t item = std::min(priorCursor - mA11yItemBase, newCount - 1);
+                    mA11y.selectIndex(mA11yItemBase + item, /*announce=*/true);
+                }
+            }
         }
         mA11yFollowItem = MWWorld::Ptr();
     }
