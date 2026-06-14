@@ -2,13 +2,19 @@
 
 #include <cmath>
 #include <cstdio>
+#include <deque>
 #include <limits>
+#include <optional>
+#include <string>
+#include <vector>
 
 #include <components/accessibility/accessibilitymanager.hpp>
 #include <components/detournavigator/agentbounds.hpp>
 #include <components/detournavigator/flags.hpp>
 #include <components/detournavigator/areatype.hpp>
 #include <components/detournavigator/navigatorutils.hpp>
+#include <components/esm/util.hpp>
+#include <components/esm3/loadcell.hpp>
 
 #include "../mwbase/environment.hpp"
 #include "../mwbase/luamanager.hpp"
@@ -18,11 +24,16 @@
 #include "../mwmechanics/pathfinding.hpp"
 #include "../mwmechanics/pathgrid.hpp"
 
+#include "../mwphysics/collisiontype.hpp"
+#include "../mwphysics/raycasting.hpp"
+
 #include "../mwworld/cellref.hpp"
+#include "../mwworld/cellstore.hpp"
 #include "../mwworld/class.hpp"
 #include "../mwworld/player.hpp"
 #include "../mwworld/ptr.hpp"
 #include "../mwworld/refdata.hpp"
+#include "../mwworld/worldmodel.hpp"
 
 namespace
 {
@@ -62,6 +73,15 @@ namespace
     constexpr float kStuckTimeout = 1.0f; // seconds wedged in place
     constexpr float kNoProgressTimeout = 10.0f; // seconds without nearing goal
 
+    // How far a target actor must have moved from where it stood when the walk
+    // began before we treat it as a "moving target" (a wandering NPC). Past this
+    // we suppress the no-progress backstop -- which measures all-time-closest
+    // approach and would otherwise falsely give up the moment the NPC wanders
+    // away after we'd gotten close -- and announce once that the target is
+    // moving. ~150u (~2 m) is well beyond idle-animation jitter but trips as
+    // soon as an NPC actually walks.
+    constexpr float kTargetMovedThreshold = 150.0f;
+
     // Below this per-frame horizontal speed (units/sec) we consider the body
     // "not moving". Running speed is many hundreds of units/sec, so this only
     // catches a genuine wedge, not slow turning. ~30 u/s is well under a walk.
@@ -73,7 +93,33 @@ namespace
     // collision capsule from the small lips, door frames, and stair edges that
     // cause most snags. Only after kMaxRecoveryAttempts fail do we give up.
     constexpr float kRecoveryDuration = 0.6f; // seconds per wiggle
-    constexpr int kMaxRecoveryAttempts = 3;
+    // Raised from 3: a single NPC blocking a narrow doorway often takes several
+    // sidesteps to get around (and the NPC may itself be shuffling), so we give
+    // the stronger, direction-aware wiggle more chances before declaring defeat.
+    constexpr int kMaxRecoveryAttempts = 6;
+
+    // Recovery-wiggle squeeze tuning. When wedged we now probe both sides and
+    // sidestep toward open space (chooseRecoverySide) at full strength rather
+    // than the old half-hearted alternating strafe -- this is what gets us
+    // around an NPC standing in a chokepoint (actors aren't in the navmesh).
+    // kRecoveryProbeLen: how far to the side we raycast to judge "open"; about a
+    // body-and-a-half so we detect a wall/NPC right beside us but not distant
+    // scenery. kRecoverySideStrength: full-strength strafe (was 1.0 nominal but
+    // paired with forward 0.5; we now bias harder sideways to clear the body).
+    constexpr float kRecoveryProbeLen = 120.0f;
+    constexpr float kRecoverySideStrength = 1.0f;
+
+    // How far ahead to probe for an actor blocking the path once recovery has
+    // failed. Short -- we only care about someone right in our face (a doorway
+    // plug), not an NPC across the room. ~100u is about one body-depth ahead.
+    constexpr float kBlockerProbeLen = 100.0f;
+
+    // Once we phase through a blocking NPC (temporarily disabling its collision),
+    // restore that collision as soon as the player has moved this far from where
+    // phasing began -- i.e. we've cleared the doorway and are past the body.
+    // ~150u (~2 m) is comfortably more than a body-depth, so we don't re-collide
+    // with the NPC the moment its collision comes back.
+    constexpr float kPhaseClearDistance = 150.0f;
 
     // Progressive (cross-cell) mode. A target farther than this from the player
     // is assumed to be off the loaded navmesh, so we use the carrot approach
@@ -85,6 +131,24 @@ namespace
     // walk, and the minimum improvement that makes a callout worth speaking.
     constexpr float kCalloutInterval = 25.0f;
     constexpr float kCalloutMinProgress = 200.0f;
+
+    // Route-hazard scanning (warn-and-continue). We sample the planned path's
+    // waypoints and flag two danger classes the auto-walk would otherwise march
+    // the player into without warning.
+    //
+    // kWaterDepthWarn: how far a path point must sit BELOW the local water
+    // surface before we call it a real "deep water" crossing worth warning
+    // about, rather than harmless ankle/knee-deep wading. Morrowind units are
+    // ~70/metre; ~90u puts the water well above the waist (near the swim point),
+    // i.e. you'd actually be swimming and at drowning/slaughterfish risk.
+    constexpr float kWaterDepthWarn = 90.0f;
+    // kDropWarn: a descent (in units) between consecutive path points big enough
+    // to be a dangerous fall rather than a step/slope. ~350u (~5 m) is well past
+    // a safe step-down and into fall-damage territory. Normal navmesh routes
+    // don't include drops like this; this mainly catches the straight-line and
+    // progressive "carrot" fallbacks, which bee-line regardless of cliffs --
+    // exactly where auto-walk fall deaths come from.
+    constexpr float kDropWarn = 350.0f;
 
     DetourNavigator::Flags playerNavigatorFlags()
     {
@@ -125,6 +189,9 @@ namespace MWAccessibility
         mTargetName = std::string(target.getClass().getName(target));
         mActive = true;
         resetProgress();
+        // Capture where the target stood at walk start, so onFrame can tell if
+        // it's a wandering actor that has since moved (see mTargetMoving).
+        mTargetStartPos = targetPosition();
         if (!rebuildPath())
         {
             cancel();
@@ -141,6 +208,8 @@ namespace MWAccessibility
         mTargetName = name;
         mActive = true;
         resetProgress();
+        // A fixed waypoint never moves; record it anyway for symmetry.
+        mTargetStartPos = target;
         if (!rebuildPath())
         {
             cancel();
@@ -185,6 +254,155 @@ namespace MWAccessibility
         speakQueued(buf);
     }
 
+    float AutoWalker::chooseRecoverySide(const MWWorld::Ptr& player, const osg::Vec3f& playerPos, float yaw,
+        float fallbackDir) const
+    {
+        MWBase::World* world = MWBase::Environment::get().getWorld();
+        const MWPhysics::RayCastingInterface* rayCasting = world ? world->getRayCasting() : nullptr;
+        if (!rayCasting)
+            return fallbackDir;
+
+        // Cast a short ray to the player's left and right, from roughly chest
+        // height, to see which side has more open space to sidestep into.
+        // Engine yaw: 0 = +Y (north), increasing toward +X (east). The forward
+        // unit is (sin yaw, cos yaw); the rightward unit is (cos yaw, -sin yaw).
+        const osg::Vec3f right(std::cos(yaw), -std::sin(yaw), 0.0f);
+        const osg::Vec3f chest = playerPos + osg::Vec3f(0.0f, 0.0f, 32.0f);
+
+        // We hit-test against everything physical EXCEPT the player; an NPC
+        // (CollisionType_Actor) blocking one side counts as "blocked" just like
+        // a wall, which is exactly the doorway case. A clear ray (no hit) means
+        // that side is open.
+        const int mask = MWPhysics::CollisionType_World | MWPhysics::CollisionType_Door
+            | MWPhysics::CollisionType_Actor | MWPhysics::CollisionType_HeightMap;
+        const std::vector<MWWorld::ConstPtr> ignore{ player };
+
+        auto sideClearance = [&](const osg::Vec3f& dir) -> float {
+            const osg::Vec3f to = chest + dir * kRecoveryProbeLen;
+            const MWPhysics::RayCastingResult res = rayCasting->castRay(chest, to, ignore, {}, mask);
+            if (!res.mHit)
+                return kRecoveryProbeLen; // fully open
+            return (res.mHitPos - chest).length();
+        };
+
+        const float rightClear = sideClearance(right);
+        const float leftClear = sideClearance(-right);
+
+        // Prefer the noticeably more open side; if they're close, keep the
+        // caller's alternating fallback so we still explore both over attempts.
+        constexpr float kMeaningfulDiff = 24.0f;
+        if (rightClear > leftClear + kMeaningfulDiff)
+            return 1.0f;
+        if (leftClear > rightClear + kMeaningfulDiff)
+            return -1.0f;
+        return fallbackDir;
+    }
+
+    MWWorld::Ptr AutoWalker::detectBlockingActor(
+        const MWWorld::Ptr& player, const osg::Vec3f& playerPos, float yaw) const
+    {
+        MWBase::World* world = MWBase::Environment::get().getWorld();
+        const MWPhysics::RayCastingInterface* rayCasting = world ? world->getRayCasting() : nullptr;
+        if (!rayCasting)
+            return MWWorld::Ptr();
+
+        // Cast straight ahead from chest height. Forward unit for engine yaw
+        // (0 = +Y north, increasing toward +X east) is (sin yaw, cos yaw).
+        const osg::Vec3f forward(std::sin(yaw), std::cos(yaw), 0.0f);
+        const osg::Vec3f chest = playerPos + osg::Vec3f(0.0f, 0.0f, 32.0f);
+        const osg::Vec3f to = chest + forward * kBlockerProbeLen;
+
+        // Hit-test ONLY actors here: we specifically want to know whether a
+        // person is the blocker (vs a wall we genuinely can't pass), since only
+        // then is "ask them to move" the right message.
+        const std::vector<MWWorld::ConstPtr> ignore{ player };
+        const MWPhysics::RayCastingResult res
+            = rayCasting->castRay(chest, to, ignore, {}, MWPhysics::CollisionType_Actor);
+        if (res.mHit && !res.mHitObject.isEmpty() && res.mHitObject.getClass().isActor())
+            return res.mHitObject;
+        return MWWorld::Ptr();
+    }
+
+    bool AutoWalker::handleGiveUp(
+        const MWWorld::Ptr& player, const osg::Vec3f& playerPos, const osg::Vec3f& targetPos)
+    {
+        // Probe straight ahead: is a person plugging the way? (A stationary NPC
+        // in a doorway -- actors aren't in the navmesh and physics won't let two
+        // bodies share space, so wiggling can never pass.)
+        const float yaw = player.getRefData().getPosition().rot[2];
+        const MWWorld::Ptr blocker = detectBlockingActor(player, playerPos, yaw);
+
+        // A blocker is in the way and we're not already phasing through someone:
+        // temporarily disable JUST that NPC's collision so the player slips past,
+        // announce it, refresh the progress/recovery budget, and KEEP WALKING
+        // (return false = don't cancel). Collision is restored once we've cleared
+        // them (onFrame) or on any walk end (cancel -> restorePhasing).
+        if (!blocker.isEmpty() && mPhasingActor.isEmpty())
+        {
+            const std::string blockerName = std::string(blocker.getClass().getName(blocker));
+            beginPhasing(blocker, playerPos);
+            speakQueued((blockerName.empty() ? std::string("Someone") : blockerName)
+                + " is blocking the way. Moving past.");
+            // Fresh budget so the timers that just expired don't instantly fire
+            // again before we've had a chance to walk through the now-open gap.
+            mBestDistToGoal = std::numeric_limits<float>::max();
+            mTimeSinceProgress = 0.0f;
+            mTimeSinceMove = 0.0f;
+            mRecoveryAttempts = 0;
+            mRecoveryTimer = 0.0f;
+            return false; // keep walking
+        }
+
+        // Either there's no person blocking (genuine geometry/unreachable) or we
+        // ALREADY phased through someone and are still stuck -- give up honestly.
+        if (!blocker.isEmpty())
+        {
+            // Phasing didn't get us through (e.g. a second blocker, or a true
+            // dead-end past the first). Name them and stop.
+            const std::string blockerName = std::string(blocker.getClass().getName(blocker));
+            speakQueued((blockerName.empty() ? std::string("Something") : blockerName)
+                + " is blocking the way to " + mTargetName + ".");
+        }
+        else if (mFinalApproach || mProgressive)
+        {
+            // Stopped short on a final/progressive approach: target not reachable
+            // on foot from here -- give the honest beacon hint.
+            const float dx = targetPos.x() - playerPos.x();
+            const float dy = targetPos.y() - playerPos.y();
+            announceStoppedShort(player, targetPos, std::sqrt(dx * dx + dy * dy));
+        }
+        else
+        {
+            speakQueued("Stuck. Cannot reach " + mTargetName + ".");
+        }
+        return true; // cancel the walk
+    }
+
+    void AutoWalker::beginPhasing(const MWWorld::Ptr& blocker, const osg::Vec3f& playerPos)
+    {
+        if (!mPhasingActor.isEmpty() || blocker.isEmpty())
+            return;
+        MWBase::World* world = MWBase::Environment::get().getWorld();
+        if (!world)
+            return;
+        world->enableActorCollision(blocker, false);
+        mPhasingActor = blocker;
+        mPhaseStartPos = playerPos;
+    }
+
+    void AutoWalker::restorePhasing()
+    {
+        if (mPhasingActor.isEmpty())
+            return;
+        MWBase::World* world = MWBase::Environment::get().getWorld();
+        // Only re-enable if the actor is still valid (alive, cell loaded);
+        // re-enabling a stale Ptr would be a no-op at best. We clear our handle
+        // either way so we never try to touch it again.
+        if (world && !mPhasingActor.isEmpty() && mPhasingActor.getCellRef().getCount() > 0)
+            world->enableActorCollision(mPhasingActor, true);
+        mPhasingActor = MWWorld::Ptr();
+    }
+
     void AutoWalker::resetProgress()
     {
         mFinalApproach = false;
@@ -207,6 +425,10 @@ namespace MWAccessibility
         mProgressive = false;
         mTimeSinceCallout = 0.0f;
         mLastCalloutDist = std::numeric_limits<float>::max();
+        mPathHadWater = false;
+        mPathHadDrop = false;
+        mTargetMoving = false;
+        mAnnouncedTargetMoving = false;
     }
 
     void AutoWalker::cancel()
@@ -231,6 +453,9 @@ namespace MWAccessibility
                 }
             }
         }
+        // Safety: never leave a phased-through NPC permanently non-solid. Any
+        // walk end routes through cancel(), so restoring here covers every exit.
+        restorePhasing();
         mActive = false;
         mTarget = MWWorld::Ptr();
         mHasPtrTarget = true;
@@ -287,6 +512,7 @@ namespace MWAccessibility
                         costs, /*endTolerance=*/kArrivalDistance, MWMechanics::PathType::Partial);
                     if (!mPathFinder.isPathConstructed())
                         mPathFinder.buildStraightPath(*carrot);
+                    warnRouteHazards();
                     return mPathFinder.isPathConstructed();
                 }
             }
@@ -336,7 +562,174 @@ namespace MWAccessibility
         if (!mPathFinder.isPathConstructed())
             mPathFinder.buildStraightPath(end);
 
+        warnRouteHazards();
         return mPathFinder.isPathConstructed();
+    }
+
+    void AutoWalker::warnRouteHazards()
+    {
+        MWBase::World* world = MWBase::Environment::get().getWorld();
+        if (!world || !mPathFinder.isPathConstructed())
+            return;
+        MWWorld::Ptr player = world->getPlayerPtr();
+        if (player.isEmpty())
+            return;
+
+        const std::deque<osg::Vec3f>& path = mPathFinder.getPath();
+        if (path.empty())
+            return;
+
+        const MWWorld::Cell* playerCell = player.getCell()->getCell();
+        const bool exterior = playerCell->isExterior();
+        const ESM::RefId worldspace = playerCell->getWorldSpace();
+
+        // Water surface height at a world point. Interiors use the player's
+        // current cell (a route on the loaded mesh won't leave it); exteriors
+        // resolve the cell the point falls in, since a long route crosses
+        // several cells with different water levels (the sea vs an inland pool).
+        // nullopt when that cell has no water at all.
+        auto waterLevelAt = [&](const osg::Vec3f& p) -> std::optional<float> {
+            if (!exterior)
+            {
+                if (!playerCell->hasWater())
+                    return std::nullopt;
+                return player.getCell()->getWaterLevel();
+            }
+            const ESM::ExteriorCellLocation loc
+                = ESM::positionToExteriorCellLocation(p.x(), p.y(), worldspace);
+            try
+            {
+                const MWWorld::CellStore& store
+                    = MWBase::Environment::get().getWorldModel()->getExterior(loc, /*forceLoad=*/false);
+                if (!store.getCell()->hasWater())
+                    return std::nullopt;
+                return store.getWaterLevel();
+            }
+            catch (const std::exception&)
+            {
+                return std::nullopt;
+            }
+        };
+
+        // Ground (terrain heightmap) height at a world point -- exteriors only;
+        // interiors have no heightmap. This is the HONEST reference for both
+        // hazards: a swim route's waypoints sit AT the water surface (the
+        // navmesh treats water as walkable), so comparing waypoint-Z to the
+        // surface shows ~zero depth; the seabed height vs the surface is what
+        // actually reveals deep water. Likewise a straight-line/progressive
+        // bee-line interpolates Z smoothly and hides the cliff it crosses, while
+        // the terrain height beneath that line still drops away.
+        auto groundAt = [&](const osg::Vec3f& p) -> std::optional<float> {
+            if (!exterior)
+                return std::nullopt;
+            return world->getTerrainHeightAt(p, worldspace);
+        };
+
+        // Build the full point sequence we traverse: the player's current
+        // position first, then every path waypoint. Seeding with the player
+        // matters because the straight-line fallback stores ONLY the destination
+        // (a single point), so without the start there'd be no segment to test
+        // -- and that bee-line is the main fall-death vector we're guarding.
+        std::vector<osg::Vec3f> points;
+        points.reserve(path.size() + 1);
+        points.push_back(player.getRefData().getPosition().asVec3());
+        for (const osg::Vec3f& wp : path)
+            points.push_back(wp);
+
+        // Sample each segment ~150u apart (waypoints can be far apart, with a
+        // lake or cliff edge between two of them that point-only testing skips).
+        // At each sample compare the terrain beneath against the water surface
+        // and against the previous sample's terrain.
+        constexpr float kSampleStep = 150.0f;
+        // How far the path itself (the deck you'd actually walk) may sit above
+        // the water surface before we treat the crossing as a safe bridge/jetty
+        // rather than a swim. Without this guard, routing over the Vivec bridges
+        // -- deep water far below, but a solid walkway above -- would false-warn.
+        constexpr float kBridgeClearance = 60.0f;
+        bool water = false;
+        bool drop = false;
+        float maxDrop = 0.0f;
+        std::optional<float> prevGround;
+        for (std::size_t i = 1; i < points.size(); ++i)
+        {
+            const osg::Vec3f a = points[i - 1];
+            const osg::Vec3f b = points[i];
+            const osg::Vec3f seg = b - a;
+            const float segLen = seg.length();
+            const int steps = std::max(1, static_cast<int>(segLen / kSampleStep));
+            for (int s = 1; s <= steps; ++s)
+            {
+                const float t = static_cast<float>(s) / static_cast<float>(steps);
+                const osg::Vec3f sample = a + seg * t;
+                const std::optional<float> ground = groundAt(sample);
+
+                // Deep water: the surface stands well above the terrain (seabed)
+                // here, AND the path we'd walk isn't elevated above that surface
+                // on a bridge/jetty. The seabed reference is what catches a swim
+                // whose waypoints ride at the surface. Interiors have no terrain,
+                // so fall back to the sample Z for the rare interior pool.
+                if (const std::optional<float> level = waterLevelAt(sample))
+                {
+                    const float seabed = ground.value_or(sample.z());
+                    const bool deep = (*level - seabed) >= kWaterDepthWarn;
+                    const bool onDeck = sample.z() > *level + kBridgeClearance;
+                    if (deep && !onDeck)
+                        water = true;
+                }
+
+                // Drop: the terrain beneath the route falls away sharply between
+                // consecutive samples. A real navmesh route follows connected
+                // walkable ground and won't sheer-drop; this fires on the
+                // bee-line/progressive fallbacks crossing a ledge -- the fall
+                // case. Exteriors only (needs the heightmap).
+                if (ground && prevGround)
+                {
+                    const float descent = *prevGround - *ground;
+                    if (descent >= kDropWarn)
+                    {
+                        drop = true;
+                        maxDrop = std::max(maxDrop, descent);
+                    }
+                }
+                prevGround = ground;
+            }
+        }
+
+        // Speak only on a RISING edge per hazard type: warn when a hazard newly
+        // appears in the path, stay silent while it persists across re-paths,
+        // and re-arm once it clears so a later, separate hazard warns again.
+        const bool newWater = water && !mPathHadWater;
+        const bool newDrop = drop && !mPathHadDrop;
+        mPathHadWater = water;
+        mPathHadDrop = drop;
+
+        if (!newWater && !newDrop)
+            return;
+
+        // One consolidated, queued line so it doesn't stomp other speech. The
+        // suggestion names the relevant escape so the player knows what to cast.
+        std::string msg = "Warning: route ";
+        if (newWater && newDrop)
+        {
+            const float metres = maxDrop / 69.99f;
+            char buf[64];
+            std::snprintf(buf, sizeof(buf), "%.0f metre", metres);
+            msg += "crosses deep water and has a " + std::string(buf)
+                + " drop. Consider Water Walking or Levitation.";
+        }
+        else if (newWater)
+        {
+            msg += "crosses deep water. Consider Water Walking or Levitation.";
+        }
+        else
+        {
+            const float metres = maxDrop / 69.99f;
+            char buf[96];
+            std::snprintf(buf, sizeof(buf),
+                "has a %.0f metre drop. Consider Levitation or Slow Fall.", metres);
+            msg = "Warning: route " + std::string(buf);
+        }
+        speakQueued(msg);
     }
 
     void AutoWalker::onFrame(float dt)
@@ -363,6 +756,19 @@ namespace MWAccessibility
 
         osg::Vec3f playerPos = player.getRefData().getPosition().asVec3();
         osg::Vec3f targetPos = targetPosition();
+
+        // If we're phasing through a blocking NPC, restore its collision as soon
+        // as we've moved clear of where phasing began (we're past the body now),
+        // or if the actor went invalid. This is the normal end of a phase; the
+        // cancel() path is the safety net for every other exit.
+        if (!mPhasingActor.isEmpty())
+        {
+            const float dx = playerPos.x() - mPhaseStartPos.x();
+            const float dy = playerPos.y() - mPhaseStartPos.y();
+            const bool movedClear = std::sqrt(dx * dx + dy * dy) >= kPhaseClearDistance;
+            if (movedClear || mPhasingActor.getCellRef().getCount() <= 0)
+                restorePhasing();
+        }
 
         // Arrival check on horizontal distance (Z is allowed to differ
         // since players can't fly up to a ceiling hatch -- we treat
@@ -432,6 +838,28 @@ namespace MWAccessibility
             }
         }
 
+        // --- Moving-target (wandering NPC) detection -------------------------
+        //
+        // If the target is an actor that has wandered meaningfully from where it
+        // stood when the walk began, flag it moving. This suppresses the
+        // no-progress backstop below (which would otherwise falsely give up once
+        // the NPC strolls away after we'd gotten close -- the Balmora Temple
+        // failure). We still rely on the physical-wedge check to abort if we're
+        // genuinely stuck. Announce the moving state once so the player knows
+        // why the walk is taking a while. Latched true: once an NPC has moved we
+        // treat the rest of the chase as a moving-target chase even if it pauses.
+        if (mHasPtrTarget && !mTarget.isEmpty() && mTarget.getClass().isActor())
+        {
+            const float targetDrift = (targetPos - mTargetStartPos).length();
+            if (!mTargetMoving && targetDrift >= kTargetMovedThreshold)
+                mTargetMoving = true;
+        }
+        if (mTargetMoving && !mAnnouncedTargetMoving)
+        {
+            mAnnouncedTargetMoving = true;
+            speakQueued(mTargetName + " is moving.");
+        }
+
         // --- Stuck detection -------------------------------------------------
         //
         // Two independent signals (see the header for the full rationale):
@@ -470,19 +898,23 @@ namespace MWAccessibility
         }
 
         // Backstop: moving but never getting closer for a long time -> give up.
-        if (mTimeSinceProgress >= kNoProgressTimeout)
+        // SUPPRESSED for a moving target: a wandering NPC routinely pushes our
+        // distance back up after a close approach, which is not a failure to
+        // pathfind -- it's the NPC walking away. We keep chasing (the physical-
+        // wedge check still aborts if we genuinely can't move), and only the
+        // user cancelling or actually reaching the NPC ends the walk.
+        if (!mTargetMoving && mTimeSinceProgress >= kNoProgressTimeout)
         {
-            // On the final approach or a long progressive walk that's run out of
-            // walkable ground (a mountain/bay blocks the straight bearing), give
-            // the honest "stopped short, use the beacon" report rather than a
-            // bare "stuck" -- the target is simply not reachable on foot from
-            // here, which is exactly what the beacon hint is for.
-            if (mFinalApproach || mProgressive)
-                announceStoppedShort(player, targetPos, horizDistTo(targetPos));
-            else
-                speakQueued("Stuck. Cannot reach " + mTargetName + ".");
-            cancel();
-            return;
+            // A blocked doorway routinely trips THIS no-progress path rather than
+            // the wedge path below (the stronger wiggle jostles us enough to keep
+            // the no-move timer reset), so the blocker handling must live here
+            // too. handleGiveUp phases through a blocking NPC and keeps walking
+            // (returns false); only cancel if it says the walk is truly over.
+            if (handleGiveUp(player, playerPos, targetPos))
+            {
+                cancel();
+                return;
+            }
         }
 
         // Physically wedged for long enough: try a recovery wiggle, then (after
@@ -492,25 +924,27 @@ namespace MWAccessibility
         {
             if (mRecoveryAttempts >= kMaxRecoveryAttempts)
             {
-                // If we wedged during the final straight-line approach or a long
-                // progressive walk, the target is genuinely unreachable on foot
-                // from here (e.g. up a level the navmesh doesn't model, or across
-                // terrain the straight bearing can't cross): face it and give the
-                // honest stopped-short report rather than a bare "stuck".
-                if (mFinalApproach || mProgressive)
+                // handleGiveUp phases through a blocking NPC and keeps walking
+                // (returns false); only cancel if the walk is truly over.
+                if (handleGiveUp(player, playerPos, targetPos))
                 {
-                    announceStoppedShort(player, targetPos, horizDistTo(targetPos));
+                    cancel();
+                    return;
                 }
-                else
-                {
-                    speakQueued("Stuck. Cannot reach " + mTargetName + ".");
-                }
-                cancel();
+                // Phased through a blocker: skip the rest of recovery this frame
+                // and let normal steering carry us through the now-open gap.
                 return;
             }
             ++mRecoveryAttempts;
             mRecoveryTimer = kRecoveryDuration;
-            mRecoveryDir = -mRecoveryDir; // alternate sidestep each attempt
+            // Choose the sidestep direction by probing both sides for open
+            // space rather than blindly alternating: this is what lets us
+            // squeeze around an NPC standing in a chokepoint (actors aren't in
+            // the navmesh, so the route runs straight through them). We pass the
+            // alternating value as the fallback so that when both sides look
+            // equally (un)blocked we still explore left then right over attempts.
+            const float playerYaw = player.getRefData().getPosition().rot[2];
+            mRecoveryDir = chooseRecoverySide(player, playerPos, playerYaw, -mRecoveryDir);
             mTimeSinceMove = 0.0f; // give the wiggle a chance before re-counting
             // Re-path too: the snag may have shifted us enough that a new
             // route opens up.
@@ -534,8 +968,12 @@ namespace MWAccessibility
                 cancel();
                 return;
             }
-            controls->mMovement = 0.5f; // ease forward, don't ram back in
-            controls->mSideMovement = mRecoveryDir; // strafe to clear the edge
+            // Bias HARD sideways toward the open side picked by the probe, with
+            // only a little forward, so we slide around a body/edge instead of
+            // grinding into it. (Old code rammed forward 0.5 + strafe; that
+            // tended to keep us pinned against an NPC in a doorway.)
+            controls->mMovement = 0.2f; // minimal forward; the sidestep does the work
+            controls->mSideMovement = mRecoveryDir * kRecoverySideStrength;
             controls->mYawChange = 0.0f;
             controls->mPitchChange = 0.0f;
             controls->mJump = true; // hop over the lip / step

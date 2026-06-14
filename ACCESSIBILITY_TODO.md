@@ -95,6 +95,14 @@ auto-walk, location announcements, and audio beacon (gameplay, not a screen).
       Waypoint/AutoWalker/ProximityCue machinery (isWaypointCategory() now covers
       both Waypoints and Locations). Reachable only while the player is in the
       default exterior worldspace; listed as "on the map" (no bearing) indoors.
+- [ ] **Auto-walk switchback/winding-route stall (deferred).** On a long route
+      with tight switchbacks (observed walking to Llarara Omayn), the walk can
+      stall: distance pins, ~30 navmesh waypoints never get consumed, and no
+      physical wedge is detected (so neither the wiggle nor the blocker/phase
+      logic engages). Suspected path-following/steering issue in tiered geometry
+      where the next waypoint sits behind/above us and the heading controller
+      can't make progress. Needs its own investigation (likely a look-ahead /
+      waypoint-advance fix in the steering in onFrame).
 
 ### Targeting / combat (lock-on backbone landed)
 - [x] **Lock-on targeting** — press K to lock the scanner selection; player is

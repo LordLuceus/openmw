@@ -50,6 +50,13 @@ namespace MWAccessibility
         bool rebuildPath();
         // Reset all progress / stuck / recovery state for a fresh walk.
         void resetProgress();
+        // Scan the freshly-built path for hazards (deep water crossings and
+        // steep drops) and, if any are found, speak a single up-front warning so
+        // the player can prepare (Levitation / Water Walking) or cancel. Called
+        // once per fresh walk from start(), not on periodic re-paths, so the
+        // warning isn't repeated every second. Purely advisory: auto-walk still
+        // proceeds (the user chose warn-and-continue).
+        void warnRouteHazards();
         // Rotate \p player to face \p targetPos horizontally, so the target is
         // lined up dead ahead. Used when auto-walk stops short of an
         // unreachable target so the player can close the last gap manually.
@@ -57,6 +64,34 @@ namespace MWAccessibility
         // Face the target and announce that we stopped short of it (with the
         // remaining distance), suggesting the audio beacon to find the route.
         void announceStoppedShort(const MWWorld::Ptr& player, const osg::Vec3f& targetPos, float trueDist);
+        // Pick which way to sidestep during a recovery wiggle by probing both
+        // sides with a short raycast and choosing the more open one. This is how
+        // we squeeze around an NPC standing in a narrow doorway/aisle (actors
+        // aren't baked into the navmesh, so the route runs straight through
+        // them): blindly alternating left/right often picks the blocked side.
+        // Returns +1 (step right) or -1 (step left). \p yaw is the player's
+        // current facing. Falls back to \p fallbackDir if both sides look equal
+        // or raycasting is unavailable.
+        float chooseRecoverySide(const MWWorld::Ptr& player, const osg::Vec3f& playerPos, float yaw,
+            float fallbackDir) const;
+        // Probe straight ahead for an actor (NPC/creature) physically blocking
+        // the path. Used when recovery has failed: actors aren't baked into the
+        // navmesh, so a stationary NPC in a doorway plugs the route solid and no
+        // amount of wiggling gets past. Returns the blocking actor's Ptr, or an
+        // empty Ptr if what's ahead is static geometry (or nothing). \p yaw is
+        // the player's current facing.
+        MWWorld::Ptr detectBlockingActor(const MWWorld::Ptr& player, const osg::Vec3f& playerPos, float yaw) const;
+        // Handle a give-up condition. Probes ahead for a blocking NPC: if one is
+        // found and we're not already phasing, disables that NPC's collision so
+        // the player slips past, announces "X is blocking the way. Moving past.",
+        // refreshes the progress budget, and returns FALSE (keep walking). If
+        // there's no person blocking (genuine geometry / unreachable) or we
+        // already phased and are still stuck, it speaks the appropriate report
+        // ("X is blocking the way to Y" / stopped-short beacon hint / "Stuck.
+        // Cannot reach Y") and returns TRUE (cancel the walk). Shared by both
+        // give-up paths (no-progress backstop AND exhausted-recovery wedge) so
+        // the behavior is identical regardless of which trips first.
+        bool handleGiveUp(const MWWorld::Ptr& player, const osg::Vec3f& playerPos, const osg::Vec3f& targetPos);
 
         bool mActive = false;
         // A target is either a world object (mTarget) or, for scanner
@@ -147,6 +182,57 @@ namespace MWAccessibility
         // closer (never spam a distance while stuck).
         float mTimeSinceCallout = 0.0f;
         float mLastCalloutDist = std::numeric_limits<float>::max();
+
+        // Moving-target (wandering NPC) handling. The no-progress backstop
+        // measures our ALL-TIME-closest approach to the goal; against a
+        // wandering NPC that's a false-failure trap: we get close once, the NPC
+        // strolls off, and now we can never beat that best again, so after
+        // kNoProgressTimeout the backstop wrongly reports "Stuck. Cannot reach"
+        // while we are in fact correctly chasing. (Confirmed in the Balmora
+        // Temple log: both failed walks were wandering NPCs whose distance shot
+        // back up after a close approach.) FIX: when the target is an actor that
+        // has actually moved from where it stood when the walk began, mark it
+        // moving, suppress the no-progress backstop (the physical-wedge check
+        // still aborts if we genuinely can't move), and announce once that the
+        // target is moving so the player knows why it's taking a while.
+        // mTargetStartPos is captured at walk start (set in start(), NOT in
+        // resetProgress(), which also runs from cancel() when the target is
+        // already cleared).
+        osg::Vec3f mTargetStartPos;
+        bool mTargetMoving = false;
+        bool mAnnouncedTargetMoving = false;
+
+        // Route-hazard warning state (deep water / steep drops). warnRouteHazards()
+        // runs on every rebuildPath() so hazards that only come into view as new
+        // cells stream in (long progressive walks) are still caught -- but it
+        // only SPEAKS on a rising edge (a hazard type newly appearing in the
+        // upcoming path), so a route that stays watery doesn't re-warn every
+        // second. The flags clear when that hazard leaves the path, so a later,
+        // separate hazard of the same type warns again. Seeded true-less on a
+        // fresh walk by resetProgress().
+        bool mPathHadWater = false;
+        bool mPathHadDrop = false;
+
+        // Phase-through-blocker handling. A stationary NPC plugging a doorway
+        // can't be wiggled past (actors aren't in the navmesh and physics won't
+        // let two bodies share space), so when recovery is exhausted and a forward
+        // probe finds a person in the way, we temporarily disable JUST that NPC's
+        // collision body so the player slips through, then RESTORE it the instant
+        // we're clear. mPhasingActor holds the actor whose collision we disabled
+        // (empty when none). CRITICAL SAFETY INVARIANT: this must never persist --
+        // restorePhasing() is called on clear-through, on every walk end (cancel),
+        // and if the actor/cell goes invalid, so we never leave an NPC permanently
+        // non-solid. mPhaseStartPos is where the player stood when phasing began;
+        // we restore collision once we've moved kPhaseClearDistance past it.
+        MWWorld::Ptr mPhasingActor;
+        osg::Vec3f mPhaseStartPos;
+
+        // Begin phasing through the given blocking actor (disable its collision).
+        // No-op if already phasing through someone.
+        void beginPhasing(const MWWorld::Ptr& blocker, const osg::Vec3f& playerPos);
+        // Restore the phased actor's collision and clear the phasing state. Safe
+        // to call when not phasing. MUST be invoked on every walk-exit path.
+        void restorePhasing();
     };
 }
 

@@ -4,6 +4,37 @@ A running log of screen-reader accessibility features added to this OpenMW fork.
 Newest changes are listed first. (OpenMW's own engine changelog lives in
 `CHANGELOG.md`.)
 
+## 2026-06-14
+
+- **Fixed: auto-walk no longer gives up while chasing a moving NPC.** Previously,
+  walking to a wandering NPC would often report "Stuck. Cannot reach" the moment
+  they strolled away after you'd gotten close, even though you were chasing
+  correctly. Auto-walk now recognises a moving target, announces "<name> is
+  moving." once, and keeps following until you reach them or cancel.
+
+- **Improved: auto-walk is better at getting around tight spots.** When something
+  wedges you (furniture, a doorway, a step), the recovery now probes both sides
+  and sidesteps toward whichever has more open space, instead of guessing - so it
+  squeezes through narrow gaps far more reliably.
+
+- **New: auto-walk gets you past NPCs blocking the way.** When a person is
+  standing in a doorway or corridor with no room to pass (a classic Morrowind
+  annoyance - they aren't part of the walkable map, so you simply can't push
+  through), auto-walk now announces "<name> is blocking the way. Moving past."
+  and slips past them, restoring things to normal once you are clear. If you
+  genuinely cannot get through, it tells you exactly who is in the way.
+
+- **New: auto-walk warns you about dangerous routes.** When you start walking to
+  a target, the route is now checked for two hazards that could get you killed
+  without warning: deep water you would have to swim across (drowning, or
+  slaughterfish), and steep drops the path would walk you off. If either is
+  found, you hear a single warning up front - for example "Warning: route
+  crosses deep water. Consider Water Walking or Levitation." or "...has a 7 metre
+  drop. Consider Levitation or Slow Fall." - so you can cast a spell or cancel
+  before setting off. Auto-walk still proceeds (the warning is advisory, not a
+  stop), and a route that simply stays near water will not nag you repeatedly.
+  Solid bridges and jetties over deep water are not flagged.
+
 ## 2026-06-13
 
 - **New: spell tooltips now tell you the school.** When you read a spell's
