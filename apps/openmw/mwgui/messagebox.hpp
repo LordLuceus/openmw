@@ -3,6 +3,9 @@
 
 #include <memory>
 
+#include <MyGUI_KeyCode.h>
+#include <MyGUI_Types.h>
+
 #include "windowbase.hpp"
 
 namespace MyGUI
@@ -113,6 +116,18 @@ namespace MWGui
     private:
         void buttonActivated(MyGUI::Widget* widget);
 
+        // Accessibility: announce a button as "<label>, button. N of M" when it
+        // receives keyboard focus, so a screen-reader user can arrow/Tab through
+        // the choices one at a time (the engine already moves focus + activates
+        // on Enter; only the speech was missing). Interrupts prior speech since
+        // the move is deliberate. Bound to each button's eventKeySetFocus.
+        void onButtonKeyFocus(MyGUI::Widget* sender, MyGUI::Widget* oldFocus);
+        // Accessibility: R re-reads the prompt (the per-option labels are
+        // re-read simply by arrowing back onto them). Bound to each button's
+        // eventKeyButtonPressed; all other keys are left for the engine's
+        // keyboard navigation. Speaks the prompt and consumes only R.
+        void onButtonKeyPressed(MyGUI::Widget* sender, MyGUI::KeyCode key, MyGUI::Char ch);
+
         MessageBoxManager& mMessageBoxManager;
         MyGUI::EditBox* mMessageWidget;
         MyGUI::Widget* mButtonsWidget;
@@ -122,6 +137,19 @@ namespace MWGui
         size_t mDefaultFocus;
         bool mImmediate;
         size_t mControllerFocus = 0;
+
+        // Returns the spoken form of button \p i: "<label>, button".
+        std::string buttonAnnouncement(size_t i) const;
+
+        // The button focused when the box opened. We announce it explicitly in
+        // the constructor (right after the prompt) because the engine does NOT
+        // reliably fire a focus event on open for every box -- multi-button
+        // pickers do, but two-button yes/no boxes do not. To avoid then
+        // DOUBLE-announcing it if the focus event does arrive, the focus handler
+        // suppresses exactly one event for this widget; once focus lands on any
+        // other button (the user navigated) the guard is cleared so returning to
+        // this option later still announces normally. Null after it's consumed.
+        MyGUI::Widget* mInitialFocusWidget = nullptr;
     };
 
 }

@@ -6,6 +6,16 @@ Newest changes are listed first. (OpenMW's own engine changelog lives in
 
 ## 2026-06-14
 
+- **New: choice dialogs are now navigable instead of read all at once.** Pop-up
+  dialogs with a row of buttons - shrine blessing pickers, the death screen
+  ("load last save?"), shrine donation prompts, companion warnings, soul gem
+  use, and any yes/no confirmation - previously read the prompt followed by
+  every option in one breath, with no way to pick by keyboard. They now announce
+  the prompt and then the first option, and you arrow (or Tab) between options -
+  each spoken as "<label>, button" - and press Enter to choose. Press R to
+  re-read the prompt. This is one shared dialog type, so the improvement applies
+  everywhere these pop-ups appear.
+
 - **Fixed: auto-walk no longer gives up while chasing a moving NPC.** Previously,
   walking to a wandering NPC would often report "Stuck. Cannot reach" the moment
   they strolled away after you'd gotten close, even though you were chasing

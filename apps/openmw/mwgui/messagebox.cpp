@@ -2,6 +2,8 @@
 
 #include <MyGUI_Button.h>
 #include <MyGUI_EditBox.h>
+#include <MyGUI_InputManager.h>
+#include <MyGUI_KeyCode.h>
 #include <MyGUI_LanguageManager.h>
 #include <MyGUI_RenderManager.h>
 #include <MyGUI_UString.h>
@@ -14,6 +16,8 @@
 #include "../mwbase/environment.hpp"
 #include "../mwbase/inputmanager.hpp"
 #include "../mwbase/windowmanager.hpp"
+
+#include "accessibility/speech.hpp"
 
 namespace MWGui
 {
@@ -405,23 +409,44 @@ namespace MWGui
 
         setVisible(true);
 
-        // Announce the modal: message body first, then each available
-        // choice as "<label>, button" -- mirroring how a screen reader
-        // describes a focused control (e.g. "Ok, button"). Use
-        // interrupt=true so a new modal doesn't queue behind a stale one.
+        // Accessibility: make the modal navigable instead of dumping every
+        // option at once. Announce the prompt (interrupting any stale speech,
+        // and remembered so R re-reads it), then bind each button so that
+        // gaining keyboard focus speaks it as "<label>, button. N of M" -- the
+        // engine already moves focus (arrows / Tab) and activates on Enter, so
+        // only the speech was missing. Finally, put focus on the default (or
+        // first) button so its label is spoken right after the prompt and the
+        // user has a concrete starting point.
+        for (MyGUI::Button* button : mButtons)
         {
-            std::string announcement = mMessageWidget->getCaption().asUTF8();
-            for (MyGUI::Button* button : mButtons)
+            button->eventKeySetFocus += MyGUI::newDelegate(this, &InteractiveMessageBox::onButtonKeyFocus);
+            button->eventKeyButtonPressed += MyGUI::newDelegate(this, &InteractiveMessageBox::onButtonKeyPressed);
+        }
+
+        A11y::sayRereadable(mMessageWidget->getCaption().asUTF8(), /*interrupt=*/true);
+
+        MyGUI::Widget* initialFocus = getDefaultKeyFocus();
+        if (!initialFocus && !mButtons.empty())
+            initialFocus = mButtons.front();
+        if (initialFocus)
+        {
+            // Set the guard BEFORE focusing: setKeyFocusWidget may synchronously
+            // fire the focus event, and we want that one suppressed so it
+            // doesn't interrupt the prompt or double up with our explicit
+            // announcement below.
+            mInitialFocusWidget = initialFocus;
+            MWBase::Environment::get().getWindowManager()->setKeyFocusWidget(initialFocus);
+            // Announce the starting option explicitly (queued after the prompt)
+            // rather than relying on a focus event -- two-button yes/no boxes
+            // don't fire one on open.
+            for (size_t i = 0; i < mButtons.size(); ++i)
             {
-                if (!announcement.empty() && announcement.back() != '.')
-                    announcement += '.';
-                announcement += ' ';
-                announcement += button->getCaption().asUTF8();
-                announcement += ", button";
+                if (mButtons[i] == initialFocus)
+                {
+                    A11y::say(buttonAnnouncement(i), /*interrupt=*/false);
+                    break;
+                }
             }
-            if (!announcement.empty() && announcement.back() != '.')
-                announcement += '.';
-            Accessibility::AccessibilityManager::instance().speak(announcement);
         }
     }
 
@@ -444,6 +469,46 @@ namespace MWGui
             }
         }
         return nullptr;
+    }
+
+    std::string InteractiveMessageBox::buttonAnnouncement(size_t i) const
+    {
+        return std::string(mButtons[i]->getCaption().asUTF8()) + ", button";
+    }
+
+    void InteractiveMessageBox::onButtonKeyFocus(MyGUI::Widget* sender, MyGUI::Widget* /*oldFocus*/)
+    {
+        // The opening option was already announced explicitly in the
+        // constructor; suppress exactly one focus event for it to avoid a
+        // double-announce. Any focus landing elsewhere means the user navigated,
+        // so clear the guard (returning to that option later announces again).
+        if (mInitialFocusWidget)
+        {
+            const bool isInitial = (sender == mInitialFocusWidget);
+            mInitialFocusWidget = nullptr;
+            if (isInitial)
+                return;
+        }
+
+        // Speak the newly focused choice. Interrupt so rapid arrowing replaces
+        // the previous option instead of queueing behind it.
+        for (size_t i = 0; i < mButtons.size(); ++i)
+        {
+            if (mButtons[i] == sender)
+            {
+                A11y::say(buttonAnnouncement(i), /*interrupt=*/true);
+                return;
+            }
+        }
+    }
+
+    void InteractiveMessageBox::onButtonKeyPressed(MyGUI::Widget* /*sender*/, MyGUI::KeyCode key, MyGUI::Char /*ch*/)
+    {
+        // R re-reads the prompt. Every other key (arrows, Tab, Enter, Space,
+        // Escape) is left untouched for the engine's keyboard navigation, which
+        // already moves focus between the choices and activates them.
+        if (key == MyGUI::KeyCode::R)
+            A11y::reread();
     }
 
     void InteractiveMessageBox::mousePressed(MyGUI::Widget* widget)
