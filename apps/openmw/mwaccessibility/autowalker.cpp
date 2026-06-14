@@ -568,6 +568,18 @@ namespace MWAccessibility
 
     void AutoWalker::warnRouteHazards()
     {
+        // Only meaningful for the long progressive (cross-cell, carrot-driven)
+        // walk. On a normal in-cell navmesh route the warning is useless or
+        // misleading: the pathfinder already routes AROUND cliffs (so the drop
+        // warning never legitimately fires), and a short water crossing is
+        // announced at the same instant the player hears themselves splash in --
+        // far too late to act on. The hazards only matter on the bee-line/
+        // partial progressive route, which interpolates Z smoothly and can sail
+        // the player over a cliff or into open water before the navmesh catches
+        // up. mProgressive is set by rebuildPath right before it calls us.
+        if (!mProgressive)
+            return;
+
         MWBase::World* world = MWBase::Environment::get().getWorld();
         if (!world || !mPathFinder.isPathConstructed())
             return;

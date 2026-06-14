@@ -6,6 +6,14 @@ Newest changes are listed first. (OpenMW's own engine changelog lives in
 
 ## 2026-06-14
 
+- **Changed: route hazard warnings now only fire during a long auto-walk.** The
+  "route crosses deep water" / "route has a drop" warnings are now limited to the
+  long-distance progressive auto-walk (the cross-area bee-line where they're
+  actually actionable). During ordinary short auto-walks they were either
+  useless or misleading - normal pathfinding already routes around cliffs, and a
+  short water crossing was being announced at the very moment you heard yourself
+  splash in, too late to do anything about it.
+
 - **Fixed: Telekinesis now extends interaction reach as it should.** Activating,
   opening, or lockpicking a target while a Telekinesis effect is active now
   works from a distance - for example opening an interior door across the room -
