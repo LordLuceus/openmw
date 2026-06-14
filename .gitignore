@@ -98,3 +98,4 @@ build_beta.bat
 build_openmw.bat
 reconfigure_dev.bat
 run_prebuild.sh
+build_patch.bat

@@ -43,6 +43,7 @@
 #include <components/esm3/loadligh.hpp>
 #include <components/esm3/loadgmst.hpp>
 #include <components/esm3/loadlock.hpp>
+#include <components/esm3/loadmgef.hpp>
 #include <components/esm3/loadmisc.hpp>
 #include <components/esm3/loadnpc.hpp>
 #include <components/esm3/loadprob.hpp>
@@ -53,6 +54,7 @@
 #include "../mwmechanics/aisequence.hpp"
 #include "../mwmechanics/combat.hpp"
 #include "../mwmechanics/creaturestats.hpp"
+#include "../mwmechanics/magiceffects.hpp"
 #include "../mwmechanics/drawstate.hpp"
 #include "../mwmechanics/npcstats.hpp"
 #include "../mwmechanics/spells.hpp"
@@ -1680,29 +1682,71 @@ namespace MWAccessibility
         }
     }
 
+    bool Scanner::isWithinActivationReach(const MWWorld::Ptr& target)
+    {
+        if (target.isEmpty() || !isGameplayActive())
+            return false;
+
+        MWBase::World* world = MWBase::Environment::get().getWorld();
+        MWWorld::Ptr player = world->getPlayerPtr();
+        if (player.isEmpty())
+            return false;
+
+        // Gate on the engine's activation distance, matching vanilla reach. The
+        // audio beacon already guides the player into range, so this just
+        // prevents interacting with things across the room. Measure to the
+        // target's nearest bounding-box surface rather than its origin, so an
+        // object whose pivot is sunk into the ground (a tree stump, a floor
+        // hatch) still reads as close when the player stands on/over it -- see
+        // distanceToBounds.
+        //
+        // Telekinesis extends reach: the engine (World::getFocusObject) adds
+        // feetToGameUnits(telekinesisMagnitude) to the activation distance, but
+        // only honours it for objects whose class allows telekinesis (items and
+        // most doors yes; actors no; an unlocked, untrapped teleport door no).
+        // Mirror that exactly so a sighted player casting Telekinesis and a
+        // screen-reader player get identical reach -- otherwise we'd refuse
+        // things the game would happily let you grab/open at range.
+        float reach = world->getMaxActivationDistance();
+        if (target.getClass().allowTelekinesis(target))
+        {
+            const float telekinesisMagnitude = player.getClass()
+                                                   .getCreatureStats(player)
+                                                   .getMagicEffects()
+                                                   .getOrDefault(ESM::MagicEffect::Telekinesis)
+                                                   .getMagnitude();
+            if (telekinesisMagnitude > 0.0f)
+                // feetToGameUnits: the engine rounds units-per-foot up (see
+                // World::feetToGameUnits), so match with std::ceil.
+                reach += telekinesisMagnitude * std::ceil(Constants::UnitsPerFoot);
+        }
+
+        const float dist = distanceToBounds(player.getRefData().getPosition().asVec3(), target);
+        return dist <= reach;
+    }
+
+    void Scanner::announceTooFarAway(const MWWorld::Ptr& target)
+    {
+        if (target.isEmpty() || !isGameplayActive())
+            return;
+        speak(objectDisplayName(target) + " is too far away.");
+    }
+
     bool Scanner::activateTarget()
     {
         MWWorld::Ptr target = currentTarget();
         if (target.isEmpty())
             return false; // Nothing selected; let the default Activate run.
 
-        MWBase::World* world = MWBase::Environment::get().getWorld();
-        MWWorld::Ptr player = world->getPlayerPtr();
-
-        // Gate on the engine's activation distance, matching vanilla reach.
-        // The audio beacon already guides the player into range, so this just
-        // prevents grabbing things across the room. Measure to the target's
-        // nearest bounding-box surface rather than its origin, so an object
-        // whose pivot is sunk into the ground (a tree stump, a floor hatch) can
-        // still be activated when the player is standing on/over it -- see
-        // distanceToBounds.
-        const float dist = distanceToBounds(player.getRefData().getPosition().asVec3(), target);
-        if (dist > world->getMaxActivationDistance())
+        if (!isWithinActivationReach(target))
         {
-            speak(objectDisplayName(target) + " is too far away.");
+            announceTooFarAway(target);
             return true; // Consume: we handled it (by refusing), don't also
                          // fire the crosshair Activate.
         }
+
+        MWBase::World* world = MWBase::Environment::get().getWorld();
+        MWWorld::Ptr player = world->getPlayerPtr();
 
         // Mirror Player::activate(): only activate things that would show a
         // tooltip, then dispatch through the normal Lua activation path. This

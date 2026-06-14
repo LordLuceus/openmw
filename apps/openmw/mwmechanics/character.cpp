@@ -1756,11 +1756,32 @@ namespace MWMechanics
                 // object the player actually selected, so it's the right target.
                 // Only the player uses lockpicks/probes, so gating on the lock
                 // (which only the player sets) is safe.
+                //
+                // BUT only substitute the lock when it's actually in reach:
+                // getFocusObject (the value we're replacing) already enforces
+                // activation distance via the camera ray, whereas a lock can be
+                // held on something across the room. Without this check the lock
+                // substitution would silently grant infinite-range lockpicking.
+                // isWithinActivationReach applies the same reach the camera ray
+                // would (including the Telekinesis bonus for lockable objects).
+                //
+                // When the lock IS out of reach, announce it and clear the
+                // target so we don't silently fall back to picking whatever the
+                // camera happens to face (which a blind player didn't aim at) --
+                // and so the attempt isn't just a silent no-op with no feedback.
                 if (mPtr == getPlayer())
                 {
                     MWWorld::Ptr locked = MWAccessibility::Scanner::instance().lockTarget();
                     if (!locked.isEmpty())
-                        target = locked;
+                    {
+                        if (MWAccessibility::Scanner::isWithinActivationReach(locked))
+                            target = locked;
+                        else
+                        {
+                            MWAccessibility::Scanner::instance().announceTooFarAway(locked);
+                            target = MWWorld::Ptr();
+                        }
+                    }
                 }
 
                 if (!target.isEmpty())

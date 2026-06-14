@@ -6,6 +6,26 @@ Newest changes are listed first. (OpenMW's own engine changelog lives in
 
 ## 2026-06-14
 
+- **Fixed: Telekinesis now extends interaction reach as it should.** Activating,
+  opening, or lockpicking a target while a Telekinesis effect is active now
+  works from a distance - for example opening an interior door across the room -
+  matching what a sighted player gets by aiming with the spell up. Previously
+  the screen-reader interaction always used your bare arm's-length reach and
+  ignored Telekinesis entirely, so it would just say the target was too far
+  away. The bonus only applies to things the game actually lets you manipulate
+  by telekinesis (items and most doors, but not people, and not plain teleport
+  doors).
+
+- **Fixed: lockpicking and Open-spelling a locked target now respect reach.**
+  Because the screen-reader lets you act on a locked-on target directly (rather
+  than aiming a crosshair), it was possible to pick a lock or cast Open on a
+  chest clear across the room - the distance check the game normally enforces
+  was being skipped. All three interaction paths (activate, lockpick/probe, and
+  Open-type spells on objects) now share one reach rule, including the
+  Telekinesis bonus above. If a locked target is out of reach, lockpicking now
+  says "<name> is too far away." instead of silently doing nothing, so you know
+  to close the distance rather than wondering why the pick didn't fire.
+
 - **New: choice dialogs are now navigable instead of read all at once.** Pop-up
   dialogs with a row of buttons - shrine blessing pickers, the death screen
   ("load last save?"), shrine donation prompts, companion warnings, soul gem

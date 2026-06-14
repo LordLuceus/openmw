@@ -2969,17 +2969,17 @@ namespace MWWorld
             // Scoped to NON-ACTOR locks within activation distance, mirroring
             // activate/lockpick: actor touch spells already resolve robustly via
             // the melee cone above (which also keeps their proper short reach),
-            // so we deliberately don't override those here.
+            // so we deliberately don't override those here. The reach gate uses
+            // the same shared helper as activate/lockpick, so this path inherits
+            // nearest-bounding-box distance (a chest with a sunk pivot still
+            // reads as close when stood on) instead of the cruder origin-to-
+            // origin measure.
             if (casterIsPlayer && (target.isEmpty() || !target.getClass().hasToolTip(target)))
             {
                 MWWorld::Ptr locked = MWAccessibility::Scanner::instance().lockTarget();
-                if (!locked.isEmpty() && !locked.getClass().isActor() && locked.getClass().hasToolTip(locked))
-                {
-                    const osg::Vec3f delta
-                        = locked.getRefData().getPosition().asVec3() - actor.getRefData().getPosition().asVec3();
-                    if (delta.length() <= getMaxActivationDistance())
-                        target = locked;
-                }
+                if (!locked.isEmpty() && !locked.getClass().isActor() && locked.getClass().hasToolTip(locked)
+                    && MWAccessibility::Scanner::isWithinActivationReach(locked))
+                    target = locked;
             }
         }
 

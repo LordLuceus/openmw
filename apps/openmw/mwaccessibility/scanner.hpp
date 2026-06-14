@@ -78,6 +78,31 @@ namespace MWAccessibility
         /// their isEmpty() checks -- so we never hand one out.
         MWWorld::Ptr lockTarget() const;
 
+        /// True if \p target is within the player's activation reach, mirroring
+        /// the engine's own gate (World::getFocusObject): the base
+        /// iMaxActivateDist, extended by the player's active Telekinesis
+        /// magnitude for objects whose class allows telekinesis (items and most
+        /// doors yes; actors no; an unlocked, untrapped teleport door no).
+        /// Distance is measured to the target's nearest bounding-box surface so
+        /// an object with a sunk pivot still reads as close when stood on.
+        ///
+        /// Static and self-contained so non-accessibility interaction paths that
+        /// substitute the locked target for the camera focus object can re-apply
+        /// the SAME reach check the camera ray would have enforced -- otherwise
+        /// the substitution silently grants infinite reach (see the lockpick /
+        /// probe path in CharacterController). Returns false when no game is
+        /// running or \p target is empty.
+        static bool isWithinActivationReach(const MWWorld::Ptr& target);
+
+        /// Speak "<name> is too far away." for \p target. Spoken feedback for an
+        /// interaction the player deliberately attempted on a locked object that
+        /// turned out to be beyond reach -- a blind player has no visual whiff
+        /// cue, so a silent no-op (e.g. lockpicking out of range) leaves them
+        /// with no idea why nothing happened. Used by both the activate path and
+        /// the lockpick/probe path (CharacterController) so the wording matches.
+        /// No-op when no game is running or \p target is empty.
+        void announceTooFarAway(const MWWorld::Ptr& target);
+
         /// The world object the screen-reader player currently has selected for
         /// the accessible console's click-to-target flow: the locked-on target
         /// if one is held, otherwise the current scanner cursor selection. A
