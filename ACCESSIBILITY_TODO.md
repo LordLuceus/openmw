@@ -39,14 +39,14 @@ auto-walk, location announcements, and audio beacon (gameplay, not a screen).
       existing `transferItem`/`ItemTransfer::apply` path. `a11yStoreItem` +
       `onA11yCountStored` mirror the drop flow (unequip-if-needed, then follow the
       item). Closes the take/drop/store gap (could take + drop, not store).
-- [ ] **Companion** (`GM_Companion`) — share/transfer items. The companion window
+- [x] **Companion** (`GM_Companion`) — share/transfer items. The companion window
       has NO accessibility yet (no `mA11y`), so it needs its own item list +
       buildAccessibility first, then enrol as pane 0 (mirroring the container
       work above) so the inventory's S-store path can target it too. Inventory
       enrolment + S-store currently gated to `GM_Container`; extend to
       `GM_Companion` once its pane exists.
 - [ ] **Quick keys menu** (`GM_QuickKeysMenu`)
-- [ ] **Console** (`console.cpp`)
+- [x] **Console** (`console.cpp`)
 - [x] **HUD** — accessible HUD (AHUD). H toggles it; pauses the world (via a
       time-manager tag, not a GuiMode) so the scanner + quick-info keys still
       work while frozen, giving a blind player time to assess an ambush. Quick
@@ -55,7 +55,7 @@ auto-walk, location announcements, and audio beacon (gameplay, not a screen).
 
 ### System screens (no GuiMode — separate path)
 - [x] **Save / Load** (`savegamedialog.cpp`)
-- [ ] **Death screen** — bespoke yes/no dialogue (differs from the usual one)
+- [x] **Death screen** — bespoke yes/no dialogue (differs from the usual one)
 - [x] **Scripts tab in options = Lua-mod settings pages** (commit `ef9f6c9d9e`).
       Generic walker over `mScriptAdapter`'s deterministic page scaffold (groups
       flex → group flex → settings flex → named row) emits one option per setting

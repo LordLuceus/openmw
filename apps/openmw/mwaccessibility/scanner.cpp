@@ -84,6 +84,7 @@
 #include "../mwworld/cellref.hpp"
 #include "../mwworld/cellstore.hpp"
 #include "../mwworld/class.hpp"
+#include "../mwworld/doorstate.hpp"
 #include "../mwworld/esmstore.hpp"
 #include "../mwworld/inventorystore.hpp"
 #include "../mwworld/player.hpp"
@@ -401,6 +402,24 @@ namespace
             out += ", to ";
             out += dest;
         }
+    }
+
+    // The current open/closed state of a door, as a spoken word ("open" /
+    // "closed"), or empty for a non-door. A blind player has no visual cue
+    // whether a door is standing open or shut -- which matters now that auto-walk
+    // opens doors and activation is blocked through closed ones. A door is
+    // "closed" only when it is Idle AND sitting at its authored rotation; any
+    // swing (currently opening/closing, or idle but rotated open) reads as
+    // "open". Mirrors the open/closed test in MWClass::Door::activate.
+    std::string doorStateLabel(const MWWorld::Ptr& ptr)
+    {
+        if (ptr.getType() != ESM::Door::sRecordId)
+            return {};
+        const float doorRot
+            = ptr.getRefData().getPosition().rot[2] - ptr.getCellRef().getPosition().rot[2];
+        const bool closed
+            = ptr.getClass().getDoorState(ptr) == MWWorld::DoorState::Idle && doorRot == 0.0f;
+        return closed ? "closed" : "open";
     }
 
     // The text the search filter matches against: the same enriched, spoken
@@ -2595,6 +2614,12 @@ namespace MWAccessibility
         // of the object's identity, e.g. "Wooden Door, to Seyda Neen, A".
         if (auto it = state.mLabels.find(target.getCellRef().getRefNum()); it != state.mLabels.end())
             name += ", " + it->second;
+
+        // Speak whether a door is open or closed (empty for non-doors). A blind
+        // player has no visual cue, and it matters now that activation is blocked
+        // through a closed door: "Wooden Door, to Seyda Neen, closed".
+        if (std::string doorState = doorStateLabel(target); !doorState.empty())
+            name += ", " + doorState;
 
         // Direction is the absolute compass heading -- a fixed frame the
         // player can use to remember where a thing is regardless of which way
