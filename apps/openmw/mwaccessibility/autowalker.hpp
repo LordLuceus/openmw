@@ -167,6 +167,16 @@ namespace MWAccessibility
         int mRecoveryAttempts = 0;
         float mRecoveryDir = 1.0f;
 
+        // Door back-off state. When auto-walk opens a closed door it is usually
+        // wedged flush against it, and the engine REFUSES to swing a door into an
+        // actor's body (rotateDoor undoes the rotation every frame it would hit
+        // us) -- so the door we just told to open never actually moves. Like a
+        // sighted player, we step back to give it room: mDoorBackoffTimer counts
+        // down a brief reverse-walk after opening, during which we drive movement
+        // backward and suppress stuck/recovery logic (we are deliberately not
+        // progressing). 0 == not backing off.
+        float mDoorBackoffTimer = 0.0f;
+
         // True once we've switched from navmesh following to the final
         // straight-line approach at the target (after the navmesh path ran out
         // short). Guards against re-entering final approach repeatedly and

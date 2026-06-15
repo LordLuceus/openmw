@@ -122,6 +122,14 @@ namespace
     // need a little extra reach to register the hit. ~150u (~2 m).
     constexpr float kDoorProbeLen = 150.0f;
 
+    // After opening a blocking door, walk BACKWARD for this long so the door has
+    // room to swing (the engine won't rotate a door into the player's body, so a
+    // door we're flush against never opens). A short reverse-step is enough to
+    // clear the swing arc; normal forward steering then resumes and carries us
+    // through. Suppresses stuck/recovery during the back-off (we're deliberately
+    // not making forward progress).
+    constexpr float kDoorBackoffDuration = 0.6f; // seconds
+
     // Once we phase through a blocking NPC (temporarily disabling its collision),
     // restore that collision as soon as the player has moved this far from where
     // phasing began -- i.e. we've cleared the doorway and are past the body.
@@ -369,8 +377,12 @@ namespace MWAccessibility
         if (doorRot != 0.0f)
             return false; // open and idle: not our blocker
 
-        // Open it (engine animates + plays sound), announce, and keep walking.
-        world->activateDoor(door, MWWorld::DoorState::Opening);
+        // Open it via the normal activation path (Lua objectActivated ->
+        // Door::activate -> ActionDoor) rather than World::activateDoor directly:
+        // that path also plays the open SOUND and runs the proper door semantics
+        // (calling activateDoor straight just rotates it silently). We've already
+        // gated to a CLOSED, unlocked, in-cell door, so toggling it = opening it.
+        MWBase::Environment::get().getLuaManager()->objectActivated(door, player);
         const std::string doorName = std::string(door.getClass().getName(door));
         speakQueued((doorName.empty() ? std::string("A door") : doorName) + ". Opening.");
         return true;
@@ -475,6 +487,7 @@ namespace MWAccessibility
         mRecoveryTimer = 0.0f;
         mRecoveryAttempts = 0;
         mRecoveryDir = 1.0f;
+        mDoorBackoffTimer = 0.0f;
         mProgressive = false;
         mTimeSinceCallout = 0.0f;
         mLastCalloutDist = std::numeric_limits<float>::max();
@@ -925,6 +938,33 @@ namespace MWAccessibility
             speakQueued(mTargetName + " is moving.");
         }
 
+        // --- Door back-off ---------------------------------------------------
+        // We just opened a door we were wedged against. The engine won't swing a
+        // door into our body, so step backward briefly to clear its arc, then let
+        // normal steering resume and walk us through. Runs before stuck detection
+        // so the deliberate non-progress here never trips a give-up. Update mLastPos
+        // so the first post-backoff frame doesn't see a huge displacement spike.
+        if (mDoorBackoffTimer > 0.0f)
+        {
+            mDoorBackoffTimer -= dt;
+            mLastPos = playerPos;
+            auto* controls
+                = MWBase::Environment::get().getLuaManager()->getActorControls(player);
+            if (!controls)
+            {
+                cancel();
+                return;
+            }
+            controls->mMovement = -1.0f; // walk straight back, away from the door
+            controls->mSideMovement = 0.0f;
+            controls->mYawChange = 0.0f;
+            controls->mPitchChange = 0.0f;
+            controls->mJump = false;
+            controls->mRun = false; // a gentle step back, not a sprint
+            controls->mChanged = true;
+            return;
+        }
+
         // --- Stuck detection -------------------------------------------------
         //
         // Two independent signals (see the header for the full rationale):
@@ -973,7 +1013,22 @@ namespace MWAccessibility
             // A blocked doorway routinely trips THIS no-progress path rather than
             // the wedge path below (the stronger wiggle jostles us enough to keep
             // the no-move timer reset), so the blocker handling must live here
-            // too. handleGiveUp phases through a blocking NPC and keeps walking
+            // too -- check for a closed door FIRST. The navmesh routes through
+            // doors assuming they open, but auto-walk never actuated them, so a
+            // shut door stalls progress just like a wall. If we open one, refresh
+            // the budgets and let normal steering carry us through.
+            const float doorYaw = player.getRefData().getPosition().rot[2];
+            if (tryOpenBlockingDoor(player, playerPos, doorYaw))
+            {
+                mTimeSinceMove = 0.0f;
+                mTimeSinceProgress = 0.0f;
+                mBestDistToGoal = std::numeric_limits<float>::max();
+                mRecoveryAttempts = 0;
+                mDoorBackoffTimer = kDoorBackoffDuration; // step back so it can swing
+                return;
+            }
+
+            // handleGiveUp phases through a blocking NPC and keeps walking
             // (returns false); only cancel if it says the walk is truly over.
             if (handleGiveUp(player, playerPos, targetPos))
             {
@@ -1000,6 +1055,7 @@ namespace MWAccessibility
                 mTimeSinceProgress = 0.0f;
                 mBestDistToGoal = std::numeric_limits<float>::max();
                 mRecoveryAttempts = 0;
+                mDoorBackoffTimer = kDoorBackoffDuration; // step back so it can swing
                 return;
             }
 
