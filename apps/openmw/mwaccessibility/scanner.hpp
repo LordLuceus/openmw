@@ -94,6 +94,16 @@ namespace MWAccessibility
         /// running or \p target is empty.
         static bool isWithinActivationReach(const MWWorld::Ptr& target);
 
+        /// Is there an unobstructed line from the player to \p target? Casts a ray
+        /// from the player's torso to the target's centre against solid geometry
+        /// (world/terrain/doors); a clear line hits the target first (or nothing).
+        /// A blind player activates a locked-on target directly rather than by
+        /// aiming a crosshair, so without this they could activate (e.g. talk to)
+        /// an NPC or open a container through a CLOSED door or wall. Mirrors the
+        /// trajectory used by announceNoClearShot. Returns true (permissive) when
+        /// no game is running, \p target is empty, or raycasting is unavailable.
+        static bool hasLineOfSightToTarget(const MWWorld::Ptr& target);
+
         /// Speak "<name> is too far away." for \p target. Spoken feedback for an
         /// interaction the player deliberately attempted on a locked object that
         /// turned out to be beyond reach -- a blind player has no visual whiff
