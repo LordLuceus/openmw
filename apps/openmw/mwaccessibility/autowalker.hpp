@@ -81,6 +81,18 @@ namespace MWAccessibility
         // empty Ptr if what's ahead is static geometry (or nothing). \p yaw is
         // the player's current facing.
         MWWorld::Ptr detectBlockingActor(const MWWorld::Ptr& player, const osg::Vec3f& playerPos, float yaw) const;
+        // Probe straight ahead for a CLOSED door blocking the path and, if found,
+        // open it and keep walking. The navmesh routes THROUGH doors (the player
+        // agent has Flag_openDoor), assuming they'll be opened -- but nothing in
+        // auto-walk actuated them, so the player just wedged against a shut door.
+        // Scoped to in-cell (NON-teleport) doors only: a teleport door leads to
+        // another cell, and silently walking the player through it would yank
+        // them somewhere they didn't choose to go. Locked doors are left shut
+        // too (we can't pick them mid-walk; the give-up report handles it).
+        // Returns true if it opened a door (caller should refresh budgets and
+        // keep walking); false if nothing openable is ahead. \p yaw is the
+        // player's current facing.
+        bool tryOpenBlockingDoor(const MWWorld::Ptr& player, const osg::Vec3f& playerPos, float yaw);
         // Handle a give-up condition. Probes ahead for a blocking NPC: if one is
         // found and we're not already phasing, disables that NPC's collision so
         // the player slips past, announces "X is blocking the way. Moving past.",

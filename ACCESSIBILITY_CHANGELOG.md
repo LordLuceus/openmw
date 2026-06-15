@@ -4,6 +4,18 @@ A running log of screen-reader accessibility features added to this OpenMW fork.
 Newest changes are listed first. (OpenMW's own engine changelog lives in
 `CHANGELOG.md`.)
 
+## 2026-06-15
+
+- **Fixed: auto-walk now opens closed doors in your way instead of wedging
+  against them.** Pathfinding routes you straight through doorways on the
+  assumption the door will open, but auto-walk never actually opened them - so a
+  shut door looked just like a wall and the walk would stall and eventually give
+  up. Auto-walk now detects a closed door directly ahead, opens it (with the
+  normal sound), announces "<name>. Opening.", and carries on through. Only
+  ordinary in-cell doors are opened automatically; a door that would teleport you
+  to another area is left shut (so you are never silently yanked somewhere you
+  did not choose to go), and locked doors stay locked.
+
 ## 2026-06-14
 
 - **Changed: route hazard warnings now only fire during a long auto-walk.** The

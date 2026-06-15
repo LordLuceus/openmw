@@ -15,6 +15,7 @@
 #include <components/detournavigator/navigatorutils.hpp>
 #include <components/esm/util.hpp>
 #include <components/esm3/loadcell.hpp>
+#include <components/esm3/loaddoor.hpp>
 
 #include "../mwbase/environment.hpp"
 #include "../mwbase/luamanager.hpp"
@@ -30,6 +31,7 @@
 #include "../mwworld/cellref.hpp"
 #include "../mwworld/cellstore.hpp"
 #include "../mwworld/class.hpp"
+#include "../mwworld/doorstate.hpp"
 #include "../mwworld/player.hpp"
 #include "../mwworld/ptr.hpp"
 #include "../mwworld/refdata.hpp"
@@ -113,6 +115,12 @@ namespace
     // failed. Short -- we only care about someone right in our face (a doorway
     // plug), not an NPC across the room. ~100u is about one body-depth ahead.
     constexpr float kBlockerProbeLen = 100.0f;
+
+    // How far ahead to probe for a closed door blocking the path. A touch longer
+    // than the actor probe: the player wedges against the door's flat collision
+    // plane with the capsule's radius between body centre and the surface, so we
+    // need a little extra reach to register the hit. ~150u (~2 m).
+    constexpr float kDoorProbeLen = 150.0f;
 
     // Once we phase through a blocking NPC (temporarily disabling its collision),
     // restore that collision as soon as the player has moved this far from where
@@ -321,6 +329,51 @@ namespace MWAccessibility
         if (res.mHit && !res.mHitObject.isEmpty() && res.mHitObject.getClass().isActor())
             return res.mHitObject;
         return MWWorld::Ptr();
+    }
+
+    bool AutoWalker::tryOpenBlockingDoor(
+        const MWWorld::Ptr& player, const osg::Vec3f& playerPos, float yaw)
+    {
+        MWBase::World* world = MWBase::Environment::get().getWorld();
+        const MWPhysics::RayCastingInterface* rayCasting = world ? world->getRayCasting() : nullptr;
+        if (!rayCasting)
+            return false;
+
+        // Cast straight ahead from chest height, hit-testing ONLY doors.
+        const osg::Vec3f forward(std::sin(yaw), std::cos(yaw), 0.0f);
+        const osg::Vec3f chest = playerPos + osg::Vec3f(0.0f, 0.0f, 32.0f);
+        const osg::Vec3f to = chest + forward * kDoorProbeLen;
+        const std::vector<MWWorld::ConstPtr> ignore{ player };
+        const MWPhysics::RayCastingResult res
+            = rayCasting->castRay(chest, to, ignore, {}, MWPhysics::CollisionType_Door);
+        if (!res.mHit || res.mHitObject.isEmpty())
+            return false;
+
+        MWWorld::Ptr door = res.mHitObject;
+        if (door.getType() != ESM::Door::sRecordId)
+            return false;
+
+        // Only in-cell doors: a teleport door would yank the player into another
+        // cell they didn't choose to enter. Locked doors stay shut (we can't
+        // pick them here). Both cases fall through to the normal give-up report.
+        if (door.getCellRef().getTeleport() || door.getCellRef().isLocked())
+            return false;
+
+        // Already open / opening? Then it isn't what's blocking us -- don't
+        // toggle it shut. A closed idle door has its current rotation equal to
+        // its authored (cellref) rotation; any divergence means it's swung open.
+        if (door.getClass().getDoorState(door) != MWWorld::DoorState::Idle)
+            return false;
+        const float doorRot
+            = door.getRefData().getPosition().rot[2] - door.getCellRef().getPosition().rot[2];
+        if (doorRot != 0.0f)
+            return false; // open and idle: not our blocker
+
+        // Open it (engine animates + plays sound), announce, and keep walking.
+        world->activateDoor(door, MWWorld::DoorState::Opening);
+        const std::string doorName = std::string(door.getClass().getName(door));
+        speakQueued((doorName.empty() ? std::string("A door") : doorName) + ". Opening.");
+        return true;
     }
 
     bool AutoWalker::handleGiveUp(
@@ -934,6 +987,22 @@ namespace MWAccessibility
         // while one is already running.
         if (mTimeSinceMove >= kStuckTimeout && mRecoveryTimer <= 0.0f)
         {
+            // First, check whether a closed (in-cell, unlocked) door is what
+            // we're wedged against. The navmesh routes THROUGH doors assuming
+            // they'll be opened, but auto-walk never actuated them, so a shut
+            // door looks exactly like a wall to the wiggle. If we open one, give
+            // the walk a fresh budget and let normal steering carry us through
+            // the now-swinging doorway -- no wiggle needed.
+            const float doorYaw = player.getRefData().getPosition().rot[2];
+            if (tryOpenBlockingDoor(player, playerPos, doorYaw))
+            {
+                mTimeSinceMove = 0.0f;
+                mTimeSinceProgress = 0.0f;
+                mBestDistToGoal = std::numeric_limits<float>::max();
+                mRecoveryAttempts = 0;
+                return;
+            }
+
             if (mRecoveryAttempts >= kMaxRecoveryAttempts)
             {
                 // handleGiveUp phases through a blocking NPC and keeps walking
@@ -1134,6 +1203,7 @@ namespace MWAccessibility
             cancel();
             return;
         }
+
         controls->mMovement = 1.0f; // full forward
         controls->mSideMovement = 0.0f;
         controls->mYawChange = yawDelta;
