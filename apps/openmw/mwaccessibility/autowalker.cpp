@@ -1204,6 +1204,39 @@ namespace MWAccessibility
             return;
         }
 
+        // --- Flying: follow the SAME navmesh route as walking, but in 3D -----
+        //
+        // While airborne (Levitation, a flying creature form), the plain ground
+        // walker fails two ways: it only steers yaw (so it flies dead-level into
+        // arches and never climbs to a raised target), and a naive straight
+        // bee-line can't get through tight interior geometry -- the Vivec Puzzle
+        // Canal is a 3D maze, and no amount of climbing solves a maze; you must
+        // route AROUND the walls. The navmesh pathfinder already does that
+        // routing, so we reuse it wholesale and only change HOW we follow it: aim
+        // the player's absolute orientation (yaw AND pitch) at the next waypoint
+        // and push forward. The engine's flight velocity = orientation * forward
+        // then carries us up/down along the route's elevation profile (waypoints
+        // rise onto a platform / shrine dais, so pitch rises with them). Absolute
+        // aim (rotateObject, as lock-on uses) holds steady since there's no
+        // competing mouse input during auto-walk. All the maze-solving,
+        // stuck-detection, recovery, door-opening, repath and arrival logic above
+        // is shared with walking.
+        if (world->isFlying(player))
+        {
+            const float flyYaw = mPathFinder.getZAngleToNext(playerPos.x(), playerPos.y());
+            const float flyPitch = mPathFinder.getXAngleToNext(playerPos.x(), playerPos.y(), playerPos.z());
+            world->rotateObject(player, osg::Vec3f(flyPitch, 0.0f, flyYaw), MWBase::RotationFlag_none);
+
+            controls->mMovement = 1.0f; // full forward, along the new facing
+            controls->mSideMovement = 0.0f;
+            controls->mYawChange = 0.0f; // orientation set absolutely above
+            controls->mPitchChange = 0.0f;
+            controls->mJump = false;
+            controls->mRun = true;
+            controls->mChanged = true;
+            return;
+        }
+
         controls->mMovement = 1.0f; // full forward
         controls->mSideMovement = 0.0f;
         controls->mYawChange = yawDelta;

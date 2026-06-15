@@ -6,6 +6,16 @@ Newest changes are listed first. (OpenMW's own engine changelog lives in
 
 ## 2026-06-15
 
+- **New: auto-walk now flies in 3D when you are levitating.** While airborne
+  (Levitation, or a flying creature form), auto-walk used to steer only left and
+  right - it flew dead level into archways and could never gain height to reach a
+  raised target, and a straight line could not get through tight interior spaces
+  like the Vivec Puzzle Canal. It now follows the same maze-solving path as
+  walking, but aims up and down as well, so it climbs and descends along the
+  route and onto raised platforms. (Note: some targets are genuinely unreachable
+  by flight, e.g. a shrine sealed behind a puzzle - auto-walk will get you as
+  close as the path allows and then report that it is stuck.)
+
 - **Fixed: auto-walk now opens closed doors in your way instead of wedging
   against them.** Pathfinding routes you straight through doorways on the
   assumption the door will open, but auto-walk never actually opened them - so a
