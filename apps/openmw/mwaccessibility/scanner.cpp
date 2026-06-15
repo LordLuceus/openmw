@@ -1744,43 +1744,6 @@ namespace MWAccessibility
         return dist <= reach;
     }
 
-    bool Scanner::hasLineOfSightToTarget(const MWWorld::Ptr& target)
-    {
-        if (target.isEmpty() || !isGameplayActive())
-            return true; // permissive: nothing to block
-
-        MWBase::World* world = MWBase::Environment::get().getWorld();
-        MWWorld::Ptr player = world->getPlayerPtr();
-        if (player.isEmpty())
-            return true;
-
-        const MWPhysics::RayCastingInterface* rayCasting = world->getRayCasting();
-        if (!rayCasting)
-            return true;
-
-        // Cast from the player's torso to the target's vertical centre (same
-        // trajectory geometry as announceNoClearShot). We test ONLY solid,
-        // sight-blocking geometry -- world meshes, terrain, and doors -- and NOT
-        // actors: an NPC standing between you and the target shouldn't block you
-        // from talking to/activating it (you'd just be addressing the crowd), and
-        // the player's concern is closed doors and walls. The target itself
-        // (item/NPC/container) isn't in this collision set, so a clear line
-        // produces NO hit; a closed door or wall in the way is hit first.
-        const float playerTorso = world->getHalfExtents(player, /*rendering=*/true).z() * 2.f * 0.75f;
-        osg::Vec3f from = player.getRefData().getPosition().asVec3();
-        from.z() += playerTorso;
-        osg::Vec3f to = target.getRefData().getPosition().asVec3();
-        to.z() += world->getHalfExtents(target, /*rendering=*/true).z();
-
-        const int mask
-            = MWPhysics::CollisionType_World | MWPhysics::CollisionType_HeightMap | MWPhysics::CollisionType_Door;
-        const MWPhysics::RayCastingResult result = rayCasting->castRay(from, to, { player }, {}, mask);
-
-        // No hit (open line) => clear. A hit ON the target itself (e.g. the target
-        // IS a door we're opening) => clear. A hit on any other solid => blocked.
-        return !result.mHit || result.mHitObject == target;
-    }
-
     void Scanner::announceTooFarAway(const MWWorld::Ptr& target)
     {
         if (target.isEmpty() || !isGameplayActive())
@@ -1799,17 +1762,6 @@ namespace MWAccessibility
             announceTooFarAway(target);
             return true; // Consume: we handled it (by refusing), don't also
                          // fire the crosshair Activate.
-        }
-
-        // A blind player activates the locked-on target directly, with no
-        // crosshair, so the engine never enforces line of sight -- without this
-        // check you could talk to an NPC or open a container through a closed
-        // door or wall. Refuse (with spoken feedback) when something solid is in
-        // the way, so the player knows to open the door / close the distance.
-        if (!hasLineOfSightToTarget(target))
-        {
-            speak(objectDisplayName(target) + " is blocked.");
-            return true; // Consume: handled by refusing.
         }
 
         MWBase::World* world = MWBase::Environment::get().getWorld();

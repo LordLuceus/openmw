@@ -11,14 +11,6 @@ Newest changes are listed first. (OpenMW's own engine changelog lives in
   Seyda Neen, closed" or "Wooden Door, open". The state is read live each time, so
   a door you just walked through reads "open" the next time you select it.
 
-- **Changed: you can no longer activate a target through a closed door or wall.**
-  Because the screen-reader lets you act on a locked-on target directly (rather
-  than aiming a crosshair), it was possible to talk to an NPC, or open a chest,
-  straight through a shut door or solid wall. Activation now checks for a clear
-  line to the target and, if something solid is in the way, says "<name> is
-  blocked." instead - so you know to open the door or step around the corner.
-  (Someone merely standing between you and the target does not block you.)
-
 - **New: auto-walk now flies in 3D when you are levitating.** While airborne
   (Levitation, or a flying creature form), auto-walk used to steer only left and
   right - it flew dead level into archways and could never gain height to reach a
