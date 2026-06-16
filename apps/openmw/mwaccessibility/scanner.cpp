@@ -450,6 +450,43 @@ namespace
         return closed ? "closed" : "open";
     }
 
+    // Spoken lock / trap state for a container or door, matching EXACTLY what the
+    // vanilla hover tooltip shows a sighted player (see MWClass::Container and
+    // MWClass::Door getToolTipInfo): the numeric lock level when locked,
+    // "Unlocked" for a lockable-but-currently-open object, and "Trapped" when a
+    // trap is armed. Returns a localised fragment with a leading ", " so it can
+    // be appended to the spoken identity, or empty when there's nothing to say
+    // (no lock mechanism and no trap -- the common case for ordinary clutter).
+    //
+    // Two deliberate parity choices, both faithful to vanilla:
+    //  - We expose ONLY the binary "Trapped" fact, never the trap's type/effect:
+    //    the tooltip hides that too, so the trap is still a gamble to trigger.
+    //  - We use the same #{sLockLevel}/#{sUnlocked}/#{sTrapped} GMST tokens the
+    //    tooltip uses, resolved through the localisation layer, so non-English
+    //    users hear their own strings (design principle 9).
+    // Read live off the cell ref at speech time -- lock/trap state changes as the
+    // player unlocks a chest, springs a trap, or a key auto-disarms one.
+    std::string lockTrapLabel(const MWWorld::Ptr& ptr)
+    {
+        const unsigned int type = ptr.getType();
+        if (type != ESM::Container::sRecordId && type != ESM::Door::sRecordId)
+            return {};
+        std::string text;
+        const int lockLevel = ptr.getCellRef().getLockLevel();
+        if (lockLevel)
+        {
+            if (ptr.getCellRef().isLocked())
+                text += ", #{sLockLevel}: " + std::to_string(lockLevel);
+            else
+                text += ", #{sUnlocked}";
+        }
+        if (!ptr.getCellRef().getTrap().empty())
+            text += ", #{sTrapped}";
+        if (text.empty())
+            return {};
+        return MyGUI::LanguageManager::getInstance().replaceTags(text).asUTF8();
+    }
+
     // The text the search filter matches against: the same enriched, spoken
     // identity the user hears -- the display name plus a door's destination
     // (e.g. "Door, to Balmora, Guild of Mages"). Without this, doors (which are
@@ -2602,6 +2639,12 @@ namespace MWAccessibility
         // through a closed door: "Wooden Door, to Seyda Neen, closed".
         if (std::string doorState = doorStateLabel(target); !doorState.empty())
             name += ", " + doorState;
+
+        // Lock / trap state for containers and doors, at parity with the vanilla
+        // hover tooltip (lock level when locked, "Unlocked", "Trapped"). The
+        // fragment already carries its leading ", " and is localised, e.g.
+        // "Chest, Lock Level: 50, Trapped".
+        name += lockTrapLabel(target);
 
         // Direction is the absolute compass heading -- a fixed frame the
         // player can use to remember where a thing is regardless of which way

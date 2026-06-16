@@ -6,6 +6,15 @@ Newest changes are listed first. (OpenMW's own engine changelog lives in
 
 ## 2026-06-16
 
+- **New: the scanner now reads a container's or door's lock and trap state.**
+  When you cycle to a container or door, its spoken identity now includes the
+  lock level if it is locked, "Unlocked" if it has a lock that is currently open,
+  and "Trapped" if a trap is armed -- e.g. "Chest, Lock Level: 50, Trapped". This
+  is exactly the information a sighted player gets from the hover tooltip (the
+  trap's type stays hidden, just as it does on screen), so you get the same
+  forewarning before you pick a lock or spring a trap. State is read live, so it
+  updates as you unlock or disarm.
+
 - **New: the Containers scanner category now has Plants and Storage
   subcategories.** As with Items and Actors, cycle them with Shift+PageUp /
   Shift+PageDown: **All**, **Plants** (harvestable flora -- plants, mushrooms and
