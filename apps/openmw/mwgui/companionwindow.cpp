@@ -144,7 +144,13 @@ namespace MWGui
         mItemView->update();
         // Keep the spoken item list in sync with the filtered view, pinning the
         // cursor to the filter option so typing doesn't yank focus onto an item.
-        if (A11y::PaneGroup::instance().contains(&mA11y))
+        //
+        // CRITICAL: do NOT rebuild while the user is editing the filter field.
+        // buildAccessibility() -> mA11y.clear() resets the screen's edit-mode
+        // flag, dropping us out of edit mode mid-typing -- so the next keystroke
+        // leaks past the edit guard to navigation/activation. The onFrame
+        // mA11yWasEditing block does one clean rebuild once editing ends.
+        if (A11y::PaneGroup::instance().contains(&mA11y) && !mA11y.editing())
         {
             const size_t cursor = mA11y.currentIndex();
             buildAccessibility();
@@ -355,6 +361,15 @@ namespace MWGui
 
         // Drive spoken editing feedback for the name-filter box.
         mA11yFilterEdit.onFrame();
+
+        // When the user finishes editing the name filter, the matching set of
+        // items has changed: rebuild the spoken list now (deferred from
+        // onNameFilterChanged, which must not rebuild mid-edit -- that would
+        // clear edit mode and leak keys).
+        const bool editing = mA11y.editing();
+        if (mA11yWasEditing && !editing && mA11y.isActive())
+            a11yRebuildKeepingCursor();
+        mA11yWasEditing = editing;
 
         // Let the PaneGroup claim focus for the pane the user should land on.
         if (A11y::PaneGroup::instance().contains(&mA11y))

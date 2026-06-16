@@ -89,6 +89,10 @@ namespace MWGui
         MyGUI::Widget* mA11yAnchor = nullptr;
         // Spoken editing feedback for the name-filter box (first option).
         A11y::EditField mA11yFilterEdit;
+        // Tracks the screen's edit-mode across frames so we can defer the spoken
+        // list rebuild until the user finishes typing in the name filter (a
+        // rebuild mid-edit would clear edit mode and leak keys -- see onFrame).
+        bool mA11yWasEditing = false;
         void buildAccessibility();
         // Take the stack at sort-model index \p sortIndex out of the companion
         // and into the player's inventory: whole stack when \p wholeStack, else

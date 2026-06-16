@@ -6,6 +6,15 @@ Newest changes are listed first. (OpenMW's own engine changelog lives in
 
 ## 2026-06-16
 
+- **Fixed: typing in an item window's name search no longer triggers stray
+  shortcuts.** In the barter and companion windows, typing a letter into the Name
+  search box could leak through to the window's own shortcuts -- e.g. typing "o"
+  while filtering would fire the merchant's Submit Offer. The act of filtering
+  rebuilt the spoken item list, which silently knocked the reader out of
+  text-entry mode mid-word, so the next keystroke was treated as a command. The
+  list rebuild is now held until you finish typing, so every letter goes to the
+  search box as intended.
+
 - **Changed: target lock-on moved from K to X.** Lock onto the scanner selection
   is now **X** (and **Shift+X** still engages the nearest hostile in one press).
   This keeps the lock key under the left hand so your right hand can stay on the

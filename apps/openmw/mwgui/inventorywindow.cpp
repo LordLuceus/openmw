@@ -1356,7 +1356,15 @@ namespace MWGui
         // rather than relying on contentUpdated or the equip-follow path. The -1
         // seed forces a rebuild on the first barter frame, after setTrading() has
         // run, fixing prices/labels that were built before mTrading was set.
-        if (mTrading && A11y::PaneGroup::instance().contains(&mA11y))
+        // CRITICAL: never rebuild the spoken list while the user is editing the
+        // name-filter field. buildAccessibility() -> mA11y.clear() resets the
+        // screen's edit-mode flag, which would silently drop us out of edit mode
+        // mid-typing -- so the very next keystroke leaks past the edit guard to
+        // the extra-key handler (e.g. typing "o" fires the Submit Offer
+        // shortcut). Typing changes the filtered item set, so the signature keeps
+        // changing on every keystroke; the mA11yWasEditing block below already
+        // does one clean rebuild once editing ends, so just skip it here.
+        if (mTrading && A11y::PaneGroup::instance().contains(&mA11y) && !mA11y.editing())
         {
             const long long sig = a11yTradeSignature();
             if (sig != mA11yLastTradeSig)
@@ -1388,7 +1396,15 @@ namespace MWGui
         // ends so we don't churn the list on every keystroke.
         const bool editing = mA11y.editing();
         if (mA11yWasEditing && !editing && mA11y.isActive())
+        {
             a11yRebuildKeepingCursor();
+            // The signature-driven block above was skipped during editing, so its
+            // cached value is stale (the filter changed the item set). Refresh it
+            // now that we've done the post-edit rebuild, so next frame doesn't see
+            // a "change" and rebuild + announce the item a second time.
+            if (mTrading)
+                mA11yLastTradeSig = a11yTradeSignature();
+        }
         mA11yWasEditing = editing;
 
         // Let the PaneGroup activate this pane if it's the one to land on (e.g.
