@@ -283,6 +283,26 @@ namespace
     bool isNpcActor(const MWWorld::Ptr& p) { return p.getType() == ESM::NPC::sRecordId; }
     bool isCreatureActor(const MWWorld::Ptr& p) { return p.getType() == ESM::Creature::sRecordId; }
 
+    // A "plant" container is one flagged Organic in its record: harvestable
+    // flora (plants, mushrooms, etc.) you pick from rather than store into. This
+    // is the engine's own authoritative flag (the same one Container::canLock /
+    // canBeHarvested consult), NOT a name/model guess -- so it stays correct for
+    // mod-added flora. Storage (chests, barrels, sacks, urns...) is simply the
+    // complement: any non-organic container. Morrowind has no data field naming
+    // the *kind* of storage, so we deliberately don't try to split chest from
+    // barrel etc. (that would require fragile model/name matching).
+    bool isPlantContainer(const MWWorld::Ptr& p)
+    {
+        if (p.getType() != ESM::Container::sRecordId)
+            return false;
+        const MWWorld::LiveCellRef<ESM::Container>* ref = p.get<ESM::Container>();
+        return ref && ref->mBase && (ref->mBase->mFlags & ESM::Container::Organic) != 0;
+    }
+    bool isStorageContainer(const MWWorld::Ptr& p)
+    {
+        return p.getType() == ESM::Container::sRecordId && !isPlantContainer(p);
+    }
+
     // "Hostile": an actor actively in combat with the player, i.e. the player
     // is among its AI combat targets. This is the reliable "trying to kill me
     // right now" signal -- narrower (and more useful) than a generic
@@ -326,6 +346,12 @@ namespace
         { "Creatures", &isCreatureActor },
     };
 
+    constexpr Subcategory kContainerSubs[] = {
+        { "All", nullptr },
+        { "Plants", &isPlantContainer },
+        { "Storage", &isStorageContainer },
+    };
+
     // Subcategories for the Detected category mirror the three Detect effects.
     // Their predicates are null because membership comes from the engine's
     // detection query (per type), not a Ptr test -- the filtering is done in
@@ -348,6 +374,8 @@ namespace
                 return { kItemSubs, std::size(kItemSubs) };
             case MWAccessibility::Category::Npcs:
                 return { kNpcSubs, std::size(kNpcSubs) };
+            case MWAccessibility::Category::Containers:
+                return { kContainerSubs, std::size(kContainerSubs) };
             case MWAccessibility::Category::Detected:
                 return { kDetectedSubs, std::size(kDetectedSubs) };
             default:

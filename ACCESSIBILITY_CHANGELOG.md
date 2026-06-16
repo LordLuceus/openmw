@@ -6,6 +6,15 @@ Newest changes are listed first. (OpenMW's own engine changelog lives in
 
 ## 2026-06-16
 
+- **New: the Containers scanner category now has Plants and Storage
+  subcategories.** As with Items and Actors, cycle them with Shift+PageUp /
+  Shift+PageDown: **All**, **Plants** (harvestable flora -- plants, mushrooms and
+  the like that you pick from), and **Storage** (everything else: chests,
+  barrels, sacks, urns...). The split uses the game's own organic-container flag,
+  so it stays correct for mod-added flora. (Morrowind has no data telling a chest
+  from a barrel, so storage is kept as one group rather than guessing kinds from
+  names.)
+
 - **Fixed: typing in an item window's name search no longer triggers stray
   shortcuts.** In the barter and companion windows, typing a letter into the Name
   search box could leak through to the window's own shortcuts -- e.g. typing "o"
