@@ -820,11 +820,13 @@ namespace MWAccessibility
                 // confirm (see onWaypointNoteEntered).
                 openDropNote();
                 return true;
-            case SDL_SCANCODE_K:
-                // K toggles combat/interaction lock-on to the selected target.
+            case SDL_SCANCODE_X:
+                // X toggles combat/interaction lock-on to the selected target.
                 // While locked, the player is kept aimed at it so melee,
                 // spells, and lockpicks/probes connect without manual aiming.
-                // Shift+K is the one-key combat opener: jump to the nearest
+                // X (left hand) is chosen for ergonomics: the right hand stays on
+                // the mouse to swing/aim while the left switches targets.
+                // Shift+X is the one-key combat opener: jump to the nearest
                 // hostile (Actors / Hostile) and lock onto it in a single press.
                 if (shift && !ctrl && !alt)
                     engageNearestHostile();

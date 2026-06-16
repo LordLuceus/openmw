@@ -4,6 +4,13 @@ A running log of screen-reader accessibility features added to this OpenMW fork.
 Newest changes are listed first. (OpenMW's own engine changelog lives in
 `CHANGELOG.md`.)
 
+## 2026-06-16
+
+- **Changed: target lock-on moved from K to X.** Lock onto the scanner selection
+  is now **X** (and **Shift+X** still engages the nearest hostile in one press).
+  This keeps the lock key under the left hand so your right hand can stay on the
+  mouse to swing and aim while you switch targets.
+
 ## 2026-06-15
 
 - **New: the scanner now tells you whether a door is open or closed.** When you
