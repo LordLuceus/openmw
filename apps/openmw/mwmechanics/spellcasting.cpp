@@ -373,7 +373,7 @@ namespace MWMechanics
         // every hit, are combat noise rather than a "cast", and would spam.
         if (!isProjectile && (type == ESM::Enchantment::CastOnce || type == ESM::Enchantment::WhenUsed))
             MWAccessibility::Scanner::instance().announceActorSpellCast(
-                mCaster, mSourceName, spellTargetsOutward(enchantment->mEffects));
+                mCaster, mSourceName, enchantment->mEffects, spellTargetsOutward(enchantment->mEffects));
 
         if (isProjectile)
             inflict(mTarget, enchantment->mEffects, ESM::RT_Self);
@@ -459,9 +459,10 @@ namespace MWMechanics
 
         // [a11y] Announce another actor's successful spellcast (we've passed the
         // success/fail checks above). No-op for the player and for casts neither
-        // nearby nor aimed at the player.
+        // nearby nor aimed at the player. Pass the effects so a nameless scripted
+        // spell still announces a readable name derived from them.
         MWAccessibility::Scanner::instance().announceActorSpellCast(
-            mCaster, mSourceName, spellTargetsOutward(spell->mEffects));
+            mCaster, mSourceName, spell->mEffects, spellTargetsOutward(spell->mEffects));
 
         inflict(mCaster, spell->mEffects, ESM::RT_Self);
 

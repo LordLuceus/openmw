@@ -20,6 +20,7 @@
 
 #include <MyGUI_LanguageManager.h>
 
+#include <components/esm/attr.hpp>
 #include <components/esm/defs.hpp>
 #include <components/esm/esm3exteriorcellrefid.hpp>
 #include <components/esm/util.hpp>
@@ -48,6 +49,7 @@
 #include <components/esm3/loadnpc.hpp>
 #include <components/esm3/loadprob.hpp>
 #include <components/esm3/loadrepa.hpp>
+#include <components/esm3/loadskil.hpp>
 #include <components/esm3/loadspel.hpp>
 #include <components/esm3/loadweap.hpp>
 
@@ -485,6 +487,42 @@ namespace
         if (text.empty())
             return {};
         return MyGUI::LanguageManager::getInstance().replaceTags(text).asUTF8();
+    }
+
+    // Build a spoken spell name from its effects, e.g. "Cure Common Disease" or
+    // "Fire Damage and Drain Strength". Used as a fallback when a spell has no
+    // authored name (mName empty) -- common for scripted helper spells a mod
+    // fires via mwscript (e.g. a companion's "cure me" spell), which vanilla
+    // never announces so the blank name went unnoticed. Without this the cast
+    // read as "<Caster> casts ." (empty effect). Mirrors how the engine derives
+    // a readable effect string for tooltips (getMagicEffectString), and routes
+    // the joining words through localisation (principle 9). Returns empty only
+    // if not a single effect resolves (then the caller omits the cast entirely
+    // rather than speak a bare "casts").
+    std::string spellNameFromEffects(const ESM::EffectList& effects)
+    {
+        const MWWorld::ESMStore& store = *MWBase::Environment::get().getESMStore();
+        std::vector<std::string> names;
+        for (const ESM::IndexedENAMstruct& e : effects.mList)
+        {
+            const ESM::MagicEffect* mgef = store.get<ESM::MagicEffect>().search(e.mData.mEffectID);
+            if (!mgef)
+                continue;
+            const ESM::Attribute* attribute = store.get<ESM::Attribute>().search(e.mData.mAttribute);
+            const ESM::Skill* skill = store.get<ESM::Skill>().search(e.mData.mSkill);
+            std::string name = MWMechanics::getMagicEffectString(*mgef, attribute, skill);
+            if (!name.empty())
+                names.push_back(std::move(name));
+        }
+        if (names.empty())
+            return {};
+        std::string out = names.front();
+        const std::string andWord
+            = " " + std::string(MWBase::Environment::get().getWindowManager()->getGameSettingString("sand", "and"))
+            + " ";
+        for (size_t i = 1; i < names.size(); ++i)
+            out += andWord + names[i];
+        return out;
     }
 
     // The text the search filter matches against: the same enriched, spoken
@@ -1573,8 +1611,8 @@ namespace MWAccessibility
         speak("No clear shot.");
     }
 
-    void Scanner::announceActorSpellCast(
-        const MWWorld::Ptr& caster, const std::string& sourceName, bool targetsOutward)
+    void Scanner::announceActorSpellCast(const MWWorld::Ptr& caster, const std::string& sourceName,
+        const ESM::EffectList& effects, bool targetsOutward)
     {
         // Guard against being called outside a running game (the cast path can
         // run during scripted setup / teardown). Mirrors announceOutOfReach.
@@ -1609,7 +1647,17 @@ namespace MWAccessibility
         if (!inCombatWithPlayer && !nearby)
             return;
 
-        std::string text = objectDisplayName(caster) + " casts " + sourceName;
+        // Prefer the authored spell/scroll name; fall back to a name built from
+        // the effects when it's blank (scripted spells often have no name). If
+        // even that yields nothing (no effect resolves), say nothing rather than
+        // announce a bare "<Caster> casts ." -- never speak an empty effect.
+        std::string spellName = sourceName;
+        if (spellName.empty())
+            spellName = spellNameFromEffects(effects);
+        if (spellName.empty())
+            return;
+
+        std::string text = objectDisplayName(caster) + " casts " + spellName;
         // Only claim "at you" when the spell actually reaches outward (has a
         // touch/target effect) AND the caster is fighting the player; a self-
         // buff cast mid-fight shouldn't be reported as aimed at the player.

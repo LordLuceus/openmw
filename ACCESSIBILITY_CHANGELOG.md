@@ -6,6 +6,14 @@ Newest changes are listed first. (OpenMW's own engine changelog lives in
 
 ## 2026-06-16
 
+- **Fix: spellcast announcements no longer drop the spell name.** Some casts --
+  notably scripted helper spells fired by companions and other mods (e.g. a
+  cure-disease spell that has no authored name) -- were announced as
+  "<Caster> casts ." with the effect missing. The announcement now falls back to
+  a name built from the spell's effects ("Cure Common Disease", "Restore Health
+  and Fortify Strength", etc.) when the spell has no name of its own, and stays
+  silent rather than say a bare "casts" if nothing can be resolved.
+
 - **New: the scanner now reads a container's or door's lock and trap state.**
   When you cycle to a container or door, its spoken identity now includes the
   lock level if it is locked, "Unlocked" if it has a lock that is currently open,

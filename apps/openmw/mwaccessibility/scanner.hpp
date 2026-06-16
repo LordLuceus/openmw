@@ -18,6 +18,11 @@
 #include "hud.hpp"
 #include "proximitycue.hpp"
 
+namespace ESM
+{
+    struct EffectList;
+}
+
 namespace MWAccessibility
 {
     /// Scanner: maintains, per-category, a distance-sorted list of nearby
@@ -147,7 +152,9 @@ namespace MWAccessibility
         /// item), so a screen-reader player -- who can't see casting animations
         /// or coloured spell flashes -- knows a threat is incoming and what it
         /// is. \p caster is the casting actor, \p sourceName the spell/scroll
-        /// display name. \p targetsOutward is true if the spell has any
+        /// display name. \p effects is the cast's effect list, used to derive a
+        /// readable name when \p sourceName is empty (e.g. a scripted spell with
+        /// no authored name); \p targetsOutward is true if the spell has any
         /// touch/target-range effect (i.e. it's aimed at someone, not a pure
         /// self-buff). Spoken as "<Caster> casts <spell>." with " at you"
         /// appended when the caster is in combat with the player AND the spell
@@ -155,8 +162,8 @@ namespace MWAccessibility
         /// weapon/spell-ready announcements) and for casts that are neither
         /// nearby nor by an actor targeting the player. Called from
         /// CastSpell::cast (spell and item/scroll paths).
-        void announceActorSpellCast(
-            const MWWorld::Ptr& caster, const std::string& sourceName, bool targetsOutward);
+        void announceActorSpellCast(const MWWorld::Ptr& caster, const std::string& sourceName,
+            const ESM::EffectList& effects, bool targetsOutward);
 
         /// --- Accessible HUD (AHUD) ---------------------------------------
         /// Toggle the accessible HUD. Bound to H. While active, the world is
