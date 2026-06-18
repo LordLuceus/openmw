@@ -9,6 +9,7 @@
 #include <vector>
 
 #include <components/accessibility/accessibilitymanager.hpp>
+#include <components/debug/debuglog.hpp>
 #include <components/detournavigator/agentbounds.hpp>
 #include <components/detournavigator/flags.hpp>
 #include <components/detournavigator/areatype.hpp>
@@ -48,6 +49,13 @@ namespace
     constexpr float kArrivalDistance = 48.0f;
     constexpr float kWaypointTolerance = 32.0f;
     constexpr float kRepathInterval = 1.0f; // seconds
+
+    // A vertical gap (player-to-target Z) larger than this is a genuine
+    // elevation difference -- a different floor / balcony -- worth calling out
+    // by ear ("N metres above you") rather than the generic "stopped short".
+    // ~128 units is roughly waist-to-shoulder height; a full interior storey is
+    // ~256, so this clears slopes, low daises and rugs but flags real levels.
+    constexpr float kVerticalGapNotable = 128.0f;
 
     // How far from a requested destination we'll look for a walkable navmesh
     // point. Many useful targets (doors, levers, wall-mounted activators, items
@@ -263,10 +271,26 @@ namespace MWAccessibility
         // the practical way to find the real approach by ear.
         faceTarget(player, targetPos);
         const float metres = trueDist / 69.99f;
-        char buf[96];
-        std::snprintf(buf, sizeof(buf),
-            "Stopped %.0f metres short of %s, now ahead of you. Use the beacon to find a route.",
-            metres, mTargetName.c_str());
+        // Call out a notable elevation difference: a target on an upper floor /
+        // balcony is a common reason the navmesh route stops short down below,
+        // and "X metres above you" tells the player to look for stairs or a ramp
+        // by ear rather than hunting the flat around them.
+        const float vertGap = targetPos.z() - player.getRefData().getPosition().asVec3().z();
+        char buf[160];
+        if (std::abs(vertGap) > kVerticalGapNotable)
+        {
+            const char* dir = vertGap > 0.0f ? "above" : "below";
+            std::snprintf(buf, sizeof(buf),
+                "Stopped %.0f metres short of %s, now ahead of you and %.0f metres %s. Use the beacon to find a "
+                "route.",
+                metres, mTargetName.c_str(), std::abs(vertGap) / 69.99f, dir);
+        }
+        else
+        {
+            std::snprintf(buf, sizeof(buf),
+                "Stopped %.0f metres short of %s, now ahead of you. Use the beacon to find a route.", metres,
+                mTargetName.c_str());
+        }
         speakQueued(buf);
     }
 
@@ -625,8 +649,33 @@ namespace MWAccessibility
         // Last resort: a straight-line path. Won't avoid obstacles but
         // gives the user *something* to aim at -- they'll hear "Cannot
         // reach" only when even straight-line fails.
-        if (!mPathFinder.isPathConstructed())
+        const bool navPathOk = mPathFinder.isPathConstructed();
+        if (!navPathOk)
             mPathFinder.buildStraightPath(end);
+
+        // [a11y] DIAGNOSTIC (temporary): the autowalk-gets-stuck-for-one-character
+        // bug. The interior navmesh is eroded by THIS character's collision
+        // radius (getPathfindingAgentBounds -> physicsActor->getHalfExtents()),
+        // so a wider body (different race) can get a pinched/partial route where
+        // a slimmer one gets through. Log the agent bounds, whether a real
+        // navmesh path was built (vs straight-line fallback), the snap result,
+        // the path's far end, and how far short of the true target that end sits
+        // -- so we can compare the two characters at the stuck spot.
+        {
+            osg::Vec3f pathEnd = end;
+            if (mPathFinder.isPathConstructed() && !mPathFinder.getPath().empty())
+                pathEnd = mPathFinder.getPath().back();
+            const float endShortHoriz = std::sqrt((rawEnd.x() - pathEnd.x()) * (rawEnd.x() - pathEnd.x())
+                + (rawEnd.y() - pathEnd.y()) * (rawEnd.y() - pathEnd.y()));
+            Log(Debug::Warning) << "[a11y] autowalk repath: agentHalfExtents=(" << bounds.mHalfExtents.x() << ","
+                                << bounds.mHalfExtents.y() << "," << bounds.mHalfExtents.z()
+                                << ") shapeType=" << static_cast<int>(bounds.mShapeType)
+                                << " start=(" << start.x() << "," << start.y() << "," << start.z() << ")"
+                                << " rawEnd=(" << rawEnd.x() << "," << rawEnd.y() << "," << rawEnd.z() << ")"
+                                << " snappedOk=" << snappedOk << " navPathOk=" << navPathOk
+                                << " pathSize=" << mPathFinder.getPathSize() << " pathEnd=(" << pathEnd.x() << ","
+                                << pathEnd.y() << "," << pathEnd.z() << ") endShortOfTarget=" << endShortHoriz;
+        }
 
         warnRouteHazards();
         return mPathFinder.isPathConstructed();
@@ -880,19 +929,40 @@ namespace MWAccessibility
             arrivalDist = std::max(kArrivalDistance, playerR + targetR + kBodyMargin);
         }
 
+        const bool targetIsActor = mHasPtrTarget && !mTarget.isEmpty() && mTarget.getClass().isActor();
+
+        // Decide arrival for a candidate point. Horizontal proximity is always
+        // required. For ACTOR targets we ALSO require vertical proximity: an NPC
+        // on a balcony or upper floor sits almost directly above the spot below,
+        // so the snapped navmesh proxy (mEffectiveTarget) lands on her level a
+        // few metres up -- horizontally ~on top of us, which the old horizontal-
+        // only test mistook for "arrived" while we stood 3-4 m below her, out of
+        // interaction reach (the false-arrival bug). Non-actor targets keep the
+        // horizontal-only rule on purpose: you legitimately "arrive" standing
+        // directly below a ceiling hatch or a door embedded in a wall that you
+        // can never share a position with.
+        auto arrivedAt = [&](const osg::Vec3f& p) {
+            if (horizDistTo(p) > arrivalDist)
+                return false;
+            if (targetIsActor && std::abs(p.z() - playerPos.z()) > kVerticalGapNotable)
+                return false;
+            return true;
+        };
+
         // In progressive (cross-cell) mode mEffectiveTarget is a transient
         // carrot, not the goal, so arrival must be judged against the true
         // target only -- otherwise reaching the carrot would falsely announce
         // "arrived". In normal mode we accept arrival at either the true target
         // or its snapped navmesh proxy (a door embedded in a wall).
-        const float horizDist
-            = mProgressive ? horizDistTo(targetPos) : std::min(horizDistTo(targetPos), horizDistTo(mEffectiveTarget));
-        if (horizDist <= arrivalDist)
+        const bool arrived = arrivedAt(targetPos) || (!mProgressive && arrivedAt(mEffectiveTarget));
+        if (arrived)
         {
             speakQueued("Arrived at " + mTargetName + ".");
             cancel();
             return;
         }
+        const float horizDist
+            = mProgressive ? horizDistTo(targetPos) : std::min(horizDistTo(targetPos), horizDistTo(mEffectiveTarget));
 
         // Periodic progress callout on a long progressive walk: every so often,
         // if we've actually closed distance since the last callout, announce

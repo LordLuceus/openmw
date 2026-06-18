@@ -4,6 +4,17 @@ A running log of screen-reader accessibility features added to this OpenMW fork.
 Newest changes are listed first. (OpenMW's own engine changelog lives in
 `CHANGELOG.md`.)
 
+## 2026-06-18
+
+- **Fix: auto-walk no longer falsely says "Arrived" below a target on an upper
+  floor.** Walking to a person (or creature) standing on a balcony or upper
+  storey could stop on the floor directly beneath them and announce arrival,
+  even though they were several metres up and out of reach. Arrival at an actor
+  now requires being on roughly the same level, not just horizontally beneath
+  them. When the route genuinely can't get closer, the "stopped short" message
+  now also tells you how far above or below the target is, so you know to look
+  for stairs or a ramp.
+
 ## 2026-06-16
 
 - **Fix: spellcast announcements no longer drop the spell name.** Some casts --
