@@ -30,20 +30,6 @@
 
 namespace MWMechanics
 {
-    namespace
-    {
-        // [a11y] True if any effect of the list reaches OUTWARD (touch or target
-        // range) rather than being a pure self effect. Used to decide whether a
-        // spellcast announcement should say it was cast "at you".
-        bool spellTargetsOutward(const ESM::EffectList& effects)
-        {
-            for (const ESM::IndexedENAMstruct& e : effects.mList)
-                if (e.mData.mRange == ESM::RT_Touch || e.mData.mRange == ESM::RT_Target)
-                    return true;
-            return false;
-        }
-    }
-
     CastSpell::CastSpell(
         const MWWorld::Ptr& caster, const MWWorld::Ptr& target, const bool fromProjectile, const bool scriptedSpell)
         : mCaster(caster)
@@ -373,7 +359,7 @@ namespace MWMechanics
         // every hit, are combat noise rather than a "cast", and would spam.
         if (!isProjectile && (type == ESM::Enchantment::CastOnce || type == ESM::Enchantment::WhenUsed))
             MWAccessibility::Scanner::instance().announceActorSpellCast(
-                mCaster, mSourceName, enchantment->mEffects, spellTargetsOutward(enchantment->mEffects));
+                mCaster, mSourceName, enchantment->mEffects, mTarget);
 
         if (isProjectile)
             inflict(mTarget, enchantment->mEffects, ESM::RT_Self);
@@ -462,7 +448,7 @@ namespace MWMechanics
         // nearby nor aimed at the player. Pass the effects so a nameless scripted
         // spell still announces a readable name derived from them.
         MWAccessibility::Scanner::instance().announceActorSpellCast(
-            mCaster, mSourceName, spell->mEffects, spellTargetsOutward(spell->mEffects));
+            mCaster, mSourceName, spell->mEffects, mTarget);
 
         inflict(mCaster, spell->mEffects, ESM::RT_Self);
 

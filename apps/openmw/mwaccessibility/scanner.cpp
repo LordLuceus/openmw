@@ -1612,7 +1612,7 @@ namespace MWAccessibility
     }
 
     void Scanner::announceActorSpellCast(const MWWorld::Ptr& caster, const std::string& sourceName,
-        const ESM::EffectList& effects, bool targetsOutward)
+        const ESM::EffectList& effects, const MWWorld::Ptr& target)
     {
         // Guard against being called outside a running game (the cast path can
         // run during scripted setup / teardown). Mirrors announceOutOfReach.
@@ -1628,11 +1628,10 @@ namespace MWAccessibility
         if (player.isEmpty() || caster == player)
             return; // The player's own casts are covered by ready announcements.
 
-        // Is the caster actively in combat with the player? This is our "aimed
-        // at you" signal: actors cast with an empty target (the engine resolves
-        // the real target post-cast via hit contact / projectile), so we can't
-        // read intent from the spell itself -- but an actor fighting the player
-        // who casts an outward spell is, in practice, casting at them.
+        // Is the caster actively in combat with the player? Used only to decide
+        // whether a cast is worth narrating at all (see below) -- NOT to claim
+        // "at you". Whether the spell is actually aimed at the player is taken
+        // from the engine-resolved target, not guessed from combat state.
         const bool inCombatWithPlayer
             = caster.getClass().getCreatureStats(caster).getAiSequence().isInCombat(player);
 
@@ -1658,10 +1657,14 @@ namespace MWAccessibility
             return;
 
         std::string text = objectDisplayName(caster) + " casts " + spellName;
-        // Only claim "at you" when the spell actually reaches outward (has a
-        // touch/target effect) AND the caster is fighting the player; a self-
-        // buff cast mid-fight shouldn't be reported as aimed at the player.
-        if (inCombatWithPlayer && targetsOutward)
+        // Claim "at you" ONLY when the engine actually resolved the cast onto
+        // the player. The target comes from hit-contact / aim raycast (combat
+        // casts) or the AI cast package (scripted casts), so a spell aimed at a
+        // companion, a summon, or anyone else resolves to that actor -- not the
+        // player -- and is announced plainly. This replaces the old heuristic
+        // (in-combat + outward-reaching) which wrongly said "at you" whenever a
+        // hostile cast anything, even a self-buff or a spell at the player's ally.
+        if (!target.isEmpty() && target == player)
             text += " at you";
         text += ".";
         speak(text);

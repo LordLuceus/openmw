@@ -6,6 +6,14 @@ Newest changes are listed first. (OpenMW's own engine changelog lives in
 
 ## 2026-06-18
 
+- **Fix: spellcast announcements only say "at you" when the spell really is aimed
+  at you.** Previously an enemy casting anything while fighting you was reported
+  as cast "at you", even a self-buff or a spell aimed at your companion or summon.
+  The cue now uses the engine's actual resolved cast target, so "at you" is
+  reliable; spells aimed at anyone (or anything) else are announced plainly as
+  "<Caster> casts <spell>." (Note: ranged bolt spells resolve their target only
+  on impact, so those are announced plainly too rather than guessing.)
+
 - **Fix: auto-walk no longer falsely says "Arrived" below a target on an upper
   floor.** Walking to a person (or creature) standing on a balcony or upper
   storey could stop on the floor directly beneath them and announce arrival,

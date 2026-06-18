@@ -154,16 +154,18 @@ namespace MWAccessibility
         /// is. \p caster is the casting actor, \p sourceName the spell/scroll
         /// display name. \p effects is the cast's effect list, used to derive a
         /// readable name when \p sourceName is empty (e.g. a scripted spell with
-        /// no authored name); \p targetsOutward is true if the spell has any
-        /// touch/target-range effect (i.e. it's aimed at someone, not a pure
-        /// self-buff). Spoken as "<Caster> casts <spell>." with " at you"
-        /// appended when the caster is in combat with the player AND the spell
-        /// reaches outward. No-op for the player's own casts (handled by the
-        /// weapon/spell-ready announcements) and for casts that are neither
-        /// nearby nor by an actor targeting the player. Called from
-        /// CastSpell::cast (spell and item/scroll paths).
+        /// no authored name). \p target is the engine-resolved cast target
+        /// (hit-contact / aim raycast / AI cast package); when it IS the player
+        /// we reliably append " at you". A cast aimed at a companion, summon, or
+        /// anyone else (or one that resolved to no target) is announced with the
+        /// plain "<Caster> casts <spell>." -- we never guess "at you" from combat
+        /// state. Spoken with " at you" only on a confirmed player target. No-op
+        /// for the player's own casts (handled by the weapon/spell-ready
+        /// announcements) and for casts that are neither nearby nor by an actor
+        /// in combat with the player. Called from CastSpell::cast (spell and
+        /// item/scroll paths).
         void announceActorSpellCast(const MWWorld::Ptr& caster, const std::string& sourceName,
-            const ESM::EffectList& effects, bool targetsOutward);
+            const ESM::EffectList& effects, const MWWorld::Ptr& target);
 
         /// --- Accessible HUD (AHUD) ---------------------------------------
         /// Toggle the accessible HUD. Bound to H. While active, the world is
