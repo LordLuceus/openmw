@@ -1,33 +1,68 @@
-# Project Hortator — Accessible OpenMW
+# Project Hortator — Accessible OpenMW (Beta)
 
 A screen-reader-accessible build of OpenMW, the open-source engine for *The Elder
 Scrolls III: Morrowind*. This build adds spoken output, a target scanner,
 auto-walk, an accessible HUD, and combat assistance so that blind and
 low-vision players can play Morrowind by ear.
 
-This README covers the accessibility features only. For general OpenMW setup
-(pointing the engine at your Morrowind data files, installing mods, etc.) see the
-standard OpenMW documentation at https://openmw.readthedocs.io.
+This is a **beta**. Things may be rough or incomplete. Please report problems —
+see **Reporting problems** at the bottom.
 
 ---
 
-## Getting started
+## What you need
 
-1. Install and configure OpenMW as normal so it can find your Morrowind data
-   (run the launcher / wizard once if you haven't).
-2. Launch the game. Speech is on by default; you should hear menus and the world
-   announced as you play.
-3. Press **H** in gameplay to open the accessible HUD and confirm speech is
-   working.
+1. **A copy of Morrowind's game data.** You must own Morrowind (Steam, GOG, or
+   disc). Project Hortator does **not** include the game itself — only the engine.
+2. **A screen reader running.** NVDA is recommended and tested. The build also
+   supports SAPI, Windows Narrator (OneCore), and JAWS.
 
-If you hear nothing, check that your screen reader or the system speech output is
-running, then see **Troubleshooting** below.
+---
+
+## Installing
+
+1. **Unzip this folder anywhere you have write access** — for example your Desktop
+   or Documents. Do **not** put it in "Program Files" or "Program Files (x86)";
+   Windows blocks writes there and the game will fail to save settings.
+
+2. **Run `openmw-launcher.exe`.** The first time it runs, it will offer to run the
+   Installation Wizard. Let it. The wizard finds your Morrowind data and sets
+   everything up automatically. This is the easy path — use it if you can.
+
+3. If the wizard can't find your data, point it at your Morrowind folder (the one
+   that contains a "Data Files" folder).
+
+### Manual setup (only if the wizard didn't work)
+
+In the launcher:
+
+- On the **Data Files** tab, tick `Morrowind.esm` (and any expansions:
+  `Tribunal.esm`, `Bloodmoon.esm`).
+- **Also** open the **Archives** list and tick the `.bsa` files (`Morrowind.bsa`,
+  etc.). This step is easy to miss. If the game starts but crashes with a
+  `Resource 'meshes/base_anim.nif' not found` error, it means the archives are not
+  ticked — come back here and tick them.
+
+---
+
+## Playing
+
+Launch the game from the launcher's **Play** button, or run `openmw.exe` directly.
+
+Speech is on by default; you should hear menus and the world announced as you
+play. Press **H** in gameplay to open the accessible HUD and confirm speech is
+working. If you hear nothing, check that your screen reader or the system speech
+output is running, then see **Troubleshooting** below.
+
+Your saved games live in your Documents folder, under `My Games\OpenMW`. They are
+kept **separately** from any normal OpenMW install, so testing this beta will not
+touch or overwrite your existing OpenMW progress.
 
 ---
 
 ## Core concepts
 
-**The scanner.** The world around you is grouped into categories (people, doors,
+**The scanner.** The world around you is grouped into categories (actors, doors,
 containers, items, and so on). You pick a category, then cycle through the
 objects in it nearest-first. The currently selected object is your *target*.
 
@@ -46,9 +81,14 @@ to navigate the last stretch yourself.
 
 ## Key bindings
 
-These are in addition to OpenMW's normal controls. The accessibility keys use
-keys that Morrowind itself leaves free (the number row with Ctrl, Page Up/Down,
-the arrow keys with Ctrl, etc.), so they don't clash with movement or combat.
+Menus and dialogs are navigated with the **arrow keys**; **Enter** activates,
+**Escape** backs out. **R** re-reads the last spoken line (dialogue, book page,
+etc.) at any time.
+
+The keys below are in addition to OpenMW's normal controls. The accessibility
+keys use keys that Morrowind itself leaves free (the number row with Ctrl, Page
+Up/Down, the arrow keys with Ctrl, etc.), so they don't clash with movement or
+combat.
 
 ### Scanning and targets
 
@@ -57,8 +97,8 @@ the arrow keys with Ctrl, etc.), so they don't clash with movement or combat.
 | **Page Down / Page Up** | Cycle to the next / previous target in the current category |
 | **Ctrl + Page Down / Page Up** | Switch to the next / previous category |
 | **Shift + Page Down / Page Up** | Cycle the subcategory filter (e.g. Plants / Storage within Containers) |
-| **Ctrl + 1 … 8** | Jump straight to a category: 1 People, 2 Doors, 3 Containers, 4 Items, 5 Activators, 6 Detected, 7 Waypoints, 8 Locations |
-| **Home** | Repeat the last announcement |
+| **Ctrl + 1 … 8** | Jump straight to a category: 1 Actors, 2 Doors, 3 Containers, 4 Items, 5 Activators, 6 Detected, 7 Waypoints, 8 Locations |
+| **Home** | Announce current target |
 | **Backspace** | Jump back to the first (nearest) target in the category |
 | **End** | Clear the current selection |
 | **/** (slash) | Search: filter the current category by name |
@@ -79,10 +119,11 @@ the arrow keys with Ctrl, etc.), so they don't clash with movement or combat.
 
 | Key | Action |
 | --- | --- |
+| **R** | Re-read the last spoken line (dialogue, book page, etc.) |
 | **Alt + H** | Read your health |
 | **Alt + M** | Read your magicka |
 | **Alt + F** | Read your fatigue |
-| **Shift + Alt + H** | Read the current enemy's health |
+| **Shift + Alt + H** | Read the current target's health |
 | **L** | Announce your location (cell name) |
 | **Shift + L** | Announce which way you're facing |
 | **Ctrl + Left / Right** | Snap your facing to the previous / next compass point |
@@ -101,6 +142,16 @@ the arrow keys with Ctrl, etc.), so they don't clash with movement or combat.
 
 While the HUD is open, the scanner and quick-info keys keep working, so you can
 still cycle targets, check health, and so on.
+
+### The console
+
+Open the console with the default `` ` `` or `~` key. Typing and output are spoken.
+
+| Key | Action |
+| --- | --- |
+| **Up / Down** | Recall previous commands |
+| **Ctrl + Up / Down** | Re-hear previous output, line by line |
+| **Ctrl + T** | Make the scanner's selected object the console target (the keyboard replacement for clicking an object). Press with nothing selected to clear the target |
 
 ---
 
@@ -175,6 +226,10 @@ little to the side and auto-walk again, or use the beacon to approach from the
 right direction. (Arrival onto people and creatures was tightened to require
 being on the same level — if you still see this, it's worth reporting.)
 
+### The game crashes on startup with a "Resource not found" error
+
+The `.bsa` archives aren't ticked in the launcher. See **Manual setup** above.
+
 ### I hear nothing / speech stopped
 
 - Make sure your screen reader or the system speech output is actually running.
@@ -183,15 +238,43 @@ being on the same level — if you still see this, it's worth reporting.)
 
 ---
 
+## Updating (patches between full releases)
+
+Most updates fix or add accessibility features in the game engine itself. For
+those, instead of re-downloading this whole package, you may get a small **patch**
+zip — named something like `Project-Hortator-Patch-2026-06-13.zip` — that contains
+just `openmw.exe` (plus this readme and the changelog).
+
+To apply a patch:
+
+1. Open the folder where you installed Project Hortator (the folder that contains
+   `openmw.exe` and this readme).
+2. Copy the `openmw.exe` from the patch zip into that folder, replacing
+   ("overwriting") the existing `openmw.exe`. Say yes when asked to replace it.
+3. That's it — launch the game as usual. Your settings and saves are untouched.
+
+Notes:
+
+- A patch only works **on top of** an existing install. If this is your first
+  time, you need the full package, not a patch.
+- Once in a while an update changes more than just the engine (for example a menu
+  layout, a new sound, or a new setting). When that happens you will be given a
+  full package again, not a patch — just unzip it fresh.
+- Not sure which you have? If the zip contains lots of files and folders, it's a
+  full release; if it contains essentially just `openmw.exe`, it's a patch.
+
+---
+
 ## Reporting problems
 
 When something goes wrong, the most useful report includes:
 
 - **What you were doing** and **where** (the cell or area name — press **L**).
+- What you **expected** to hear, and what happened instead.
 - Whether it's **reproducible**, and if so, the exact steps.
 - For auto-walk problems: whether your machine was **busy** at the time, and
   whether **retrying** auto-walk eventually worked.
-- If you can, the OpenMW log file (`openmw.log` in your OpenMW user folder), which
-  records diagnostic detail that helps pin down navigation issues.
+- The OpenMW log file, which records diagnostic detail that helps pin down
+  problems: `Documents\My Games\OpenMW\openmw.log`.
 
 Thank you for testing, and for helping make Morrowind playable for everyone.
