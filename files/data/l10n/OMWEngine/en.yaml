@@ -69,6 +69,7 @@ ActorsProcessingRangeValue: "Actors Processing Range ({value, number, :: group-o
 Anisotropy: "Anisotropy"
 AnisotropyValue: "Anisotropy ({value})"
 Audio: "Audio"
+AudioA11y: "Accessibility Cues"
 AudioEffects: "Effects"
 AudioFootsteps: "Footsteps"
 AudioMaster: "Master"

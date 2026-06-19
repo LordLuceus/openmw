@@ -16,6 +16,8 @@
 #include "../mwbase/windowmanager.hpp"
 #include "../mwbase/world.hpp"
 
+#include "../mwaccessibility/scanner.hpp"
+
 namespace MWDialogue
 {
     Quest& Journal::getOrStartQuest(const ESM::RefId& id)
@@ -89,6 +91,9 @@ namespace MWDialogue
                 {
                     setJournalIndex(id, index);
                     MWBase::Environment::get().getWindowManager()->messageBox("#{sJournalEntry}");
+                    // Re-reading an existing entry that advances the index is a
+                    // plain update, never a completion.
+                    MWAccessibility::Scanner::instance().notifyJournalEntry(/*completed=*/false);
                 }
                 return;
             }
@@ -96,6 +101,9 @@ namespace MWDialogue
         StampedJournalEntry entry = StampedJournalEntry::makeFromQuest(id, index, actor);
 
         Quest& quest = getOrStartQuest(id);
+        // Capture the quest's finished-state across addEntry so we can tell a
+        // completion (false -> true) from an ordinary update, for the a11y cue.
+        const bool wasFinished = quest.isFinished();
         if (quest.addEntry(entry)) // we are doing slicing on purpose here
         {
             // Restart all "other" quests with the same name as well
@@ -106,12 +114,18 @@ namespace MWDialogue
                     it.second.setFinished(false);
             }
         }
+        const bool justCompleted = !wasFinished && quest.isFinished();
 
         // there is no need to show empty entries in journal
         if (!entry.getText().empty())
         {
             mJournal.push_back(std::move(entry));
             MWBase::Environment::get().getWindowManager()->messageBox("#{sJournalEntry}");
+            // Accessibility audio cue: a distinct sound for completion vs. a
+            // plain update. Coalesced to one cue per frame in the Scanner, so a
+            // single dialogue line that adds several entries plays once, and a
+            // completion among them wins.
+            MWAccessibility::Scanner::instance().notifyJournalEntry(justCompleted);
         }
     }
 

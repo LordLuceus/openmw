@@ -53,6 +53,7 @@
 #include <components/esm3/loadspel.hpp>
 #include <components/esm3/loadweap.hpp>
 
+#include "../mwmechanics/activespells.hpp"
 #include "../mwmechanics/aisequence.hpp"
 #include "../mwmechanics/combat.hpp"
 #include "../mwmechanics/creaturestats.hpp"
@@ -143,6 +144,30 @@ namespace
     constexpr VFS::Path::NormalizedView kInRangeSound("sounds/a11y/enemy_in_range.wav");
     constexpr VFS::Path::NormalizedView kOutOfRangeSound("sounds/a11y/enemy_out_of_range.wav");
     constexpr VFS::Path::NormalizedView kEnemyDiedSound("sounds/a11y/enemy_died.wav");
+
+    // Status cues. Played 2D (non-positional): these are HUD-style notifications
+    // about the player's own state, not sounds emanating from a world location.
+    constexpr VFS::Path::NormalizedView kMagicExpiringSound("sounds/a11y/magic_expiring.wav");
+    constexpr VFS::Path::NormalizedView kQuestUpdateSound("sounds/a11y/quest_update.wav");
+    constexpr VFS::Path::NormalizedView kQuestCompleteSound("sounds/a11y/quest_complete.wav");
+
+    // How many seconds before a timed magic effect ends we warn the player.
+    // A single one-shot cue at this point (not a per-second tick), and effects
+    // whose entire duration is no longer than this never warn at all.
+    constexpr float kExpiryWarnSeconds = 5.f;
+
+    // The allowlist of magic effects worth an expiry warning: survival- and
+    // navigation-critical ones whose sudden loss can strand, drown, or drop a
+    // blind player, or blow their cover. Routine stat buffs (Fortify/Restore/
+    // Shield) are deliberately excluded -- their expiry is harmless, so warning
+    // on every potion would just be noise. Extend here if more prove useful.
+    bool isExpiryWarnEffect(const ESM::RefId& id)
+    {
+        return id == ESM::MagicEffect::Levitate || id == ESM::MagicEffect::WaterWalking
+            || id == ESM::MagicEffect::WaterBreathing || id == ESM::MagicEffect::SlowFall
+            || id == ESM::MagicEffect::Invisibility || id == ESM::MagicEffect::Chameleon
+            || id == ESM::MagicEffect::Sanctuary;
+    }
 
     // How close (world units) another actor must be for its spellcast to be
     // announced when it is NOT targeting the player. ~28 m: roughly the audible/
@@ -654,11 +679,96 @@ namespace MWAccessibility
         mLastCellExterior = -1;
         mCellNamePrimed = false;
         mMeleeReachCooldown = 0.f;
+        mPendingJournalCue = 0;
+        mExpiryWarned.clear();
 
         // Drop all AHUD state and lift our pause tag if held, so a HUD left open
         // when the world is torn down (e.g. the player loaded a save from the
         // HUD) can't strand the new game frozen.
         mHud.reset();
+    }
+
+    void Scanner::notifyJournalEntry(bool completed)
+    {
+        // Record the strongest cue pending for this frame; the actual sound is
+        // played in flushJournalCue (called from onFrame) so that several
+        // entries added by one dialogue line collapse into a single cue. A
+        // completion (2) outranks a plain update (1).
+        const int cue = completed ? 2 : 1;
+        if (cue > mPendingJournalCue)
+            mPendingJournalCue = cue;
+    }
+
+    void Scanner::flushJournalCue()
+    {
+        if (mPendingJournalCue == 0)
+            return;
+        const VFS::Path::NormalizedView sound
+            = mPendingJournalCue == 2 ? kQuestCompleteSound : kQuestUpdateSound;
+        mPendingJournalCue = 0;
+        MWBase::Environment::get().getSoundManager()->playSound(
+            sound, /*volume=*/1.0f, /*pitch=*/1.0f, MWSound::Type::A11y);
+    }
+
+    void Scanner::updateMagicExpiry()
+    {
+        MWBase::World* world = MWBase::Environment::get().getWorld();
+        MWWorld::Ptr player = world->getPlayerPtr();
+        if (player.isEmpty())
+            return;
+
+        const MWMechanics::CreatureStats& stats = player.getClass().getCreatureStats(player);
+
+        // Collect the instance keys still present this frame, so we can prune the
+        // "already warned" set down to them afterwards -- otherwise it would
+        // accumulate stale keys for every effect that ever expired.
+        std::set<std::pair<ESM::RefId, int>> present;
+        bool fire = false;
+
+        for (const auto& params : stats.getActiveSpells())
+        {
+            for (const auto& effect : params.getEffects())
+            {
+                if (!(effect.mFlags & ESM::ActiveEffect::Flag_Applied))
+                    continue;
+                // Permanent effects (mDuration == -1) never expire; nothing to warn.
+                if (effect.mDuration < 0.f)
+                    continue;
+                if (!isExpiryWarnEffect(effect.mEffectId))
+                    continue;
+
+                const std::pair<ESM::RefId, int> key{ params.getActiveSpellId(), effect.mEffectIndex };
+                present.insert(key);
+
+                // Skip effects that never last longer than the warning lead time:
+                // the cue would fire the instant they're applied, which is noise,
+                // not a warning. (Strictly greater, so a 5.0s effect is skipped.)
+                if (effect.mDuration <= kExpiryWarnSeconds)
+                    continue;
+
+                const bool inWindow = effect.mTimeLeft > 0.f && effect.mTimeLeft <= kExpiryWarnSeconds;
+                if (inWindow && mExpiryWarned.find(key) == mExpiryWarned.end())
+                {
+                    mExpiryWarned.insert(key);
+                    fire = true;
+                }
+            }
+        }
+
+        // Prune warned-keys to those still active, so a re-cast (a brand-new
+        // active-spell instance, hence a new id) can warn again next time.
+        for (auto it = mExpiryWarned.begin(); it != mExpiryWarned.end();)
+        {
+            if (present.find(*it) == present.end())
+                it = mExpiryWarned.erase(it);
+            else
+                ++it;
+        }
+
+        // One cue even if several tracked effects cross the threshold together.
+        if (fire)
+            MWBase::Environment::get().getSoundManager()->playSound(
+                kMagicExpiringSound, /*volume=*/1.0f, /*pitch=*/1.0f, MWSound::Type::A11y);
     }
 
     void Scanner::onFrame(float dt)
@@ -683,6 +793,13 @@ namespace MWAccessibility
             // game not running -- e.g. sitting at the main menu.
             clear();
         }
+
+        // Flush any pending journal cue BEFORE the gameplay gate: quest entries
+        // are added while the dialogue window is open (GUI mode), where
+        // isGameplayActive() is false. Only acts when a game is running.
+        if (MWBase::Environment::get().getStateManager()->getState()
+            == MWBase::StateManager::State_Running)
+            flushJournalCue();
 
         if (!isGameplayActive())
             return;
@@ -780,6 +897,7 @@ namespace MWAccessibility
         mProximityCue.onFrame(dt);
         updateLockOn();
         announceDrawStateChange();
+        updateMagicExpiry();
 
         // Tick down the out-of-range melee speech throttle (see
         // announceMeleeReach). Clamp at 0 so it doesn't run negative.
@@ -1315,7 +1433,7 @@ namespace MWAccessibility
             // death of your locked target is exactly the moment combat chatter
             // is loudest and the speech is most likely to be missed.
             MWBase::Environment::get().getSoundManager()->playSound(
-                kEnemyDiedSound, /*volume=*/1.0f, /*pitch=*/1.0f);
+                kEnemyDiedSound, /*volume=*/1.0f, /*pitch=*/1.0f, MWSound::Type::A11y);
             speak(mLockTargetName + " is dead.");
             releaseLockOn(/*announce=*/false);
             return;
@@ -1528,7 +1646,7 @@ namespace MWAccessibility
 
         MWBase::Environment::get().getSoundManager()->playSound(
             now == HitState::InRange ? kInRangeSound : kOutOfRangeSound,
-            /*volume=*/1.0f, /*pitch=*/1.0f);
+            /*volume=*/1.0f, /*pitch=*/1.0f, MWSound::Type::A11y);
     }
 
     void Scanner::announceOutOfReach(float reach)

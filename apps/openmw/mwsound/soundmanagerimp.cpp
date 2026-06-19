@@ -94,6 +94,9 @@ namespace MWSound
                 case Type::Music:
                     volume *= Settings::sound().mMusicVolume;
                     break;
+                case Type::A11y:
+                    volume *= Settings::sound().mA11yVolume;
+                    break;
                 case Type::Movie:
                 case Type::Mask:
                     break;

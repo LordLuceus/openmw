@@ -10,7 +10,8 @@ namespace MWSound
         Foot = 1 << 7, /* Footstep sound */
         Music = 1 << 8, /* Music track */
         Movie = 1 << 9, /* Movie audio track */
-        Mask = Sfx | Voice | Foot | Music | Movie
+        A11y = 1 << 10, /* Accessibility cue (screen-reader navigation/status), own volume channel */
+        Mask = Sfx | Voice | Foot | Music | Movie | A11y
     };
 }
 

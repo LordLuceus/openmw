@@ -61,6 +61,12 @@ set(BUILTIN_DATA_FILES
     sounds/a11y/enemy_out_of_range.wav
     sounds/a11y/enemy_died.wav
 
+    # Accessibility status cues: a warning when a timed magic effect is about to
+    # expire, and journal cues for a quest update / a quest completion.
+    sounds/a11y/magic_expiring.wav
+    sounds/a11y/quest_update.wav
+    sounds/a11y/quest_complete.wav
+
     # Default animation blending config
     animations/animation-config.yaml
 

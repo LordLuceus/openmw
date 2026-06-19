@@ -6,6 +6,29 @@ Newest changes are listed first. (OpenMW's own engine changelog lives in
 
 ## 2026-06-19
 
+- **New: a separate volume control for accessibility cues.** All the screen-
+  reader audio cues (auto-walk approach/arrival, combat in/out-of-range, the new
+  magic-expiry and journal/quest sounds) now play on their own dedicated audio
+  channel instead of the shared Effects channel. There's a new **Accessibility
+  Cues** slider under Options → Audio, so you can turn these cues up or down
+  without affecting the game's normal sound effects (and vice versa). Defaults to
+  full volume.
+
+- **New: audio cue when a key timed effect is about to wear off.** A short sound
+  now plays once when a tracked effect has about five seconds left, so a sudden
+  loss doesn't catch you out — for example Levitation dropping you, or Water
+  Breathing running out mid-swim. The warning covers survival- and movement-
+  critical effects (Levitation, Water Walking, Water Breathing, Slow Fall,
+  Invisibility, Chameleon, Sanctuary); routine stat buffs are left alone to keep
+  it quiet. Effects that only last five seconds or less in the first place don't
+  warn (the cue would fire the instant they're cast).
+
+- **New: audio cues for journal updates and quest completions.** Your journal
+  advancing now plays a short sound, with a distinct one when an entry actually
+  *completes* a quest — so you can tell "the journal updated" from "you finished
+  that quest" without opening it. If several entries are added at once, you hear a
+  single cue, and a completion in the batch takes priority.
+
 - **Change: scanner filters now clear when you move between indoors and
   outdoors.** A name search or subcategory filter (e.g. "Storage" containers, the
   "Hostile" actors view) set in one place rarely makes sense in the other, and a

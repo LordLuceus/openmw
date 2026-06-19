@@ -19,6 +19,7 @@ namespace Settings
         SettingValue<float> mMusicVolume{ mIndex, "Sound", "music volume", makeClampSanitizerFloat(0, 1) };
         SettingValue<float> mSfxVolume{ mIndex, "Sound", "sfx volume", makeClampSanitizerFloat(0, 1) };
         SettingValue<float> mVoiceVolume{ mIndex, "Sound", "voice volume", makeClampSanitizerFloat(0, 1) };
+        SettingValue<float> mA11yVolume{ mIndex, "Sound", "a11y volume", makeClampSanitizerFloat(0, 1) };
         SettingValue<int> mBufferCacheMin{ mIndex, "Sound", "buffer cache min", makeMaxSanitizerInt(1) };
         SettingValue<int> mBufferCacheMax{ mIndex, "Sound", "buffer cache max", makeMaxSanitizerInt(1) };
         SettingValue<HrtfMode> mHrtfEnable{ mIndex, "Sound", "hrtf enable" };

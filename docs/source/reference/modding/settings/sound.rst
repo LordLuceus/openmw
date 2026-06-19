@@ -59,6 +59,18 @@ Sound Settings
 
    This setting controls the volume for spoken dialogue from NPCs.
 
+.. omw-setting::
+   :title: a11y volume
+   :type: float32
+   :range: 0.0 (silent) to 1.0 (maximum volume)
+   :default: 1.0
+   :location: :bdg-info:`In Game > Options > Audio`
+
+   This setting controls the volume for the screen-reader accessibility cues
+   (auto-walk approach/arrival, combat in/out-of-range, magic-effect expiry,
+   and journal/quest notifications), independently of the normal sound effects
+   volume.
+
 
 .. omw-setting::
    :title: buffer cache min

@@ -206,6 +206,17 @@
                     <UserString key="SettingName" value="music volume"/>
                     <UserString key="SettingValueType" value="Float"/>
                 </Widget>
+                <Widget type="TextBox" skin="NormalText" position="4 254 352 18" align="Left Top">
+                    <Property key="Caption" value="#{OMWEngine:AudioA11y}"/>
+                </Widget>
+                <Widget type="ScrollBar" skin="MW_HScroll" position="4 278 352 18" align="HStretch Top">
+                    <Property key="Range" value="10000"/>
+                    <Property key="Page" value="300"/>
+                    <UserString key="SettingType" value="Slider"/>
+                    <UserString key="SettingCategory" value="Sound"/>
+                    <UserString key="SettingName" value="a11y volume"/>
+                    <UserString key="SettingValueType" value="Float"/>
+                </Widget>
             </Widget>
             <Widget type="TabItem">
                 <Property key="Caption" value=" #{OMWEngine:Controls} "/>

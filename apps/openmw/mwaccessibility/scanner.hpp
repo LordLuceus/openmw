@@ -2,13 +2,16 @@
 #define GAME_MWACCESSIBILITY_SCANNER_H
 
 #include <array>
+#include <map>
 #include <memory>
+#include <set>
 #include <string>
 #include <unordered_map>
 #include <vector>
 
 #include <osg/Vec3f>
 
+#include <components/esm/refid.hpp>
 #include <components/esm3/refnum.hpp>
 
 #include "../mwworld/ptr.hpp"
@@ -199,6 +202,16 @@ namespace MWAccessibility
         /// Called when the search prompt is cancelled; re-announces the current
         /// selection so the user knows focus has returned to the scanner.
         void onSearchCancelled();
+
+        /// Called from the journal (MWDialogue::Journal::addEntry) when the
+        /// player's journal advances. \p completed is true when the advancing
+        /// entry finishes the quest. Records a pending journal cue that is
+        /// played (and reset) once per frame in onFrame: this coalesces the
+        /// several entries a single dialogue line can add into ONE cue, and a
+        /// completion among them takes priority over a plain update. Plays a
+        /// distinct sound for an update vs. a completion. Audio-only: it never
+        /// speaks (the engine already shows/sounds its own "journal updated").
+        void notifyJournalEntry(bool completed);
 
         /// Called by the WindowManager when the "drop note" prompt (N) is
         /// confirmed. Places a map note (custom marker) with \p text at the
@@ -425,6 +438,33 @@ namespace MWAccessibility
         // Announce the player's current cell name if it differs from the last
         // one announced (see mLastAnnouncedCellName). Called on cell change.
         void announceCellChange();
+
+        // --- Journal cue (pending, flushed once per frame) ------------------
+        // A single dialogue line can add several journal entries at once. We
+        // don't play a cue immediately on each; instead we record the strongest
+        // pending cue here and play exactly one in onFrame, then reset. 0 = none
+        // pending, 1 = a plain update is pending, 2 = a completion is pending
+        // (completion outranks update, so a quest finishing in a batch wins).
+        int mPendingJournalCue = 0;
+        // Play (and clear) any pending journal cue. Called early in onFrame, on
+        // BOTH the gameplay and GUI-mode paths, since quest entries are added
+        // while the dialogue window is open.
+        void flushJournalCue();
+
+        // --- Magic-effect expiry warning -----------------------------------
+        // Plays a one-shot warning when a tracked timed effect on the player is
+        // about to run out (mTimeLeft falls to <= kExpiryWarnSeconds), so a
+        // blind player isn't surprised by Levitate/Water Walking/etc. dropping.
+        // We track the set of effect-instances we've ALREADY warned about, keyed
+        // by (active-spell id, effect index), so each effect warns at most once
+        // and a fresh re-cast (a new instance) can warn again. Pruned each frame
+        // to the still-present instances so the set can't grow without bound.
+        // Effects whose full duration is <= kExpiryWarnSeconds never warn (the
+        // warning would fire the instant they're applied -- pointless noise).
+        std::set<std::pair<ESM::RefId, int>> mExpiryWarned;
+        // Poll the player's active effects and fire the expiry cue on a fresh
+        // downward crossing of the warning threshold. Gameplay-only.
+        void updateMagicExpiry();
 
         AutoWalker mAutoWalker;
         ProximityCue mProximityCue;

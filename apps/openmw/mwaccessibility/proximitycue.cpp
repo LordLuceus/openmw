@@ -178,7 +178,7 @@ namespace MWAccessibility
             // position and is HRTF-spatialised every frame. NoEnv so reverb/
             // water filters don't muddy a navigation cue we want to stay legible.
             snd->playSound3D(mTarget, kApproachSound, /*volume=*/1.0f, /*pitch=*/1.0f,
-                MWSound::Type::Sfx, MWSound::PlayMode::LoopNoEnv);
+                MWSound::Type::A11y, MWSound::PlayMode::LoopNoEnv);
             return;
         }
 
@@ -188,7 +188,7 @@ namespace MWAccessibility
         if (mPosSound)
             return;
         mPosSound = snd->playSound3D(mPosTarget, kApproachSound, /*volume=*/1.0f, /*pitch=*/1.0f,
-            MWSound::Type::Sfx, MWSound::PlayMode::LoopNoEnv);
+            MWSound::Type::A11y, MWSound::PlayMode::LoopNoEnv);
     }
 
     void ProximityCue::stopApproachLoop()
@@ -218,11 +218,11 @@ namespace MWAccessibility
             // One-shot, 3D so it still comes from the object's direction, NoEnv
             // to keep it crisp.
             snd->playSound3D(mTarget, kArrivalSound, /*volume=*/1.0f,
-                /*pitch=*/1.0f, MWSound::Type::Sfx, MWSound::PlayMode::NoEnv);
+                /*pitch=*/1.0f, MWSound::Type::A11y, MWSound::PlayMode::NoEnv);
             return;
         }
         // Position target: one-shot at the fixed point.
         snd->playSound3D(targetPos, kArrivalSound, /*volume=*/1.0f,
-            /*pitch=*/1.0f, MWSound::Type::Sfx, MWSound::PlayMode::NoEnv);
+            /*pitch=*/1.0f, MWSound::Type::A11y, MWSound::PlayMode::NoEnv);
     }
 }
