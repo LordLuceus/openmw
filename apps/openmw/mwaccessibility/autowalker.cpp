@@ -38,6 +38,8 @@
 #include "../mwworld/refdata.hpp"
 #include "../mwworld/worldmodel.hpp"
 
+#include "scanner.hpp"
+
 namespace
 {
     // Arrival is measured as horizontal distance to the target. The
@@ -948,7 +950,28 @@ namespace MWAccessibility
         // target only -- otherwise reaching the carrot would falsely announce
         // "arrived". In normal mode we accept arrival at either the true target
         // or its snapped navmesh proxy (a door embedded in a wall).
-        const bool arrived = arrivedAt(targetPos) || (!mProgressive && arrivedAt(mEffectiveTarget));
+        bool arrived = arrivedAt(targetPos) || (!mProgressive && arrivedAt(mEffectiveTarget));
+
+        // For a NON-ACTOR object target, a horizontal arrival isn't enough when
+        // the object is meaningfully above or below us: require that we can
+        // actually interact with it from here. Arrival already demands we're
+        // within ~48 units horizontally, so this only ever bites a target that's
+        // nearly straight up/down -- e.g. a Dwemer coin on a ledge 5 m overhead,
+        // whose position (and whose snapped navmesh proxy, which lands on the
+        // floor directly beneath it) sits on top of us yet is plainly out of
+        // reach. A ceiling hatch you open from directly below PASSES this check
+        // (it's within activation distance -- that's exactly why the engine lets
+        // you open it from there), so the start-of-game hatch still registers as
+        // arrived; this is the precise distinction that the old horizontal-only
+        // rule couldn't make. isWithinActivationReach measures 3D distance to the
+        // object's nearest bounding-box surface and honours Telekinesis, matching
+        // our own activate gate. Computed only once we'd otherwise declare
+        // arrival, so the per-frame cost of the bounds query is avoided. Actors
+        // are handled by the vertical check inside arrivedAt; waypoints have no
+        // Ptr to reach-test and keep the positional rule.
+        if (arrived && mHasPtrTarget && !mTarget.isEmpty() && !mTarget.getClass().isActor())
+            arrived = Scanner::isWithinActivationReach(mTarget);
+
         if (arrived)
         {
             speakQueued("Arrived at " + mTargetName + ".");

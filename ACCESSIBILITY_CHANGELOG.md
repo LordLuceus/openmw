@@ -6,6 +6,15 @@ Newest changes are listed first. (OpenMW's own engine changelog lives in
 
 ## 2026-06-18
 
+- **Fix: auto-walk no longer falsely says "Arrived" at an out-of-reach object
+  directly above or below you.** Walking to an item on a high ledge (e.g. a Dwemer
+  coin 5 m overhead) used to announce arrival as soon as you were horizontally
+  underneath it, even though you couldn't possibly pick it up from there. Arrival
+  at a non-actor object now also requires that the object is within activation
+  (interaction) reach. A ceiling hatch you open from directly below is within
+  reach and still registers as arrived, so the start-of-game hatch is unaffected;
+  only genuinely unreachable overhead/underfoot objects are now correctly rejected.
+
 - **Change: distance announcements now use horizontal distance plus a separate
   elevation, and "stopped short" gives no advice.** The scanner read a 3D
   straight-line distance while auto-walk's "stopped short" used a horizontal one,
