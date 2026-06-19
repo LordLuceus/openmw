@@ -651,6 +651,7 @@ namespace MWAccessibility
         mAutoWalker.cancel();
         mProximityCue.stop();
         mLastCellId = nullptr;
+        mLastCellExterior = -1;
         mCellNamePrimed = false;
         mMeleeReachCooldown = 0.f;
 
@@ -710,6 +711,20 @@ namespace MWAccessibility
         if (cellId != mLastCellId)
         {
             mLastCellId = cellId;
+
+            // Detect an interior<->exterior transition (e.g. stepping out of a
+            // house into the street, or into a cave). When this happens, clear
+            // every category's name/subcategory filter: a filter set indoors
+            // ("Storage" containers, a name search for an NPC) almost never
+            // makes sense outdoors and vice versa, and a forgotten filter is a
+            // common "why can't I see this door / person / item?" trap -- even
+            // for experienced players. We do NOT clear on exterior-to-exterior
+            // walking (crossing the cell grid), where a filter should persist.
+            const bool nowExterior = player.getCell()->isExterior();
+            const bool crossedInOut = mLastCellExterior != -1 && (mLastCellExterior == 1) != nowExterior;
+            mLastCellExterior = nowExterior ? 1 : 0;
+            bool clearedAnyFilter = false;
+
             for (auto& s : mLists)
             {
                 // Capture the current selection's identity before discarding
@@ -724,12 +739,34 @@ namespace MWAccessibility
                 s.mObjects.clear();
                 s.mIndex = -1;
                 s.mDirty = true;
+
+                if (crossedInOut)
+                {
+                    if (!s.mFilter.empty())
+                    {
+                        s.mFilter.clear();
+                        clearedAnyFilter = true;
+                    }
+                    // Reset any secondary (subcategory) filter back to "All" too,
+                    // so e.g. the Actors "Hostile" or Containers "Storage" filter
+                    // doesn't silently carry across the threshold.
+                    if (s.mSubIndex != 0)
+                    {
+                        s.mSubIndex = 0;
+                        clearedAnyFilter = true;
+                    }
+                }
             }
 
             // Speak the new cell's name on entry, but only when it differs from
             // the last announced one -- cities span many same-named cells, so
             // we don't want "Balmora" repeated as the player walks across it.
             announceCellChange();
+
+            // Let the player know a filter was dropped, so the change in what's
+            // listed isn't mysterious. Only when something was actually cleared.
+            if (clearedAnyFilter)
+                speak("Scanner filters cleared.");
         }
 
         // Prune objects that have left the world (e.g. an item the player just

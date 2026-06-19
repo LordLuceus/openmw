@@ -401,6 +401,14 @@ namespace MWAccessibility
         // moves to a new cell.
         const void* mLastCellId = nullptr;
 
+        // Whether the last cell we were in was an exterior. Tri-state so the
+        // very first cell (initial value) is not mistaken for a transition:
+        // -1 = unknown (not yet seen a cell), 0 = interior, 1 = exterior. Used
+        // to clear the scanner's name/subcategory filters when crossing between
+        // indoors and outdoors (a common "why can't I see this door?" trap), but
+        // NOT on exterior-to-exterior walking where filters should persist.
+        int mLastCellExterior = -1;
+
         // The last cell name we announced on entry. Cities span several cells
         // that all share one name (e.g. every Balmora exterior cell is named
         // "Balmora"), so we announce only when the resolved name actually

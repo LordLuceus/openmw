@@ -4,7 +4,15 @@ A running log of screen-reader accessibility features added to this OpenMW fork.
 Newest changes are listed first. (OpenMW's own engine changelog lives in
 `CHANGELOG.md`.)
 
-## 2026-06-18
+## 2026-06-19
+
+- **Change: scanner filters now clear when you move between indoors and
+  outdoors.** A name search or subcategory filter (e.g. "Storage" containers, the
+  "Hostile" actors view) set in one place rarely makes sense in the other, and a
+  forgotten filter is a common "why can't I see this door / person / item?" trap.
+  Crossing an interior/exterior threshold now drops all scanner filters and says
+  "Scanner filters cleared." Walking around outdoors (crossing the cell grid)
+  leaves your filter intact as before.
 
 - **Fix: auto-walk no longer falsely says "Arrived" at an out-of-reach object
   directly above or below you.** Walking to an item on a high ledge (e.g. a Dwemer
@@ -14,6 +22,8 @@ Newest changes are listed first. (OpenMW's own engine changelog lives in
   (interaction) reach. A ceiling hatch you open from directly below is within
   reach and still registers as arrived, so the start-of-game hatch is unaffected;
   only genuinely unreachable overhead/underfoot objects are now correctly rejected.
+
+## 2026-06-18
 
 - **Change: distance announcements now use horizontal distance plus a separate
   elevation, and "stopped short" gives no advice.** The scanner read a 3D
