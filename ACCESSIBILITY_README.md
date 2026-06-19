@@ -176,6 +176,32 @@ stuck. The next section is what to do when that happens.
 
 ---
 
+## Tips and tricks
+
+A few things that aren't strictly part of the mod, but make the game far smoother
+to play blind.
+
+- **Get reliable Levitation as early as you can — it is the single most useful
+  thing you can carry.** Vertical movement is where blind play is hardest:
+  navigation routes you around the ground floor well, but it can't fly you up to a
+  ledge, across a gap, or out of a pit, and some places (deep Dwemer ruins,
+  shafts, broken stairways) can leave you genuinely stuck on foot even when a
+  sighted player would just hop up. A Levitation spell or a stack of Levitation
+  potions turns every one of those into a non-problem: rise straight up, drift
+  over, done. It is worth far more to you than to a sighted player. Buy potions
+  whenever you see them, and pick up the spell as soon as you can afford it.
+- **Why not just teleport out?** Recall, Almsivi Intervention and Divine
+  Intervention will get *you* out of a bad spot, but they leave any follower or
+  companion behind, stranded where you were — which usually creates a bigger
+  problem than the one you escaped. Levitation keeps you and your companion
+  together.
+- **Mark and Recall your home base.** Cast Mark somewhere central (your house, a
+  guild hall) and you can Recall back to it to sell, store loot, and resupply
+  without a long manual trek. It's a fast-travel point you control — just
+  remember the follower caveat above if anyone is travelling with you.
+
+---
+
 ## Troubleshooting
 
 ### Auto-walk gets stuck, stops short, or won't reach something
@@ -220,11 +246,14 @@ facing itself), and it isn't tied to a specific save being broken.
 
 ### A target says "Arrived" but you can't interact with it
 
-If this happens, you're likely separated from it by a level the router treated as
-"close enough" (for example, directly below something on an upper floor). Step a
-little to the side and auto-walk again, or use the beacon to approach from the
-right direction. (Arrival onto people and creatures was tightened to require
-being on the same level — if you still see this, it's worth reporting.)
+Auto-walk now only declares arrival when the target is genuinely within reach, so
+this should be rare. If it still happens, you're likely separated from the target
+by a level the router treated as "close enough" — step a little to the side and
+auto-walk again, or use the beacon to approach from the right direction. (Arrival
+onto people and creatures requires being on the same level, and arrival onto an
+object now requires being close enough to actually interact with it — so a coin on
+a high ledge directly above you no longer reads as "arrived". If you still see a
+false arrival, it's worth reporting.)
 
 ### The game crashes on startup with a "Resource not found" error
 
