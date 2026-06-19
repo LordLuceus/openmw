@@ -6,6 +6,17 @@ Newest changes are listed first. (OpenMW's own engine changelog lives in
 
 ## 2026-06-18
 
+- **Change: distance announcements now use horizontal distance plus a separate
+  elevation, and "stopped short" gives no advice.** The scanner read a 3D
+  straight-line distance while auto-walk's "stopped short" used a horizontal one,
+  so a target almost directly overhead was described as "21 metres away / 21
+  metres up" by one and "4 metres short" by the other. Both now report the
+  horizontal (ground) distance as the headline, with the height carried by the
+  separate "N metres above/below" phrase. The "stopped short" line is also
+  stripped of unhelpful suggestions ("use the beacon", "find stairs") and now
+  just states the facts, e.g. "Dwemer Door is 4 metres ahead and 21 metres
+  above."
+
 - **Fix: spellcast announcements only say "at you" when the spell really is aimed
   at you.** Previously an enemy casting anything while fighting you was reported
   as cast "at you", even a self-buff or a spell aimed at your companion or summon.

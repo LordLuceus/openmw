@@ -265,31 +265,25 @@ namespace MWAccessibility
 
     void AutoWalker::announceStoppedShort(const MWWorld::Ptr& player, const osg::Vec3f& targetPos, float trueDist)
     {
-        // Line the player up with the target so it's dead ahead, then report
-        // honestly. We suggest the beacon because for genuinely unreachable
-        // spots (a door up stairs the navmesh doesn't model) the audio cue is
-        // the practical way to find the real approach by ear.
+        // Line the player up with the target so it's dead ahead, then state the
+        // gap plainly: horizontal distance and, when meaningful, the elevation
+        // difference. We deliberately give NO advice ("find stairs", "use the
+        // beacon") -- a blind player can't visually hunt for a ramp, and the
+        // beacon only helps in the horizontal plane, so such tips are noise. The
+        // honest facts (how far, how far up/down) are what's actionable.
         faceTarget(player, targetPos);
         const float metres = trueDist / 69.99f;
-        // Call out a notable elevation difference: a target on an upper floor /
-        // balcony is a common reason the navmesh route stops short down below,
-        // and "X metres above you" tells the player to look for stairs or a ramp
-        // by ear rather than hunting the flat around them.
         const float vertGap = targetPos.z() - player.getRefData().getPosition().asVec3().z();
         char buf[160];
         if (std::abs(vertGap) > kVerticalGapNotable)
         {
             const char* dir = vertGap > 0.0f ? "above" : "below";
-            std::snprintf(buf, sizeof(buf),
-                "Stopped %.0f metres short of %s, now ahead of you and %.0f metres %s. Use the beacon to find a "
-                "route.",
-                metres, mTargetName.c_str(), std::abs(vertGap) / 69.99f, dir);
+            std::snprintf(buf, sizeof(buf), "%s is %.0f metres ahead and %.0f metres %s.", mTargetName.c_str(),
+                metres, std::abs(vertGap) / 69.99f, dir);
         }
         else
         {
-            std::snprintf(buf, sizeof(buf),
-                "Stopped %.0f metres short of %s, now ahead of you. Use the beacon to find a route.", metres,
-                mTargetName.c_str());
+            std::snprintf(buf, sizeof(buf), "%s is %.0f metres ahead.", mTargetName.c_str(), metres);
         }
         speakQueued(buf);
     }

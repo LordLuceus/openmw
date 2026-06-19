@@ -1926,7 +1926,9 @@ namespace MWAccessibility
             }
             if (mAutoWalker.start(wp->mPosition, wp->mName))
             {
-                float dist = (wp->mPosition - playerPos).length();
+                // Horizontal distance, matching the scanner/auto-walk convention.
+                osg::Vec3f d = wp->mPosition - playerPos;
+                float dist = std::sqrt(d.x() * d.x() + d.y() * d.y());
                 speak("Walking to " + wp->mName + ", " + formatDistance(dist) + ".");
             }
             else
@@ -1943,7 +1945,9 @@ namespace MWAccessibility
         if (mAutoWalker.start(target))
         {
             osg::Vec3f targetPos = target.getRefData().getPosition().asVec3();
-            float dist = (targetPos - playerPos).length();
+            // Horizontal distance, matching the scanner/auto-walk convention.
+            osg::Vec3f d = targetPos - playerPos;
+            float dist = std::sqrt(d.x() * d.x() + d.y() * d.y());
             speak("Walking to " + objectDisplayName(target)
                 + ", " + formatDistance(dist) + ".");
         }
@@ -2668,7 +2672,13 @@ namespace MWAccessibility
         osg::Vec3f playerPos = player.getRefData().getPosition().asVec3();
         osg::Vec3f targetPos = target.getRefData().getPosition().asVec3();
         osg::Vec3f delta = targetPos - playerPos;
-        float dist = delta.length();
+        // Headline distance is HORIZONTAL (ground) distance, not 3D straight-line.
+        // The vertical component is reported separately via formatElevation below,
+        // so a target almost directly overhead reads "4 metres, north. 21 metres
+        // up." instead of a 3D "21 metres" that double-counts the height and
+        // contradicts auto-walk's horizontal "stopped N metres short". See
+        // formatElevation for the dead-band that keeps same-level targets quiet.
+        float dist = std::sqrt(delta.x() * delta.x() + delta.y() * delta.y());
 
         // targetYaw is an absolute world bearing (0 = north, +X = east), a
         // fixed compass reference that doesn't change as the player turns.
@@ -2955,7 +2965,9 @@ namespace MWAccessibility
         MWWorld::Ptr player = world->getPlayerPtr();
         osg::Vec3f playerPos = player.getRefData().getPosition().asVec3();
         osg::Vec3f delta = wp->mPosition - playerPos;
-        float dist = delta.length();
+        // Horizontal (ground) distance; the height goes in the elevation phrase
+        // below, matching the target readout and auto-walk's horizontal measure.
+        float dist = std::sqrt(delta.x() * delta.x() + delta.y() * delta.y());
         float targetYaw = std::atan2(delta.x(), delta.y());
 
         std::string elevation = formatElevation(delta.z());
