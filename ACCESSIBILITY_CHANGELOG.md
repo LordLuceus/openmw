@@ -4,6 +4,24 @@ A running log of screen-reader accessibility features added to this OpenMW fork.
 Newest changes are listed first. (OpenMW's own engine changelog lives in
 `CHANGELOG.md`.)
 
+## 2026-06-20
+
+- **New: the Quick Keys menu is now fully accessible.** You can assign weapons,
+  items, spells and enchanted items to the number keys 1–9 entirely by ear. Open
+  the menu (default Q-then-a-number, or your bound key), then use Up/Down to move
+  between the ten slots — each reads its number and what's in it (e.g. "Quick key
+  3, Fireball" or "Quick key 5, None"). Press Enter on a slot to choose Item,
+  Magic, Unassign or Cancel; the item and spell pickers that open are read like
+  the inventory and magic lists (name, with weight/value/effect detail on the T
+  key). Assignments are spoken back as soon as you make them.
+
+- **New: pressing a number key in gameplay now speaks what it did.** When you use
+  a quick key out in the world, you hear the result — the weapon or item name,
+  "<spell> ready" for a readied spell or enchanted item, "Hand To Hand", or
+  "None" for an empty slot. Slots whose item or spell is no longer available
+  still give the game's usual "missing" message. No more pressing a number and
+  wondering whether anything happened.
+
 ## 2026-06-19
 
 - **New: a separate volume control for accessibility cues.** All the screen-

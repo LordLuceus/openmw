@@ -45,7 +45,16 @@ auto-walk, location announcements, and audio beacon (gameplay, not a screen).
       work above) so the inventory's S-store path can target it too. Inventory
       enrolment + S-store currently gated to `GM_Container`; extend to
       `GM_Companion` once its pane exists.
-- [ ] **Quick keys menu** (`GM_QuickKeysMenu`)
+- [x] **Quick keys menu** (`GM_QuickKeysMenu`) — 10 slots navigable as an
+      A11y::Screen (virtual focus); each reads "Quick key N, <name>/None/Hand To
+      Hand", live via describe(). Enter opens the assign chooser (Item/Magic/
+      Unassign/Cancel, modal, suspends parent). The item picker
+      (ItemSelectionDialog) was already accessible; the magic picker
+      (MagicSelectionDialog) now enumerates the SpellModel like SpellWindow
+      (label + section + T-key tooltip). Chooser hides itself BEFORE opening a
+      picker to keep the suspend/resume chain LIFO. Gameplay activation (keys
+      1–9) speaks the result via A11y::say; the engine's "missing" messageBox is
+      already auto-spoken, so only success paths were instrumented.
 - [x] **Console** (`console.cpp`)
 - [x] **HUD** — accessible HUD (AHUD). H toggles it; pauses the world (via a
       time-manager tag, not a GuiMode) so the scanner + quick-info keys still

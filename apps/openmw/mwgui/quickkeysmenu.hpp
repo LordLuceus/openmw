@@ -7,6 +7,7 @@
 
 #include "../mwworld/manualref.hpp"
 
+#include "accessibility/screen.hpp"
 #include "itemselection.hpp"
 #include "spellmodel.hpp"
 #include "windowbase.hpp"
@@ -25,6 +26,7 @@ namespace MWGui
         QuickKeysMenu();
 
         void onResChange(int, int) override { center(); }
+        void onFrame(float dt) override;
 
         void onItemButtonClicked(MyGUI::Widget* sender);
         void onMagicButtonClicked(MyGUI::Widget* sender);
@@ -79,12 +81,40 @@ namespace MWGui
 
         bool onControllerButtonEvent(const SDL_ControllerButtonEvent& arg) override;
         size_t mControllerFocus = 0;
+
+        // --- Accessibility -------------------------------------------------
+        // Screen-reader controller. Virtual-focus: an invisible anchor holds
+        // MyGUI key focus while the 10 quick-key slots are navigated as
+        // widget-less options (the buttons are visual; navigation is internal).
+        A11y::Screen mA11y;
+        MyGUI::Widget* mA11yAnchor = nullptr;
+        // (Re)build the spoken option list from the current slot assignments.
+        void buildAccessibility();
+        // Spoken label for slot \p index (0-based): "Quick key N, <name>",
+        // "Quick key N, empty", or the Hand-to-hand slot.
+        std::string a11ySlotLabel(int index) const;
+        // Enter handler for a slot: opens the assign chooser (slots 0-8) or
+        // announces the fixed Hand-to-hand slot (9).
+        void a11yActivateSlot(int index);
+
+    public:
+        // Let the assign / picker sub-dialogs suspend & resume this window's
+        // screen while they're open (mirrors ItemSelectionDialog's handling of
+        // the screen it covers), and read which slot is being assigned so they
+        // can announce it.
+        A11y::Screen& a11yScreen() { return mA11y; }
+        // 1-based number of the slot currently being assigned, or -1 if none.
+        int a11ySelectedSlot() const { return mSelected ? mSelected->index : -1; }
     };
 
     class QuickKeysMenuAssign : public WindowModal
     {
     public:
         QuickKeysMenuAssign(QuickKeysMenu* parent);
+
+        void onOpen() override;
+        void onClose() override;
+        void onFrame(float dt) override;
 
     private:
         MyGUI::TextBox* mLabel;
@@ -94,6 +124,14 @@ namespace MWGui
         MyGUI::Button* mCancelButton;
 
         QuickKeysMenu* mParent;
+
+        // --- Accessibility ---
+        A11y::Screen mA11y;
+        MyGUI::Widget* mA11yAnchor = nullptr;
+        // The parent window's screen, suspended while this modal is open and
+        // resumed on close (see ItemSelectionDialog).
+        A11y::Screen* mA11yPrev = nullptr;
+        void buildAccessibility();
 
         bool onControllerButtonEvent(const SDL_ControllerButtonEvent& arg) override;
         size_t mControllerFocus = 0;
@@ -105,6 +143,8 @@ namespace MWGui
         MagicSelectionDialog(QuickKeysMenu* parent);
 
         void onOpen() override;
+        void onClose() override;
+        void onFrame(float dt) override;
         bool exit() override;
 
         void setActiveControllerWindow(bool active) override;
@@ -114,6 +154,15 @@ namespace MWGui
         SpellView* mMagicList;
 
         QuickKeysMenu* mParent;
+
+        // --- Accessibility ---
+        A11y::Screen mA11y;
+        MyGUI::Widget* mA11yAnchor = nullptr;
+        A11y::Screen* mA11yPrev = nullptr;
+        // Activation is deferred to the first onFrame because the spell model is
+        // populated in onOpen, after which buildAccessibility can enumerate it.
+        bool mA11yPendingActivate = false;
+        void buildAccessibility();
 
         void onCancelButtonClicked(MyGUI::Widget* sender);
         void onModelIndexSelected(SpellModel::ModelIndex index);

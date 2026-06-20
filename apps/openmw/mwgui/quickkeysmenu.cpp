@@ -27,13 +27,77 @@
 #include "../mwmechanics/creaturestats.hpp"
 #include "../mwmechanics/spellutil.hpp"
 
+#include "accessibility/itemtext.hpp"
+#include "accessibility/screen.hpp"
+#include "accessibility/speech.hpp"
+#include "accessibility/spelltext.hpp"
+#include "accessibility/uimanager.hpp"
 #include "itemselection.hpp"
 #include "itemwidget.hpp"
 #include "sortfilteritemmodel.hpp"
 #include "spellview.hpp"
 
+#include "../mwmechanics/spellutil.hpp"
+
 namespace MWGui
 {
+    namespace
+    {
+        // Spoken section/label/tooltip for one entry in the magic picker,
+        // mirroring SpellWindow's list a11y (powers / spells / magic items).
+        std::string magicPickerLabel(const Spell& spell)
+        {
+            std::string label = spell.mName;
+            if (spell.mType == Spell::Type_EnchantedItem && spell.mCount > 1)
+                label += " (" + std::to_string(spell.mCount) + ")";
+            return label;
+        }
+
+        std::string magicPickerSection(const Spell& spell)
+        {
+            MWBase::WindowManager* winMgr = MWBase::Environment::get().getWindowManager();
+            switch (spell.mType)
+            {
+                case Spell::Type_Power:
+                    return std::string(winMgr->getGameSettingString("sPowers", "Powers"));
+                case Spell::Type_EnchantedItem:
+                    return std::string(winMgr->getGameSettingString("sMagicItem", "Magic Item"));
+                default:
+                    return std::string(winMgr->getGameSettingString("sSpells", "Spells"));
+            }
+        }
+
+        std::vector<std::string> magicPickerTooltip(const Spell& spell)
+        {
+            std::vector<std::string> lines;
+            MWBase::WindowManager* winMgr = MWBase::Environment::get().getWindowManager();
+
+            if (spell.mType == Spell::Type_EnchantedItem)
+            {
+                if (!spell.mItem.isEmpty())
+                    lines = A11y::itemTooltipLines(spell.mItem, spell.mCount);
+                if (!spell.mCostColumn.empty())
+                    lines.insert(lines.begin(),
+                        std::string(winMgr->getGameSettingString("sCostCharge", "Cost/Charge")) + ": "
+                            + spell.mCostColumn);
+                return lines;
+            }
+
+            const ESM::Spell* esmSpell = MWBase::Environment::get().getESMStore()->get<ESM::Spell>().search(spell.mId);
+            if (!esmSpell)
+                return lines;
+
+            if (spell.mType == Spell::Type_Spell && !spell.mCostColumn.empty())
+                lines.push_back(std::string(winMgr->getGameSettingString("sCostChance", "Cost/Chance")) + ": "
+                    + spell.mCostColumn);
+
+            const bool isConstant = (esmSpell->mData.mType == ESM::Spell::ST_Ability);
+            for (const ESM::IndexedENAMstruct& effect : esmSpell->mEffects.mList)
+                lines.push_back(A11y::formatSpellEffectLine(effect, isConstant));
+
+            return lines;
+        }
+    }
 
     QuickKeysMenu::QuickKeysMenu()
         : WindowBase("openmw_quickkeys_menu.layout")
@@ -64,6 +128,14 @@ namespace MWGui
             mControllerButtons.mA = "#{Interface:Select}";
             mControllerButtons.mB = "#{Interface:OK}";
         }
+
+        // Screen-reader setup: an invisible anchor holds key focus; the 10 quick
+        // key slots are navigated as widget-less options (the slot buttons are
+        // visual only). Built fresh on each open from the live assignments.
+        mA11yAnchor = mMainWidget->createWidget<MyGUI::Widget>(
+            {}, MyGUI::IntCoord(0, 0, 1, 1), MyGUI::Align::Default);
+        mA11yAnchor->setNeedKeyFocus(true);
+        mA11y.setVirtualFocus(mA11yAnchor);
     }
 
     void QuickKeysMenu::clear()
@@ -123,11 +195,19 @@ namespace MWGui
             for (size_t i = 0; i < mKey.size(); i++)
                 mKey[i].button->setControllerFocus(i == mControllerFocus);
         }
+
+        // Announce the window title for context, then the first slot follows on
+        // activation (queued after the title).
+        A11y::say("#{sQuickMenuTitle}", /*interrupt=*/true);
+        buildAccessibility();
+        mA11y.activate();
     }
 
     void QuickKeysMenu::onClose()
     {
         WindowBase::onClose();
+
+        mA11y.deactivate();
 
         if (mAssignDialog)
             mAssignDialog->setVisible(false);
@@ -135,6 +215,63 @@ namespace MWGui
             mItemSelectionDialog->setVisible(false);
         if (mMagicSelectionDialog)
             mMagicSelectionDialog->setVisible(false);
+    }
+
+    void QuickKeysMenu::onFrame(float dt)
+    {
+        mA11y.onFrame(dt);
+    }
+
+    std::string QuickKeysMenu::a11ySlotLabel(int index) const
+    {
+        MWBase::WindowManager* winMgr = MWBase::Environment::get().getWindowManager();
+        const keyData& key = mKey[index];
+
+        // "Quick key N" prefix -- the number is the physical key the player
+        // presses, so it's the slot's identity (not positional N-of-M info).
+        // The 10th slot uses 0 in-game, matching the keyboard's 0 key.
+        const int spoken = key.index == 10 ? 0 : key.index;
+        std::string label = "Quick key " + std::to_string(spoken);
+
+        switch (key.type)
+        {
+            case ESM::QuickKeys::Type::Unassigned:
+                // Honest "nothing here" rather than silence, so the user can tell
+                // an empty slot from an assigned one on focus.
+                label += ", " + std::string(winMgr->getGameSettingString("sNone", "None"));
+                break;
+            case ESM::QuickKeys::Type::HandToHand:
+                label += ", #{sSkillHandtohand}";
+                break;
+            case ESM::QuickKeys::Type::Item:
+            case ESM::QuickKeys::Type::MagicItem:
+            case ESM::QuickKeys::Type::Magic:
+                label += ", " + key.name;
+                break;
+        }
+        return label;
+    }
+
+    void QuickKeysMenu::a11yActivateSlot(int index)
+    {
+        // Mirror a mouse click on the slot button: opens the assign chooser for
+        // assignable slots; the Hand-to-hand slot (index 9) is fixed and does
+        // nothing, exactly as onQuickKeyButtonClicked early-returns for it.
+        onQuickKeyButtonClicked(mKey[index].button);
+    }
+
+    void QuickKeysMenu::buildAccessibility()
+    {
+        mA11y.clear();
+        // Each slot's spoken text is computed live via describe() rather than a
+        // cached label, so it always reflects the current assignment. This means
+        // no rebuild is needed after an assign/unassign: when a picker closes and
+        // re-announces the current slot, describe() recomputes the fresh name.
+        for (int i = 0; i < 10; ++i)
+            mA11y.add({ .widget = nullptr,
+                .label = a11ySlotLabel(i),
+                .describe = [this, i] { return a11ySlotLabel(i); },
+                .activate = [this, i] { a11yActivateSlot(i); } });
     }
 
     void QuickKeysMenu::unassign(keyData* key)
@@ -214,11 +351,18 @@ namespace MWGui
             mItemSelectionDialog->eventItemSelected += MyGUI::newDelegate(this, &QuickKeysMenu::onAssignItem);
             mItemSelectionDialog->eventDialogCanceled += MyGUI::newDelegate(this, &QuickKeysMenu::onAssignItemCancel);
         }
+
+        // Hide the assign chooser BEFORE showing the picker so the screen-reader
+        // suspend/resume chain stays strict LIFO: the assign dialog resumes the
+        // quick-keys window first, then the picker suspends that. (Doing it the
+        // other way would make the picker suspend the assign screen, after which
+        // the assign's close would resume the quick-keys screen and steal input
+        // back from the picker.) The modal-stack end state is unchanged.
+        mAssignDialog->setVisible(false);
+
         mItemSelectionDialog->setVisible(true);
         mItemSelectionDialog->openContainer(MWMechanics::getPlayer());
         mItemSelectionDialog->setFilter(SortFilterItemModel::Filter_OnlyUsableItems);
-
-        mAssignDialog->setVisible(false);
     }
 
     void QuickKeysMenu::onMagicButtonClicked(MyGUI::Widget* /*sender*/)
@@ -227,10 +371,13 @@ namespace MWGui
         {
             mMagicSelectionDialog = std::make_unique<MagicSelectionDialog>(this);
         }
+
+        // Hide the chooser before showing the picker -- see onItemButtonClicked
+        // for why the screen-reader suspend/resume chain must stay LIFO.
+        mAssignDialog->setVisible(false);
+
         mMagicSelectionDialog->setVisible(true);
         mMagicSelectionDialog->setActiveControllerWindow(true);
-
-        mAssignDialog->setVisible(false);
     }
 
     void QuickKeysMenu::onUnassignButtonClicked(MyGUI::Widget* /*sender*/)
@@ -416,6 +563,9 @@ namespace MWGui
                 {
                     MWBase::Environment::get().getWorld()->getPlayer().setDrawState(MWMechanics::DrawState::Weapon);
                 }
+                // Confirm what the key did -- a weapon/item activation gives no
+                // other audible signal to a blind player.
+                A11y::say(key->name, /*interrupt=*/true);
             }
             else if (key->type == ESM::QuickKeys::Type::MagicItem)
             {
@@ -434,6 +584,8 @@ namespace MWGui
                 MWBase::Environment::get().getWindowManager()->setSelectedEnchantItem(*it);
 
                 MWBase::Environment::get().getWorld()->getPlayer().setDrawState(MWMechanics::DrawState::Spell);
+                // Enchanted item is now the readied magic.
+                A11y::say(key->name + " ready", /*interrupt=*/true);
             }
         }
         else if (key->type == ESM::QuickKeys::Type::Magic)
@@ -454,11 +606,22 @@ namespace MWGui
             MWBase::Environment::get().getWindowManager()->setSelectedSpell(
                 spellId, int(MWMechanics::getSpellSuccessChance(spellId, player)));
             MWBase::Environment::get().getWorld()->getPlayer().setDrawState(MWMechanics::DrawState::Spell);
+            // Spell is now readied for casting.
+            A11y::say(key->name + " ready", /*interrupt=*/true);
         }
         else if (key->type == ESM::QuickKeys::Type::HandToHand)
         {
             store.unequipSlot(MWWorld::InventoryStore::Slot_CarriedRight);
             MWBase::Environment::get().getWorld()->getPlayer().setDrawState(MWMechanics::DrawState::Weapon);
+            A11y::say("#{sSkillHandtohand}", /*interrupt=*/true);
+        }
+        else if (key->type == ESM::QuickKeys::Type::Unassigned)
+        {
+            // Pressing an unassigned number does nothing in-game; say so rather
+            // than leave the player wondering whether the key registered.
+            A11y::say(std::string(MWBase::Environment::get().getWindowManager()->getGameSettingString(
+                          "sNone", "None")),
+                /*interrupt=*/true);
         }
 
         // Updates the state of equipped/not equipped (skin) in spellwindow
@@ -542,6 +705,64 @@ namespace MWGui
         }
 
         center();
+
+        // Screen-reader setup: invisible anchor holds key focus; the four
+        // buttons become navigable options.
+        mA11yAnchor = mMainWidget->createWidget<MyGUI::Widget>(
+            {}, MyGUI::IntCoord(0, 0, 1, 1), MyGUI::Align::Default);
+        mA11yAnchor->setNeedKeyFocus(true);
+        mA11y.setVirtualFocus(mA11yAnchor, /*ownModal=*/true);
+    }
+
+    void QuickKeysMenuAssign::buildAccessibility()
+    {
+        mA11y.clear();
+        mA11y.add({ .widget = nullptr, .label = "#{sQuickMenu2}",
+            .activate = [this] { mParent->onItemButtonClicked(mItemButton); } });
+        mA11y.add({ .widget = nullptr, .label = "#{sQuickMenu3}",
+            .activate = [this] { mParent->onMagicButtonClicked(mMagicButton); } });
+        mA11y.add({ .widget = nullptr, .label = "#{sQuickMenu4}",
+            .activate = [this] { mParent->onUnassignButtonClicked(mUnassignButton); } });
+        mA11y.add({ .widget = nullptr, .label = "#{Interface:Cancel}",
+            .activate = [this] { mParent->onCancelButtonClicked(mCancelButton); } });
+    }
+
+    void QuickKeysMenuAssign::onOpen()
+    {
+        WindowModal::onOpen();
+
+        // Suspend the quick-keys window's screen underneath us, then take input.
+        mA11yPrev = A11y::UiManager::instance().active();
+        if (mA11yPrev)
+            mA11yPrev->suspend();
+
+        // Announce which slot is being assigned (sQuickMenu1 is the dialog's own
+        // instruction line, e.g. "Select an action for this key").
+        const int slot = mParent->a11ySelectedSlot();
+        std::string intro = "#{sQuickMenu1}";
+        if (slot != -1)
+            intro += ", quick key " + std::to_string(slot == 10 ? 0 : slot);
+        A11y::say(intro, /*interrupt=*/true);
+
+        buildAccessibility();
+        mA11y.activate(); // first option announced after the intro
+    }
+
+    void QuickKeysMenuAssign::onClose()
+    {
+        WindowModal::onClose();
+        mA11y.deactivate();
+        if (mA11yPrev)
+        {
+            mA11yPrev->resume();
+            mA11yPrev->announceCurrent();
+            mA11yPrev = nullptr;
+        }
+    }
+
+    void QuickKeysMenuAssign::onFrame(float dt)
+    {
+        mA11y.onFrame(dt);
     }
 
     bool QuickKeysMenuAssign::onControllerButtonEvent(const SDL_ControllerButtonEvent& arg)
@@ -704,6 +925,14 @@ namespace MWGui
         }
 
         center();
+
+        // Screen-reader setup: invisible anchor holds key focus; each spell /
+        // enchanted item in the list becomes a navigable option, mirroring the
+        // spell list in the magic window.
+        mA11yAnchor = mMainWidget->createWidget<MyGUI::Widget>(
+            {}, MyGUI::IntCoord(0, 0, 1, 1), MyGUI::Align::Default);
+        mA11yAnchor->setNeedKeyFocus(true);
+        mA11y.setVirtualFocus(mA11yAnchor, /*ownModal=*/true);
     }
 
     void MagicSelectionDialog::onCancelButtonClicked(MyGUI::Widget* /*sender*/)
@@ -722,6 +951,58 @@ namespace MWGui
         WindowModal::onOpen();
 
         mMagicList->setModel(new SpellModel(MWMechanics::getPlayer()));
+
+        // Suspend the screen underneath (the quick-keys window), then take input.
+        // Activation is deferred to the first onFrame: the SpellModel above needs
+        // a frame to populate its item list before buildAccessibility can read
+        // it. Announce the title now; the first spell follows on activation.
+        mA11yPrev = A11y::UiManager::instance().active();
+        if (mA11yPrev)
+            mA11yPrev->suspend();
+        A11y::say("#{sQuickMenu3}", /*interrupt=*/true);
+        mA11yPendingActivate = true;
+    }
+
+    void MagicSelectionDialog::onClose()
+    {
+        WindowModal::onClose();
+        mA11yPendingActivate = false;
+        mA11y.deactivate();
+        if (mA11yPrev)
+        {
+            mA11yPrev->resume();
+            mA11yPrev->announceCurrent();
+            mA11yPrev = nullptr;
+        }
+    }
+
+    void MagicSelectionDialog::onFrame(float dt)
+    {
+        if (mA11yPendingActivate)
+        {
+            mA11yPendingActivate = false;
+            buildAccessibility();
+            mA11y.activate();
+        }
+        mA11y.onFrame(dt);
+    }
+
+    void MagicSelectionDialog::buildAccessibility()
+    {
+        mA11y.clear();
+        SpellModel* model = mMagicList->getModel();
+        if (!model)
+            return;
+        for (size_t i = 0; i < model->getItemCount(); ++i)
+        {
+            const int index = static_cast<int>(i);
+            const Spell spell = model->getItem(index);
+            mA11y.add({ .widget = nullptr,
+                .label = magicPickerLabel(spell),
+                .section = magicPickerSection(spell),
+                .tooltips = [spell] { return magicPickerTooltip(spell); },
+                .activate = [this, index] { onModelIndexSelected(index); } });
+        }
     }
 
     void MagicSelectionDialog::onModelIndexSelected(SpellModel::ModelIndex index)
