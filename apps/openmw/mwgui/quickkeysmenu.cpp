@@ -511,6 +511,15 @@ namespace MWGui
         MWWorld::InventoryStore& store = player.getClass().getInventoryStore(player);
         const MWMechanics::CreatureStats& playerStats = player.getClass().getCreatureStats(player);
 
+        // Remember the draw state so we can tell, after the action, whether it
+        // changed. The Scanner's per-frame poll (announceDrawStateChange) already
+        // speaks "<name> ready." whenever the draw state changes -- i.e. exactly
+        // when the player wasn't already in that stance -- so we must only voice
+        // our own confirmation when the draw state did NOT change (e.g. swapping
+        // the readied spell/weapon while already drawn, or selecting a passive
+        // item), otherwise the player hears it twice.
+        const MWMechanics::DrawState prevDraw = playerStats.getDrawState();
+
         validate(index - 1);
 
         // Delay action executing,
@@ -533,6 +542,13 @@ namespace MWGui
         {
             mActivated = nullptr;
         }
+
+        // What we'd like to confirm to a blind player. Whether it is actually
+        // spoken is decided at the end: if the draw state changed, the Scanner's
+        // poll already voices "<name> ready." for us, so we stay quiet to avoid
+        // a double announcement. We match the Scanner's exact wording (trailing
+        // period; literal "Hand to hand") so the two paths are indistinguishable.
+        std::string announcement;
 
         if (key->type == ESM::QuickKeys::Type::Item || key->type == ESM::QuickKeys::Type::MagicItem)
         {
@@ -562,10 +578,16 @@ namespace MWGui
                 if (rightHand != store.end() && item == *rightHand)
                 {
                     MWBase::Environment::get().getWorld()->getPlayer().setDrawState(MWMechanics::DrawState::Weapon);
+                    // A readied weapon -- match the Scanner's "<name> ready."
+                    announcement = key->name + " ready.";
                 }
-                // Confirm what the key did -- a weapon/item activation gives no
-                // other audible signal to a blind player.
-                A11y::say(key->name, /*interrupt=*/true);
+                else
+                {
+                    // A passive item (potion drunk, armour/clothing equipped) --
+                    // the draw state doesn't change, so the Scanner never speaks
+                    // it; just name what was used.
+                    announcement = key->name;
+                }
             }
             else if (key->type == ESM::QuickKeys::Type::MagicItem)
             {
@@ -584,8 +606,7 @@ namespace MWGui
                 MWBase::Environment::get().getWindowManager()->setSelectedEnchantItem(*it);
 
                 MWBase::Environment::get().getWorld()->getPlayer().setDrawState(MWMechanics::DrawState::Spell);
-                // Enchanted item is now the readied magic.
-                A11y::say(key->name + " ready", /*interrupt=*/true);
+                announcement = key->name + " ready.";
             }
         }
         else if (key->type == ESM::QuickKeys::Type::Magic)
@@ -606,23 +627,31 @@ namespace MWGui
             MWBase::Environment::get().getWindowManager()->setSelectedSpell(
                 spellId, int(MWMechanics::getSpellSuccessChance(spellId, player)));
             MWBase::Environment::get().getWorld()->getPlayer().setDrawState(MWMechanics::DrawState::Spell);
-            // Spell is now readied for casting.
-            A11y::say(key->name + " ready", /*interrupt=*/true);
+            announcement = key->name + " ready.";
         }
         else if (key->type == ESM::QuickKeys::Type::HandToHand)
         {
             store.unequipSlot(MWWorld::InventoryStore::Slot_CarriedRight);
             MWBase::Environment::get().getWorld()->getPlayer().setDrawState(MWMechanics::DrawState::Weapon);
-            A11y::say("#{sSkillHandtohand}", /*interrupt=*/true);
+            // Literal "Hand to hand" to match the Scanner (the sSkillHandtohand
+            // GMST renders as the hyphenated "Hand-to-hand", which would read
+            // inconsistently against the Scanner's announcement).
+            announcement = "Hand to hand ready.";
         }
         else if (key->type == ESM::QuickKeys::Type::Unassigned)
         {
             // Pressing an unassigned number does nothing in-game; say so rather
-            // than leave the player wondering whether the key registered.
-            A11y::say(std::string(MWBase::Environment::get().getWindowManager()->getGameSettingString(
-                          "sNone", "None")),
-                /*interrupt=*/true);
+            // than leave the player wondering whether the key registered. (No
+            // draw-state change, so this always falls through to being spoken.)
+            announcement
+                = std::string(MWBase::Environment::get().getWindowManager()->getGameSettingString("sNone", "None"));
         }
+
+        // Speak our confirmation only if the draw state did NOT change. When it
+        // did, the Scanner's announceDrawStateChange poll will voice the same
+        // "<name> ready." line, and speaking here too would double it up.
+        if (!announcement.empty() && playerStats.getDrawState() == prevDraw)
+            A11y::say(announcement, /*interrupt=*/true);
 
         // Updates the state of equipped/not equipped (skin) in spellwindow
         MWBase::Environment::get().getWindowManager()->updateSpellWindow();
