@@ -545,9 +545,9 @@ namespace MWGui
 
         // What we'd like to confirm to a blind player. Whether it is actually
         // spoken is decided at the end: if the draw state changed, the Scanner's
-        // poll already voices "<name> ready." for us, so we stay quiet to avoid
-        // a double announcement. We match the Scanner's exact wording (trailing
-        // period; literal "Hand to hand") so the two paths are indistinguishable.
+        // poll already voices "<name> ready" for us, so we stay quiet to avoid a
+        // double announcement. We match the Scanner's exact wording (no trailing
+        // period; native item/skill names) so the two paths are indistinguishable.
         std::string announcement;
 
         if (key->type == ESM::QuickKeys::Type::Item || key->type == ESM::QuickKeys::Type::MagicItem)
@@ -578,8 +578,8 @@ namespace MWGui
                 if (rightHand != store.end() && item == *rightHand)
                 {
                     MWBase::Environment::get().getWorld()->getPlayer().setDrawState(MWMechanics::DrawState::Weapon);
-                    // A readied weapon -- match the Scanner's "<name> ready."
-                    announcement = key->name + " ready.";
+                    // A readied weapon -- match the Scanner's "<name> ready".
+                    announcement = key->name + " ready";
                 }
                 else
                 {
@@ -606,7 +606,7 @@ namespace MWGui
                 MWBase::Environment::get().getWindowManager()->setSelectedEnchantItem(*it);
 
                 MWBase::Environment::get().getWorld()->getPlayer().setDrawState(MWMechanics::DrawState::Spell);
-                announcement = key->name + " ready.";
+                announcement = key->name + " ready";
             }
         }
         else if (key->type == ESM::QuickKeys::Type::Magic)
@@ -627,16 +627,16 @@ namespace MWGui
             MWBase::Environment::get().getWindowManager()->setSelectedSpell(
                 spellId, int(MWMechanics::getSpellSuccessChance(spellId, player)));
             MWBase::Environment::get().getWorld()->getPlayer().setDrawState(MWMechanics::DrawState::Spell);
-            announcement = key->name + " ready.";
+            announcement = key->name + " ready";
         }
         else if (key->type == ESM::QuickKeys::Type::HandToHand)
         {
             store.unequipSlot(MWWorld::InventoryStore::Slot_CarriedRight);
             MWBase::Environment::get().getWorld()->getPlayer().setDrawState(MWMechanics::DrawState::Weapon);
-            // Literal "Hand to hand" to match the Scanner (the sSkillHandtohand
-            // GMST renders as the hyphenated "Hand-to-hand", which would read
-            // inconsistently against the Scanner's announcement).
-            announcement = "Hand to hand ready.";
+            // Use the native skill name (#{sSkillHandtohand}, e.g. "Hand-to-hand")
+            // rather than a hand-written string, so it matches the rest of the
+            // game and stays correct under localisation. Matches the Scanner.
+            announcement = "#{sSkillHandtohand} ready";
         }
         else if (key->type == ESM::QuickKeys::Type::Unassigned)
         {
@@ -649,7 +649,7 @@ namespace MWGui
 
         // Speak our confirmation only if the draw state did NOT change. When it
         // did, the Scanner's announceDrawStateChange poll will voice the same
-        // "<name> ready." line, and speaking here too would double it up.
+        // "<name> ready" line, and speaking here too would double it up.
         if (!announcement.empty() && playerStats.getDrawState() == prevDraw)
             A11y::say(announcement, /*interrupt=*/true);
 

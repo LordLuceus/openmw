@@ -8,7 +8,7 @@ Newest changes are listed first. (OpenMW's own engine changelog lives in
 
 - **New: the Quick Keys menu is now fully accessible.** You can assign weapons,
   items, spells and enchanted items to the number keys 1–9 entirely by ear. Open
-  the menu (default Q-then-a-number, or your bound key), then use Up/Down to move
+  the menu (default F1, or your bound key), then use Up/Down to move
   between the ten slots — each reads its number and what's in it (e.g. "Quick key
   3, Fireball" or "Quick key 5, None"). Press Enter on a slot to choose Item,
   Magic, Unassign or Cancel; the item and spell pickers that open are read like

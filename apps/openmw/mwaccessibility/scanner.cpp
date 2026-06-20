@@ -1883,13 +1883,15 @@ namespace MWAccessibility
         {
             case MWMechanics::DrawState::Weapon:
             {
-                // Name the readied weapon, or "Hand to hand" when unarmed.
-                std::string name = "Hand to hand";
+                // Name the readied weapon, or the native unarmed skill name
+                // (#{sSkillHandtohand}) when unarmed -- resolved by speak()'s tag
+                // replacement, so it stays correct under localisation.
+                std::string name = "#{sSkillHandtohand}";
                 MWWorld::InventoryStore& inv = player.getClass().getInventoryStore(player);
                 auto slot = inv.getSlot(MWWorld::InventoryStore::Slot_CarriedRight);
                 if (slot != inv.end() && !slot->isEmpty())
                     name = slot->getClass().getName(*slot);
-                speak(name + " ready.");
+                speak(name + " ready");
                 break;
             }
             case MWMechanics::DrawState::Spell:
@@ -1900,7 +1902,7 @@ namespace MWAccessibility
                 // WindowManager, not CreatureStats: the player's UI spell
                 // selection does not update CreatureStats (see computeHitState),
                 // so reading CreatureStats here would always fall through to the
-                // generic "Magic ready." instead of naming the spell.
+                // generic "Magic ready" instead of naming the spell.
                 const ESM::RefId selected
                     = MWBase::Environment::get().getWindowManager()->getSelectedSpell();
                 if (!selected.empty())
@@ -1920,9 +1922,9 @@ namespace MWAccessibility
                     }
                 }
                 if (name.empty())
-                    speak("Magic ready.");
+                    speak("Magic ready");
                 else
-                    speak(name + " ready.");
+                    speak(name + " ready");
                 break;
             }
             case MWMechanics::DrawState::Nothing:
@@ -1930,9 +1932,9 @@ namespace MWAccessibility
                 // Distinguish what was put away so the player knows which mode
                 // they left (matches the two ready announcements).
                 if (prev == static_cast<int>(MWMechanics::DrawState::Spell))
-                    speak("Magic put away.");
+                    speak("Magic put away");
                 else
-                    speak("Weapon sheathed.");
+                    speak("Weapon sheathed");
                 break;
         }
     }
@@ -2421,7 +2423,9 @@ namespace MWAccessibility
         if (slot != inv.end() && !slot->isEmpty())
             return "Weapon: " + std::string(slot->getClass().getName(*slot));
         // Empty right hand = hand-to-hand, mirroring the native HUD's H2H icon.
-        return "Weapon: Hand to hand";
+        // Use the native skill name (resolved by speak()'s tag replacement) so it
+        // matches the rest of the game and stays correct under localisation.
+        return "Weapon: #{sSkillHandtohand}";
     }
 
     std::string Scanner::readiedSpellText() const
