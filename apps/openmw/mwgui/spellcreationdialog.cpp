@@ -5,6 +5,7 @@
 #include <MyGUI_Button.h>
 #include <MyGUI_Gui.h>
 #include <MyGUI_ImageBox.h>
+#include <MyGUI_InputManager.h>
 #include <MyGUI_ScrollBar.h>
 
 #include <components/misc/resourcehelpers.hpp>
@@ -13,6 +14,7 @@
 #include <components/widgets/list.hpp>
 
 #include <components/esm3/loadgmst.hpp>
+#include <components/esm3/loadskil.hpp>
 
 #include "../mwbase/environment.hpp"
 #include "../mwbase/inputmanager.hpp"
@@ -28,6 +30,8 @@
 #include "../mwmechanics/creaturestats.hpp"
 #include "../mwmechanics/spellutil.hpp"
 
+#include "accessibility/speech.hpp"
+#include "accessibility/spelltext.hpp"
 #include "class.hpp"
 #include "textcolours.hpp"
 #include "tooltips.hpp"
@@ -100,6 +104,47 @@ namespace MWGui
             mControllerButtons.mB = "#{Interface:Cancel}";
             mControllerButtons.mX = "#{Interface:OK}";
         }
+
+        // Screen-reader: this modal is built from native sliders + a cycle
+        // button, so use virtual focus pinned to an invisible anchor. ownModal
+        // keeps the screen owning its own keys (it IS the active modal, so it
+        // must not yield to itself). The option list is rebuilt on each open
+        // because which boxes are shown depends on the effect and range.
+        mA11yAnchor = mMainWidget->createWidget<MyGUI::Widget>({}, MyGUI::IntCoord(0, 0, 1, 1), MyGUI::Align::Default);
+        mA11yAnchor->setNeedKeyFocus(true);
+        mA11y.setVirtualFocus(mA11yAnchor, /*ownModal=*/true);
+
+        // Coarse step (Ctrl+Left/Right = +/-10) and jump-to-edge (Home/End) for
+        // the slider options; fine +/-1 is handled by the framework's Left/Right
+        // via each option's change callback.
+        mA11y.setExtraKeyHandler([this](MyGUI::KeyCode key) -> bool {
+            MyGUI::ScrollBar* scroll = nullptr;
+            MyGUI::Widget* widget = mA11y.currentWidget();
+            if (widget == mMagnitudeMinValue)
+                scroll = mMagnitudeMinSlider;
+            else if (widget == mMagnitudeMaxValue)
+                scroll = mMagnitudeMaxSlider;
+            else if (widget == mDurationValue)
+                scroll = mDurationSlider;
+            else if (widget == mAreaValue)
+                scroll = mAreaSlider;
+            if (!scroll)
+                return false;
+
+            const bool ctrl = MyGUI::InputManager::getInstance().isControlPressed();
+            if (ctrl && key == MyGUI::KeyCode::ArrowRight)
+                a11yStepSlider(scroll, 10);
+            else if (ctrl && key == MyGUI::KeyCode::ArrowLeft)
+                a11yStepSlider(scroll, -10);
+            else if (key == MyGUI::KeyCode::Home)
+                a11ySetSlider(scroll, 0);
+            else if (key == MyGUI::KeyCode::End)
+                a11ySetSlider(scroll, scroll->getScrollRange() > 0 ? scroll->getScrollRange() - 1 : 0);
+            else
+                return false;
+            mA11y.announceCurrent();
+            return true;
+        });
     }
 
     void EditEffectDialog::setConstantEffect(bool constant)
@@ -111,6 +156,131 @@ namespace MWGui
     {
         WindowModal::onOpen();
         center();
+
+        // newEffect()/editEffect() have already configured the effect and run
+        // updateBoxes(), and the window is now visible, so the option list and
+        // its visibility gating are accurate. Announce the effect name + the
+        // composed line first, then activate (which announces the first option).
+        buildAccessibility();
+        A11y::say(mEffectName->getCaption().asUTF8(), /*interrupt=*/true);
+        A11y::say(a11yEffectLine());
+        mA11y.activate();
+    }
+
+    void EditEffectDialog::onClose()
+    {
+        mA11y.deactivate();
+        WindowModal::onClose();
+    }
+
+    void EditEffectDialog::onFrame(float dt)
+    {
+        mA11y.onFrame(dt);
+    }
+
+    void EditEffectDialog::buildAccessibility()
+    {
+        mA11y.clear();
+
+        // Range: a cycle button. Left/Right advance through the allowed
+        // Self/Touch/Target options via the existing click handler (which only
+        // cycles forward; the framework speaks the new value after). Treated as
+        // a value option, so Enter is reserved for the action buttons.
+        mA11y.add({ .widget = mRangeButton, .label = "#{sRange}",
+            .value = [this] { return a11yRangeText(); },
+            .change = [this](bool /*next*/) { onRangeButtonClicked(mRangeButton); } });
+
+        // Magnitude min / max sliders (only when the effect has a magnitude).
+        // No GMST distinguishes the two stacked magnitude sliders (the on-screen
+        // UI leaves them unlabelled), so qualify with plain "minimum"/"maximum".
+        mA11y.add({ .widget = mMagnitudeMinValue, .label = "#{sMagnitude} minimum",
+            .value = [this] { return std::string(mMagnitudeMinValue->getCaption()); },
+            .change = [this](bool next) { a11yStepSlider(mMagnitudeMinSlider, next ? 1 : -1); } });
+        mA11y.add({ .widget = mMagnitudeMaxValue, .label = "#{sMagnitude} maximum",
+            .value = [this] { return std::string(mMagnitudeMaxValue->getCaption()); },
+            .change = [this](bool next) { a11yStepSlider(mMagnitudeMaxSlider, next ? 1 : -1); } });
+
+        // Duration slider (hidden for constant / no-duration effects).
+        mA11y.add({ .widget = mDurationValue, .label = "#{sDuration}",
+            .value = [this] { return std::string(mDurationValue->getCaption()); },
+            .change = [this](bool next) { a11yStepSlider(mDurationSlider, next ? 1 : -1); } });
+
+        // Area slider (hidden for Self range).
+        mA11y.add({ .widget = mAreaValue, .label = "#{sArea}",
+            .value = [this] { return std::string(mAreaValue->getCaption()); },
+            .change = [this](bool next) { a11yStepSlider(mAreaSlider, next ? 1 : -1); } });
+
+        // Delete (only when editing an existing effect), then OK / Cancel.
+        mA11y.add({ .widget = mDeleteButton, .label = "#{sDelete}",
+            .activate = [this] { onDeleteButtonClicked(mDeleteButton); } });
+        mA11y.add({ .widget = mOkButton, .label = "#{Interface:OK}",
+            .activate = [this] { onOkButtonClicked(mOkButton); } });
+        mA11y.add({ .widget = mCancelButton, .label = "#{Interface:Cancel}",
+            .activate = [this] { onCancelButtonClicked(mCancelButton); } });
+    }
+
+    std::string EditEffectDialog::a11yRangeText() const
+    {
+        MWBase::WindowManager* wm = MWBase::Environment::get().getWindowManager();
+        if (mEffect.mRange == ESM::RT_Self)
+            return std::string(wm->getGameSettingString("sRangeSelf", "Self"));
+        if (mEffect.mRange == ESM::RT_Touch)
+            return std::string(wm->getGameSettingString("sRangeTouch", "Touch"));
+        return std::string(wm->getGameSettingString("sRangeTarget", "Target"));
+    }
+
+    std::string EditEffectDialog::a11yEffectLine() const
+    {
+        Widgets::SpellEffectParams params;
+        params.mEffectID = mEffect.mEffectID;
+        params.mSkill = mEffect.mSkill;
+        params.mAttribute = mEffect.mAttribute;
+        params.mDuration = mEffect.mDuration;
+        params.mMagnMin = mEffect.mMagnMin;
+        params.mMagnMax = mEffect.mMagnMax;
+        params.mRange = mEffect.mRange;
+        params.mArea = mEffect.mArea;
+        params.mIsConstant = mConstantEffect;
+        return A11y::formatSpellEffectLine(params);
+    }
+
+    void EditEffectDialog::a11yStepSlider(MyGUI::ScrollBar* scroll, int delta)
+    {
+        const size_t range = scroll->getScrollRange();
+        if (range == 0)
+            return;
+        const size_t maxIndex = range - 1;
+        const size_t pos = scroll->getScrollPosition();
+        size_t newPos;
+        if (delta >= 0)
+            newPos = std::min(maxIndex, pos + static_cast<size_t>(delta));
+        else
+        {
+            const size_t down = static_cast<size_t>(-delta);
+            newPos = (pos > down) ? pos - down : 0;
+        }
+        a11ySetSlider(scroll, newPos);
+    }
+
+    void EditEffectDialog::a11ySetSlider(MyGUI::ScrollBar* scroll, size_t pos)
+    {
+        const size_t range = scroll->getScrollRange();
+        if (range == 0)
+            return;
+        pos = std::min(pos, range - 1);
+        if (pos == scroll->getScrollPosition())
+            return;
+        scroll->setScrollPosition(pos);
+        // setScrollPosition doesn't fire eventScrollChangePosition, so call the
+        // matching handler directly -- it updates the caption and the effect.
+        if (scroll == mMagnitudeMinSlider)
+            onMagnitudeMinChanged(scroll, pos);
+        else if (scroll == mMagnitudeMaxSlider)
+            onMagnitudeMaxChanged(scroll, pos);
+        else if (scroll == mDurationSlider)
+            onDurationChanged(scroll, pos);
+        else if (scroll == mAreaSlider)
+            onAreaChanged(scroll, pos);
     }
 
     bool EditEffectDialog::exit()
@@ -593,6 +763,12 @@ namespace MWGui
 
         setWidgets(mAvailableEffectsList, mUsedEffectsView);
 
+        // Screen-reader: virtual-focus anchor for the whole window, plus spoken
+        // editing on the name box.
+        initEffectListA11y(mMainWidget);
+        mNameField.attach(mNameEdit);
+        mNameField.setActive(false);
+
         if (Settings::gui().mControllerMenus)
         {
             mControllerButtons.mA = "#{Interface:Select}";
@@ -683,6 +859,97 @@ namespace MWGui
     {
         center();
         MWBase::Environment::get().getWindowManager()->setKeyFocusWidget(mNameEdit);
+
+        // Build the screen-reader option list and announce the first option.
+        // setPtr() (called before onOpen by the window manager) has already
+        // populated the available-effects list and cleared the used list.
+        buildAccessibility();
+        mA11y.activate();
+    }
+
+    void SpellCreationDialog::onClose()
+    {
+        mA11y.deactivate();
+    }
+
+    void SpellCreationDialog::onFrame(float dt)
+    {
+        checkReferenceAvailable();
+
+        // A child modal (the edit-effect dialog, or a skill/attribute picker)
+        // takes over the single active-screen slot while it's up, leaving our
+        // screen inactive. When the last one closes, reclaim control and
+        // re-announce where we are. buildAccessibility() (run by the edit
+        // dialog's effect changes) already refreshed our list, so just preserve
+        // selection by label.
+        const bool modalOpen = MyGUI::InputManager::getInstance().isModalAny();
+        if (mA11yModalWasOpen && !modalOpen && isVisible() && !mA11y.isActive())
+        {
+            // Prefer landing on the effect the edit dialog just acted on (added
+            // or modified); fall back to the option we were last on. activate()
+            // makes a single announcement for whichever we resolve to.
+            const std::string previous = mA11y.currentLabel();
+            MyGUI::Widget* target = a11yUsedEffectWidget(a11ySelectedEffect());
+            mA11y.activate(target);
+            if (!target && !previous.empty())
+                mA11y.selectByLabel(previous, /*announce=*/true);
+        }
+        mA11yModalWasOpen = modalOpen;
+
+        mNameField.onFrame();
+        mA11y.onFrame(dt);
+    }
+
+    bool SpellCreationDialog::exit()
+    {
+        // Swallow the Escape that just left the name-edit field so it doesn't
+        // also close the whole window.
+        if (mA11y.inEditMode() || mA11y.consumeEscape())
+            return false;
+        return true;
+    }
+
+    void SpellCreationDialog::buildAccessibility()
+    {
+        MWBase::WindowManager* winMgr = MWBase::Environment::get().getWindowManager();
+
+        // Preserve the user's place across a rebuild (e.g. after adding an
+        // effect) so focus doesn't jump back to the name field.
+        const std::string previous = mA11y.currentLabel();
+
+        mA11y.clear();
+
+        // Spell name (editable). value() reports the current contents so it's
+        // spoken on focus; Enter begins editing.
+        mA11y.add({ .widget = mNameEdit, .label = "#{sName}",
+            .value =
+                [this] {
+                    const std::string text = mNameEdit->getOnlyText().asUTF8();
+                    return text.empty() ? std::string("blank") : text;
+                },
+            .edit = &mNameField });
+
+        // The two effect lists (available to add / used in the spell).
+        addEffectListElements();
+
+        // Read-only result stats, mirroring the on-screen labels.
+        mA11y.add({ .widget = mMagickaCost, .label = "#{sEnchantmentMenu4}",
+            .value = [this] { return std::string(mMagickaCost->getCaption()); } });
+        mA11y.add({ .widget = mSuccessChance, .label = "#{sSpellmakingMenu1}",
+            .value = [this] { return std::string(mSuccessChance->getCaption()); } });
+        mA11y.add({ .widget = mPriceLabel, .label = "#{sBarterDialog7}",
+            .value = [this] { return std::string(mPriceLabel->getCaption()); } });
+        mA11y.add({ .widget = mPlayerGold, .label = "#{sGold}",
+            .value = [this] { return std::string(mPlayerGold->getCaption()); } });
+
+        mA11y.add({ .widget = mBuyButton,
+            .label = std::string(winMgr->getGameSettingString("sBuy", "Buy")),
+            .activate = [this] { onBuyButtonClicked(mBuyButton); } });
+        mA11y.add({ .widget = mCancelButton, .label = "#{Interface:Cancel}",
+            .activate = [this] { onCancelButtonClicked(mCancelButton); } });
+
+        if (!previous.empty())
+            mA11y.selectByLabel(previous, /*announce=*/false);
     }
 
     void SpellCreationDialog::onReferenceUnavailable()
@@ -732,6 +999,11 @@ namespace MWGui
 
         int intChance = std::min(100, int(chance));
         mSuccessChance->setCaption(MyGUI::utility::toString(intChance));
+
+        // The used-effects list (and the cost/chance values) changed, so rebuild
+        // the screen-reader options. Safe before activate() (it just rebuilds the
+        // list); selection is preserved by label across the rebuild.
+        buildAccessibility();
     }
 
     bool SpellCreationDialog::onControllerButtonEvent(const SDL_ControllerButtonEvent& arg)
@@ -1023,6 +1295,103 @@ namespace MWGui
             for (ESM::ENAMstruct& effect : mEffects)
                 effect.mRange = ESM::RT_Self;
         mConstantEffect = constant;
+    }
+
+    void EffectEditorBase::initEffectListA11y(MyGUI::Widget* mainWidget)
+    {
+        // A single invisible anchor holds real key focus for the whole window;
+        // the effect lists and the derived window's own options are navigated
+        // purely internally. ownModal is false here even for the (non-modal)
+        // spell/enchant windows -- when the EditEffectDialog or a skill/attribute
+        // picker pops up as a separate modal, this screen must yield to it.
+        mA11yAnchor
+            = mainWidget->createWidget<MyGUI::Widget>({}, MyGUI::IntCoord(0, 0, 1, 1), MyGUI::Align::Default);
+        mA11yAnchor->setNeedKeyFocus(true);
+        mA11y.setVirtualFocus(mA11yAnchor);
+    }
+
+    void EffectEditorBase::addEffectListElements()
+    {
+        MWBase::WindowManager* winMgr = MWBase::Environment::get().getWindowManager();
+
+        // Available (known) effects, in the same alphabetical order as the
+        // on-screen list. Each option's widget is the list button, so the
+        // framework can gate on its visibility; activating it runs the same
+        // path a mouse click would (add the effect, possibly opening a skill /
+        // attribute picker).
+        const std::string available{ winMgr->getGameSettingString("sMagicEffects", "Magic Effects") };
+        for (size_t i = 0; i < mAvailableButtons.size(); ++i)
+        {
+            MyGUI::Button* button = mAvailableButtons[i];
+            auto found = mButtonMapping.find(static_cast<int>(i));
+            const ESM::RefId effectId = (found != mButtonMapping.end()) ? found->second : ESM::RefId();
+            mA11y.add({ .widget = button,
+                .label = std::string(button->getCaption()),
+                .section = available,
+                .tooltips = [this, effectId] { return a11yEffectTooltip(effectId); },
+                .activate = [this, button] { onAvailableEffectClicked(button); } });
+        }
+
+        // Used effects: the spell being built. Each speaks its fully composed
+        // line (e.g. "Fire Damage 1 to 1 points for 1 second on Touch"), and
+        // activating it reopens the edit dialog so magnitude/range/etc. can be
+        // adjusted or the effect deleted.
+        const std::string used{ winMgr->getGameSettingString("sEffects", "Effects") };
+        for (size_t i = 0; i < mEffects.size(); ++i)
+        {
+            const ESM::ENAMstruct& effectInfo = mEffects[i];
+            MyGUI::Button* button = (i < mEffectButtons.size()) ? mEffectButtons[i].second : nullptr;
+            Widgets::SpellEffectParams params;
+            params.mEffectID = effectInfo.mEffectID;
+            params.mSkill = effectInfo.mSkill;
+            params.mAttribute = effectInfo.mAttribute;
+            params.mDuration = effectInfo.mDuration;
+            params.mMagnMin = effectInfo.mMagnMin;
+            params.mMagnMax = effectInfo.mMagnMax;
+            params.mRange = effectInfo.mRange;
+            params.mArea = effectInfo.mArea;
+            params.mIsConstant = mConstantEffect;
+            const std::string line = A11y::formatSpellEffectLine(params);
+            const int index = static_cast<int>(i);
+            mA11y.add({ .widget = button,
+                .label = line,
+                .section = used,
+                .activate = [this, index] { onEditEffect(mEffectButtons[index].second); } });
+        }
+    }
+
+    MyGUI::Widget* EffectEditorBase::a11yUsedEffectWidget(int index) const
+    {
+        if (index < 0 || static_cast<size_t>(index) >= mEffectButtons.size())
+            return nullptr;
+        return mEffectButtons[index].second;
+    }
+
+    std::vector<std::string> EffectEditorBase::a11yEffectTooltip(ESM::RefId effectId) const
+    {
+        std::vector<std::string> lines;
+        if (effectId.empty())
+            return lines;
+
+        const MWWorld::ESMStore& store = *MWBase::Environment::get().getESMStore();
+        const ESM::MagicEffect* effect = store.get<ESM::MagicEffect>().search(effectId);
+        if (!effect)
+        {
+            A11y::logWarn("a11yEffectTooltip: unknown magic effect ID " + effectId.toDebugString());
+            return lines;
+        }
+
+        // School (mirrors the on-screen magic-effect tooltip).
+        const ESM::Skill* skill = store.get<ESM::Skill>().search(effect->mData.mSchool);
+        if (skill && skill->mSchool)
+            lines.push_back("#{sSchool}: " + skill->mSchool->mName);
+
+        // The descriptive flavour text. This is the only place the game ever
+        // surfaces it; a sighted player reads it from the spellmaking tooltip.
+        if (!effect->mDescription.empty())
+            lines.push_back(effect->mDescription);
+
+        return lines;
     }
 
     bool EffectEditorBase::onControllerButtonEvent(const SDL_ControllerButtonEvent& arg)

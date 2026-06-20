@@ -6,6 +6,20 @@ Newest changes are listed first. (OpenMW's own engine changelog lives in
 
 ## 2026-06-20
 
+- **New: the spell-creation (spellmaking) screen is now fully accessible.** You
+  can design and buy custom spells entirely by ear. Open the spellmaking service
+  and use Up/Down to move through the screen: the spell-name field (press Enter
+  to type a name), the list of magic effects you can add, the effects already in
+  your spell, the running magicka cost, success chance and price, your gold, and
+  the Buy / Cancel buttons. On a magic effect in the left-hand list, press T to
+  hear its school and description; press Enter to add it. Each effect you add
+  opens an editor where Left/Right adjust magnitude, duration and area (hold Ctrl
+  for steps of ten, or Home/End to jump to the minimum/maximum), and Left/Right
+  on Range cycles Self / Touch / Target. Press Enter on OK to confirm, Delete to
+  remove an effect you're editing. Every effect in your spell reads back as a
+  full line (e.g. "Fire Damage 1 to 1 points for 1 second on Touch"), so you
+  always know exactly what you're building before you pay for it.
+
 - **New: the Quick Keys menu is now fully accessible.** You can assign weapons,
   items, spells and enchanted items to the number keys 1–9 entirely by ear. Open
   the menu (default F1, or your bound key), then use Up/Down to move

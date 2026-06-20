@@ -18,7 +18,14 @@ auto-walk, location announcements, and audio beacon (gameplay, not a screen).
 
 ### Merchant / services windows (model-backed lists, barter-like)
 - [x] **Spell buying** (`GM_SpellBuying`) — list of purchasable spells + cost
-- [ ] **Spell making / creation** (`GM_SpellCreation`) — effect builder (complex)
+- [x] **Spell making / creation** (`GM_SpellCreation`) — effect builder. Virtual-
+      focus screen over name/available-effects/used-effects/stats/Buy/Cancel;
+      shared list logic in EffectEditorBase (initEffectListA11y /
+      addEffectListElements / a11yEffectTooltip / a11yUsedEffectWidget) so
+      enchanting can reuse it. Modal EditEffectDialog (ownModal) with Range as a
+      cycle value + magnitude/duration/area sliders (Left/Right +/-1, Ctrl +/-10,
+      Home/End min/max). Main screen reclaims the single active-screen slot in
+      onFrame when the child modal closes, landing on the edited effect.
 - [ ] **Enchanting** (`GM_Enchanting`) — item + effects + soul gem
 - [ ] **Alchemy / potion-making** (`GM_Alchemy`) — ingredients grid → effects
 - [ ] **Recharge** (`GM_Recharge`) — recharge enchanted items with soul gems
