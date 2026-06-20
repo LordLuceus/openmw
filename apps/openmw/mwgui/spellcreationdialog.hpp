@@ -253,7 +253,13 @@ namespace MWGui
 
         void onClose() override;
 
-        bool exit() override;
+        // NB: no exit() override. This is a NON-modal window, so an edit-mode
+        // Escape is swallowed by the A11y screen's consumedKey() and never
+        // reaches exit() -- meaning the modal-style consumeEscape() latch check
+        // would leak (the latch is set but never cleared), and a later genuine
+        // Escape would read the stale latch, return false, and bounce the player
+        // to the main menu instead of closing the window. The default
+        // WindowBase::exit() (returns true) is correct here.
 
         // Screen-reader editing for the spell-name box.
         A11y::EditField mNameField;

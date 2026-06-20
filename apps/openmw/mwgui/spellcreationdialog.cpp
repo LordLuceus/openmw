@@ -791,6 +791,17 @@ namespace MWGui
         mPlayerGold->setCaptionWithReplacing(MyGUI::utility::toString(playerGold));
 
         startEditing();
+
+        // startEditing() populated the available effects and reset the used list.
+        // Activate here -- NOT in onOpen(), which runs before this and would
+        // capture the previous session's name. deactivate() first so a reopen
+        // starts from a clean screen (selection/edit reset); since deactivate()
+        // clear()s the option list, REBUILD it before activating, otherwise the
+        // screen would activate empty and announce nothing.
+        mA11y.deactivate();
+        buildAccessibility();
+        mA11y.activate();
+        mA11yModalWasOpen = false;
     }
 
     void SpellCreationDialog::onCancelButtonClicked(MyGUI::Widget* /*sender*/)
@@ -860,16 +871,19 @@ namespace MWGui
         center();
         MWBase::Environment::get().getWindowManager()->setKeyFocusWidget(mNameEdit);
 
-        // Build the screen-reader option list and announce the first option.
-        // setPtr() (called before onOpen by the window manager) has already
-        // populated the available-effects list and cleared the used list.
-        buildAccessibility();
-        mA11y.activate();
+        // NB: do NOT build/activate the screen-reader list here. The window
+        // manager calls onOpen() BEFORE setPtr() (windowmanagerimp.cpp), so at
+        // this point mNameEdit still holds the previous session's spell name and
+        // the effect lists aren't populated yet. Activation happens at the end
+        // of setPtr() once startEditing() has cleared the name and built the
+        // lists -- otherwise we announce a stale name on reopen.
+        mA11yModalWasOpen = false;
     }
 
     void SpellCreationDialog::onClose()
     {
         mA11y.deactivate();
+        mA11yModalWasOpen = false;
     }
 
     void SpellCreationDialog::onFrame(float dt)
@@ -898,15 +912,6 @@ namespace MWGui
 
         mNameField.onFrame();
         mA11y.onFrame(dt);
-    }
-
-    bool SpellCreationDialog::exit()
-    {
-        // Swallow the Escape that just left the name-edit field so it doesn't
-        // also close the whole window.
-        if (mA11y.inEditMode() || mA11y.consumeEscape())
-            return false;
-        return true;
     }
 
     void SpellCreationDialog::buildAccessibility()
@@ -965,6 +970,13 @@ namespace MWGui
             mMagickaCost->setCaption("0");
             mPriceLabel->setCaption("0");
             mSuccessChance->setCaption("0");
+            // Still rebuild the screen-reader list: this is the initial state
+            // (reached from startEditing once the available-effects list is
+            // populated), and also the state after the last effect is removed.
+            // The build in onOpen() ran BEFORE setPtr()/startEditing(), so the
+            // available effects weren't known yet -- this is where they first
+            // become navigable.
+            buildAccessibility();
             return;
         }
 
