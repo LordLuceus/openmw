@@ -26,11 +26,9 @@
 #include "../mwmechanics/spells.hpp"
 #include "../mwmechanics/spellutil.hpp"
 
-#include <components/esm3/loadskil.hpp>
 #include <components/esm3/loadspel.hpp>
 
 #include "accessibility/activeeffects.hpp"
-#include "accessibility/itemtext.hpp"
 #include "accessibility/panegroup.hpp"
 #include "accessibility/speech.hpp"
 #include "accessibility/spelltext.hpp"
@@ -347,59 +345,6 @@ namespace MWGui
         }
     }
 
-    std::vector<std::string> SpellWindow::a11ySpellTooltip(const Spell& spell) const
-    {
-        std::vector<std::string> lines;
-        MWBase::WindowManager* winMgr = MWBase::Environment::get().getWindowManager();
-
-        // Enchanted items: defer to the shared item tooltip helper (weight,
-        // value, enchantment effects), same as the inventory/container lists.
-        if (spell.mType == Spell::Type_EnchantedItem)
-        {
-            if (!spell.mItem.isEmpty())
-                lines = A11y::itemTooltipLines(spell.mItem, spell.mCount);
-            // The cost/charge column is item-specific extra info shown in the
-            // list; surface it up front.
-            if (!spell.mCostColumn.empty())
-                lines.insert(lines.begin(),
-                    std::string(winMgr->getGameSettingString("sCostCharge", "Cost/Charge")) + ": "
-                        + spell.mCostColumn);
-            return lines;
-        }
-
-        // Powers and spells: cost/chance, then each magic effect, mirroring the
-        // on-screen Spell tooltip (see ToolTips::createToolTip "Spell" branch).
-        const ESM::Spell* esmSpell
-            = MWBase::Environment::get().getESMStore()->get<ESM::Spell>().search(spell.mId);
-        if (!esmSpell)
-            return lines;
-
-        if (spell.mType == Spell::Type_Spell && !spell.mCostColumn.empty())
-            lines.push_back(
-                std::string(winMgr->getGameSettingString("sCostChance", "Cost/Chance")) + ": " + spell.mCostColumn);
-
-        // Spell school, mirroring the on-screen tooltip (ToolTips::createToolTip
-        // "Spell" branch): only shown for spells that contribute to skill
-        // progress (regular castable spells, not powers/abilities/diseases),
-        // and the school is the dominant one for this caster via getSpellSchool.
-        if (MWMechanics::spellIncreasesSkill(esmSpell))
-        {
-            const ESM::RefId schoolSkill = MWMechanics::getSpellSchool(esmSpell, MWMechanics::getPlayer());
-            if (!schoolSkill.empty())
-            {
-                const ESM::Skill* skill = MWBase::Environment::get().getESMStore()->get<ESM::Skill>().search(schoolSkill);
-                if (skill && skill->mSchool)
-                    lines.push_back("#{sSchool}: " + skill->mSchool->mName);
-            }
-        }
-
-        const bool isConstant = (esmSpell->mData.mType == ESM::Spell::ST_Ability);
-        for (const ESM::IndexedENAMstruct& effect : esmSpell->mEffects.mList)
-            lines.push_back(A11y::formatSpellEffectLine(effect, isConstant));
-
-        return lines;
-    }
-
     void SpellWindow::buildAccessibility()
     {
         mA11y.clear();
@@ -442,7 +387,7 @@ namespace MWGui
                 mA11y.add({ .widget = nullptr,
                     .label = a11ySpellLabel(spell),
                     .section = a11ySpellSection(spell),
-                    .tooltips = [this, spell] { return a11ySpellTooltip(spell); },
+                    .tooltips = [spell] { return A11y::spellModelTooltipLines(spell); },
                     .activate = [this, index] { a11yActivateSpell(index); } });
             }
         }

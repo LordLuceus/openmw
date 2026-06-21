@@ -13,12 +13,16 @@
 #include "../../mwbase/environment.hpp"
 #include "../../mwbase/windowmanager.hpp"
 
+#include "../../mwmechanics/actorutil.hpp"
 #include "../../mwmechanics/magiceffects.hpp"
+#include "../../mwmechanics/spellutil.hpp"
 
 #include "../../mwworld/esmstore.hpp"
 
+#include "../spellmodel.hpp"
 #include "../widgets.hpp"
 
+#include "itemtext.hpp"
 #include "speech.hpp"
 
 namespace MWGui::A11y
@@ -213,5 +217,62 @@ namespace MWGui::A11y
         }
 
         return line;
+    }
+
+    std::string spellSchoolLine(const ESM::Spell& spell, const MWWorld::Ptr& caster)
+    {
+        // Only spells that contribute to skill progress (regular castable spells,
+        // not powers/abilities/diseases) show a school, matching the on-screen
+        // tooltip; the school is the dominant one for this caster.
+        if (!MWMechanics::spellIncreasesSkill(&spell))
+            return {};
+        const ESM::RefId schoolSkill = MWMechanics::getSpellSchool(&spell, caster);
+        if (schoolSkill.empty())
+            return {};
+        const ESM::Skill* skill = MWBase::Environment::get().getESMStore()->get<ESM::Skill>().search(schoolSkill);
+        if (!skill || !skill->mSchool)
+            return {};
+        return "#{sSchool}: " + skill->mSchool->mName;
+    }
+
+    std::vector<std::string> spellModelTooltipLines(const MWGui::Spell& spell)
+    {
+        std::vector<std::string> lines;
+        MWBase::WindowManager* wm = MWBase::Environment::get().getWindowManager();
+
+        // Enchanted items: defer to the shared item tooltip helper (weight,
+        // value, enchantment effects), same as the inventory/container lists.
+        // The cost/charge column is item-specific extra info shown in the list;
+        // surface it up front.
+        if (spell.mType == MWGui::Spell::Type_EnchantedItem)
+        {
+            if (!spell.mItem.isEmpty())
+                lines = itemTooltipLines(spell.mItem, spell.mCount);
+            if (!spell.mCostColumn.empty())
+                lines.insert(lines.begin(),
+                    std::string(wm->getGameSettingString("sCostCharge", "Cost/Charge")) + ": " + spell.mCostColumn);
+            return lines;
+        }
+
+        // Powers and spells: cost/chance, then the school, then each magic
+        // effect -- mirroring the on-screen Spell tooltip (ToolTips::createToolTip
+        // "Spell" branch).
+        const ESM::Spell* esmSpell = MWBase::Environment::get().getESMStore()->get<ESM::Spell>().search(spell.mId);
+        if (!esmSpell)
+            return lines;
+
+        if (spell.mType == MWGui::Spell::Type_Spell && !spell.mCostColumn.empty())
+            lines.push_back(
+                std::string(wm->getGameSettingString("sCostChance", "Cost/Chance")) + ": " + spell.mCostColumn);
+
+        std::string school = spellSchoolLine(*esmSpell, MWMechanics::getPlayer());
+        if (!school.empty())
+            lines.push_back(std::move(school));
+
+        const bool isConstant = (esmSpell->mData.mType == ESM::Spell::ST_Ability);
+        for (const ESM::IndexedENAMstruct& effect : esmSpell->mEffects.mList)
+            lines.push_back(formatSpellEffectLine(effect, isConstant));
+
+        return lines;
     }
 }

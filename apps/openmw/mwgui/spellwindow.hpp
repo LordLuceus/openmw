@@ -94,9 +94,9 @@ namespace MWGui
         std::string a11ySpellLabel(const Spell& spell) const;
         // Section name for a spell row (Powers / Spells / Magic Items).
         std::string a11ySpellSection(const Spell& spell) const;
-        // Tooltip lines (cost/chance or cost/charge + magic effects) cycled with
-        // T, mirroring the on-screen spell/item tooltip.
-        std::vector<std::string> a11ySpellTooltip(const Spell& spell) const;
+        // NB: the tooltip lines (cost + school + effects) are produced by the
+        // shared A11y::spellModelTooltipLines, also used by the quick-keys magic
+        // picker -- called directly at the option site.
     };
 }
 

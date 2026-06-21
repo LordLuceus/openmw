@@ -27,7 +27,6 @@
 #include "../mwmechanics/creaturestats.hpp"
 #include "../mwmechanics/spellutil.hpp"
 
-#include "accessibility/itemtext.hpp"
 #include "accessibility/screen.hpp"
 #include "accessibility/speech.hpp"
 #include "accessibility/spelltext.hpp"
@@ -37,14 +36,13 @@
 #include "sortfilteritemmodel.hpp"
 #include "spellview.hpp"
 
-#include "../mwmechanics/spellutil.hpp"
-
 namespace MWGui
 {
     namespace
     {
-        // Spoken section/label/tooltip for one entry in the magic picker,
-        // mirroring SpellWindow's list a11y (powers / spells / magic items).
+        // Spoken label / section for one entry in the magic picker, mirroring
+        // SpellWindow's list a11y (powers / spells / magic items). The detail
+        // tooltip lines come from the shared A11y::spellModelTooltipLines.
         std::string magicPickerLabel(const Spell& spell)
         {
             std::string label = spell.mName;
@@ -65,37 +63,6 @@ namespace MWGui
                 default:
                     return std::string(winMgr->getGameSettingString("sSpells", "Spells"));
             }
-        }
-
-        std::vector<std::string> magicPickerTooltip(const Spell& spell)
-        {
-            std::vector<std::string> lines;
-            MWBase::WindowManager* winMgr = MWBase::Environment::get().getWindowManager();
-
-            if (spell.mType == Spell::Type_EnchantedItem)
-            {
-                if (!spell.mItem.isEmpty())
-                    lines = A11y::itemTooltipLines(spell.mItem, spell.mCount);
-                if (!spell.mCostColumn.empty())
-                    lines.insert(lines.begin(),
-                        std::string(winMgr->getGameSettingString("sCostCharge", "Cost/Charge")) + ": "
-                            + spell.mCostColumn);
-                return lines;
-            }
-
-            const ESM::Spell* esmSpell = MWBase::Environment::get().getESMStore()->get<ESM::Spell>().search(spell.mId);
-            if (!esmSpell)
-                return lines;
-
-            if (spell.mType == Spell::Type_Spell && !spell.mCostColumn.empty())
-                lines.push_back(std::string(winMgr->getGameSettingString("sCostChance", "Cost/Chance")) + ": "
-                    + spell.mCostColumn);
-
-            const bool isConstant = (esmSpell->mData.mType == ESM::Spell::ST_Ability);
-            for (const ESM::IndexedENAMstruct& effect : esmSpell->mEffects.mList)
-                lines.push_back(A11y::formatSpellEffectLine(effect, isConstant));
-
-            return lines;
         }
     }
 
@@ -1029,7 +996,7 @@ namespace MWGui
             mA11y.add({ .widget = nullptr,
                 .label = magicPickerLabel(spell),
                 .section = magicPickerSection(spell),
-                .tooltips = [spell] { return magicPickerTooltip(spell); },
+                .tooltips = [spell] { return A11y::spellModelTooltipLines(spell); },
                 .activate = [this, index] { onModelIndexSelected(index); } });
         }
     }
