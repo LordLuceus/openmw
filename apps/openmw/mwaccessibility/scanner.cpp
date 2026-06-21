@@ -2383,10 +2383,15 @@ namespace MWAccessibility
 
         const MWMechanics::CreatureStats& stats = player.getClass().getCreatureStats(player);
         const MWMechanics::DynamicStat<float>& stat = stats.getDynamic(index);
-        // Current can dip a touch below 0 / round oddly; clamp current to >= 0
-        // and report the modified maximum, matching the on-screen bars.
-        const int current = static_cast<int>(std::max(0.f, std::round(stat.getCurrent())));
-        const int max = static_cast<int>(std::round(stat.getModified()));
+        // Truncate (static_cast<int>) rather than round, and use getModified(false)
+        // for the max -- EXACTLY matching StatsWindow::vitalValue and the HUD bars
+        // (hud.cpp / statswindow.cpp). Rounding here caused an off-by-one vs the
+        // stats pane (e.g. 45.6 read as 46 here but 45 there). Fatigue (index 2)
+        // can be negative, so only clamp current to >= 0 for health/magicka.
+        int current = static_cast<int>(stat.getCurrent());
+        const int max = static_cast<int>(stat.getModified(false));
+        if (index != 2)
+            current = std::max(0, current);
         // Match the stats pane's convention: "<label>: <current> / <max>".
         return std::string(label) + ": " + std::to_string(current) + " / " + std::to_string(max);
     }
