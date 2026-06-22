@@ -4,6 +4,27 @@ A running log of screen-reader accessibility features added to this OpenMW fork.
 Newest changes are listed first. (OpenMW's own engine changelog lives in
 `CHANGELOG.md`.)
 
+## 2026-06-22
+
+- **New: the alchemy (potion brewing) screen is now fully accessible.** You can
+  mix and brew potions entirely by ear. Open an alchemy session and use Up/Down
+  to move through the screen: the potion-name field (press Enter to type a name,
+  or keep the suggested one), the brew quantity, the ingredient filter, the four
+  apparatus slots (mortar and pestle, alembic, calcinator, retort), the
+  ingredients you've added so far, the resulting potion effects, your full
+  ingredient list, and the Create button. On an ingredient in the list, press
+  Enter to add it to the mix and press T to hear its weight, value and known
+  effects; each time you add or remove one, the potion's combined effects are
+  read back so you can tell when two ingredients share an effect (the
+  requirement for a working potion). The brew quantity announces how many you can
+  actually make from what you have (e.g. "3 of 5"), and Left/Right adjusts it
+  within that limit. To make a specific kind of potion, use the filter: set its
+  type to Magic Effects, open the filter values, and choose an effect such as
+  Restore Magicka to narrow the ingredient list to just the ones that have it;
+  the active filter is spoken and can be toggled back off. The apparatus slots
+  read what's installed (or "empty") and let you add a tool via a picker or
+  remove the one that's there.
+
 ## 2026-06-20
 
 - **New: the spell-creation (spellmaking) screen is now fully accessible.** You

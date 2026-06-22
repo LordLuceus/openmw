@@ -27,7 +27,7 @@ auto-walk, location announcements, and audio beacon (gameplay, not a screen).
       Home/End min/max). Main screen reclaims the single active-screen slot in
       onFrame when the child modal closes, landing on the edited effect.
 - [ ] **Enchanting** (`GM_Enchanting`) — item + effects + soul gem
-- [ ] **Alchemy / potion-making** (`GM_Alchemy`) — ingredients grid → effects
+- [x] **Alchemy / potion-making** (`GM_Alchemy`) — ingredients grid → effects
 - [ ] **Recharge** (`GM_Recharge`) — recharge enchanted items with soul gems
 - [x] **Repair** (`GM_Repair`) — player's own repair hammers
 - [x] **Merchant repair** (`GM_MerchantRepair`) — paying a smith (separate window)
