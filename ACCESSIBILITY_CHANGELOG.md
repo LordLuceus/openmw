@@ -6,6 +6,13 @@ Newest changes are listed first. (OpenMW's own engine changelog lives in
 
 ## 2026-06-22
 
+- **Fixed: filled soul gems now say which soul they hold.** A charged soul gem's
+  item tooltip (the T key) now reads a "Soul: <creature>" line — e.g. "Soul:
+  Golden Saint" — so you can tell a filled gem from an empty one, and tell your
+  gems apart, without having to compare their gold values. This shows up
+  anywhere item tooltips do: inventory, containers, barter, and the alchemy and
+  enchanting ingredient pickers.
+
 - **New: the alchemy (potion brewing) screen is now fully accessible.** You can
   mix and brew potions entirely by ear. Open an alchemy session and use Up/Down
   to move through the screen: the potion-name field (press Enter to type a name,

@@ -4,6 +4,7 @@
 
 #include <MyGUI_UString.h>
 
+#include <components/esm3/loadcrea.hpp>
 #include <components/esm3/loadench.hpp>
 
 #include "../tooltips.hpp"
@@ -66,6 +67,33 @@ namespace MWGui::A11y
         MWGui::ToolTipInfo info = ptr.getClass().getToolTipInfo(ptr, count);
 
         appendLines(info.text, lines);
+
+        // Trapped soul (soul gems). The on-screen tooltip shows the captured
+        // creature's name appended to the item's CAPTION (see
+        // Miscellaneous::getToolTipInfo + ToolTips::getSoulString), e.g. "Grand
+        // Soul Gem (Golden Saint)". We drop the caption (the caller speaks the
+        // name as the option label), so without this a filled gem is
+        // indistinguishable from an empty one by ear -- only its value differs.
+        // Surface the soul as its own line so the gem reads what it holds.
+        {
+            const ESM::RefId& soul = ptr.getCellRef().getSoul();
+            if (!soul.empty())
+            {
+                const MWWorld::ESMStore& store = *MWBase::Environment::get().getESMStore();
+                const ESM::Creature* creature = store.get<ESM::Creature>().search(soul);
+                std::string soulName;
+                if (creature && !creature->mName.empty())
+                    soulName = creature->mName;
+                else if (creature)
+                    soulName = creature->mId.toDebugString();
+                if (!soulName.empty())
+                {
+                    MWBase::WindowManager* wm = MWBase::Environment::get().getWindowManager();
+                    std::string label{ wm->getGameSettingString("sSoul", "Soul") };
+                    lines.emplace_back(label + ": " + soulName);
+                }
+            }
+        }
 
         // Intrinsic effects (potions, ingredients). The on-screen tooltip stores
         // bare params in info.effects and only applies the display flags at
