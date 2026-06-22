@@ -26,6 +26,9 @@
 
 #include <MyGUI_Macros.h>
 
+#include "accessibility/itemtext.hpp"
+#include "accessibility/speech.hpp"
+#include "accessibility/spelltext.hpp"
 #include "inventoryitemmodel.hpp"
 #include "itemview.hpp"
 #include "itemwidget.hpp"
@@ -100,6 +103,27 @@ namespace MWGui
             mControllerButtons.mY = "#{Interface:MagicEffects}";
             mControllerButtons.mR3 = "#{Interface:Info}";
         }
+
+        // Screen-reader setup: an invisible anchor holds key focus while the
+        // window is navigated by index. The ingredient list is drawn by the
+        // custom ItemView (not as individual widgets), so we navigate a flat
+        // option list built in buildAccessibility() and rebuilt on change.
+        mA11yAnchor = mMainWidget->createWidget<MyGUI::Widget>({}, MyGUI::IntCoord(0, 0, 1, 1), MyGUI::Align::Default);
+        mA11yAnchor->setNeedKeyFocus(true);
+        mA11y.setVirtualFocus(mA11yAnchor);
+        mA11yNameEdit.attach(mNameEdit);
+        mA11yNameEdit.setActive(false);
+        // Extra keys on the option list:
+        //  - Delete removes the selected chosen ingredient / apparatus slot.
+        //  - E re-reads the current potion effects on demand.
+        mA11y.setExtraKeyHandler([this](MyGUI::KeyCode key) -> bool {
+            if (key == MyGUI::KeyCode::E)
+            {
+                a11yAnnounceEffects();
+                return true;
+            }
+            return false;
+        });
 
         center();
     }
@@ -309,6 +333,50 @@ namespace MWGui
 
         if (Settings::gui().mControllerMenus)
             mItemView->setActiveControllerWindow(true);
+
+        mA11yNameEdit.sync();
+        buildAccessibility();
+        mA11yLastSig = a11ySignature();
+        mA11y.activate();
+    }
+
+    void AlchemyWindow::onClose()
+    {
+        mA11y.deactivate();
+    }
+
+    void AlchemyWindow::onFrame(float dt)
+    {
+        mA11y.onFrame(dt);
+        mA11yNameEdit.onFrame();
+
+        // When the user finishes editing the name field, re-sync the edit
+        // baseline. (The suggested-name machinery in update() also writes the
+        // box, so keep the snapshot fresh.)
+        const bool editing = mA11y.editing();
+        if (mA11yWasEditing && !editing)
+            mA11yNameEdit.sync();
+        mA11yWasEditing = editing;
+
+        // Rebuild the spoken option list when the alchemy state changes
+        // (ingredient added/removed, apparatus changed, filter applied). Never
+        // rebuild mid-edit (buildAccessibility() -> clear() would drop edit mode
+        // and leak the next keystroke to the extra-key handler) nor while a
+        // submenu is open (the filter-value submenu's activation mutates the
+        // signature; a rebuild would yank the open list out from under it).
+        if (!editing && !mA11y.submenuOpen())
+        {
+            const long long sig = a11ySignature();
+            if (sig != mA11yLastSig)
+            {
+                const size_t cursor = mA11y.currentIndex();
+                mA11yLastSig = sig;
+                buildAccessibility();
+                // Preserve the cursor by position; clamp to the new list size.
+                if (cursor != A11y::Screen::npos && mA11y.size() > 0)
+                    mA11y.selectIndex(std::min(cursor, mA11y.size() - 1), /*announce=*/false);
+            }
+        }
     }
 
     void AlchemyWindow::onIngredientSelected(MyGUI::Widget* sender)
@@ -320,8 +388,6 @@ namespace MWGui
 
     void AlchemyWindow::onItemSelected(MWWorld::Ptr item)
     {
-        mItemSelectionDialog->setVisible(false);
-
         int32_t index = item.get<ESM::Apparatus>()->mBase->mData.mType;
         const auto& widget = mApparatus[index];
 
@@ -330,6 +396,7 @@ namespace MWGui
         if (item.isEmpty())
         {
             widget->clearUserStrings();
+            mItemSelectionDialog->setVisible(false);
             return;
         }
 
@@ -340,6 +407,12 @@ namespace MWGui
 
         MWBase::Environment::get().getWindowManager()->playSound(item.getClass().getDownSoundId(item));
         update();
+
+        // Hide the picker LAST: WindowBase::setVisible(false) fires the picker's
+        // onClose, which resumes our screen and re-announces the current option.
+        // The apparatus must already be added (above) so that announcement reads
+        // the new tool, not the stale "empty" slot.
+        mItemSelectionDialog->setVisible(false);
     }
 
     void AlchemyWindow::onItemCancel()
@@ -627,5 +700,358 @@ namespace MWGui
             mItemView->onControllerButton(arg.button);
 
         return true;
+    }
+
+    // ----------------------------------------------------------------------------
+    // Accessibility
+    // ----------------------------------------------------------------------------
+
+    std::string AlchemyWindow::a11yNameValue() const
+    {
+        const std::string text = mNameEdit->getCaption().asUTF8();
+        return text.empty() ? std::string("blank") : text;
+    }
+
+    void AlchemyWindow::a11ySyncPotionName()
+    {
+        // getReadyStatus() (used by countPotionsToBrew) returns Result_NoName
+        // until a name is set, which the window otherwise only does at Create.
+        // Keep mAlchemy's name in step with the edit box so the brewable count
+        // is accurate before the first Create.
+        mAlchemy->setPotionName(mNameEdit->getCaption());
+    }
+
+    std::string AlchemyWindow::a11yQuantityValue()
+    {
+        a11ySyncPotionName();
+        // countPotionsToBrew() is the real cap (limited by the scarcest
+        // ingredient); it's 0 until the mix is valid. Surface it so the count
+        // field is meaningful -- on screen the max is implicit, but a blind user
+        // has no other way to know how many they can actually make.
+        const int max = mAlchemy->countPotionsToBrew();
+        const int value = mBrewCountEdit->getValue();
+        if (max <= 0)
+            return std::to_string(value) + ", none brewable yet";
+        return std::to_string(value) + " of " + std::to_string(max);
+    }
+
+    void AlchemyWindow::a11yChangeQuantity(bool next)
+    {
+        a11ySyncPotionName();
+        const int max = mAlchemy->countPotionsToBrew();
+        int value = mBrewCountEdit->getValue();
+        if (next)
+        {
+            // Don't climb past what's actually brewable (the native Increase
+            // button is uncapped, which is meaningless without sight).
+            if (max > 0 && value >= max)
+            {
+                A11y::say(std::to_string(value) + " of " + std::to_string(max) + ", maximum.", /*interrupt=*/true);
+                return;
+            }
+            mBrewCountEdit->setValue(value + 1);
+        }
+        else
+        {
+            if (value <= 1)
+            {
+                A11y::say("1, minimum.", /*interrupt=*/true);
+                return;
+            }
+            mBrewCountEdit->setValue(value - 1);
+        }
+        A11y::say(a11yQuantityValue(), /*interrupt=*/true);
+    }
+
+    std::string AlchemyWindow::a11yFilterTypeName() const
+    {
+        auto const& wm = MWBase::Environment::get().getWindowManager();
+        return mCurrentFilter == FilterType::ByEffect
+            ? std::string(wm->getGameSettingString("sMagicEffects", "Magic Effects"))
+            : std::string(wm->getGameSettingString("sIngredients", "Ingredients"));
+    }
+
+    std::string AlchemyWindow::a11yIngredientLabel(const MWWorld::Ptr& item, int count) const
+    {
+        std::string label = std::string(item.getClass().getName(item));
+        if (count > 1)
+            label += " (" + std::to_string(count) + ")";
+        return label;
+    }
+
+    std::vector<std::string> AlchemyWindow::a11yCurrentEffectLines() const
+    {
+        std::vector<std::string> lines;
+        std::vector<MWMechanics::EffectKey> effectIds = mAlchemy->listEffects();
+        unsigned int effectIndex = 0;
+        const MWWorld::Ptr player = MWBase::Environment::get().getWorld()->getPlayerPtr();
+        for (const MWMechanics::EffectKey& effectKey : effectIds)
+        {
+            Widgets::SpellEffectParams params;
+            params.mEffectID = effectKey.mId;
+            const ESM::MagicEffect* magicEffect
+                = MWBase::Environment::get().getESMStore()->get<ESM::MagicEffect>().find(effectKey.mId);
+            if (magicEffect->mData.mFlags & ESM::MagicEffect::TargetSkill)
+                params.mSkill = effectKey.mArg;
+            else if (magicEffect->mData.mFlags & ESM::MagicEffect::TargetAttribute)
+                params.mAttribute = effectKey.mArg;
+            params.mIsConstant = true;
+            params.mNoTarget = true;
+            params.mNoMagnitude = true;
+            params.mKnown = mAlchemy->knownEffect(effectIndex, player);
+            lines.push_back(A11y::formatSpellEffectLine(params));
+            ++effectIndex;
+        }
+        return lines;
+    }
+
+    void AlchemyWindow::a11yAnnounceEffects()
+    {
+        auto const& wm = MWBase::Environment::get().getWindowManager();
+        std::vector<std::string> lines = a11yCurrentEffectLines();
+        if (lines.empty())
+        {
+            // A potion needs at least two ingredients sharing an effect. Until
+            // then there are simply no effects yet -- this is NOT a brew failure
+            // (sNotifyMessage8 "potion failed"), which only happens on Create.
+            A11y::say("No shared effects yet.", /*interrupt=*/true);
+            return;
+        }
+        std::string text = std::string(wm->getGameSettingString("sEffects", "Effects")) + ": ";
+        for (size_t i = 0; i < lines.size(); ++i)
+        {
+            if (i > 0)
+                text += ", ";
+            text += lines[i];
+        }
+        A11y::say(text, /*interrupt=*/true);
+    }
+
+    void AlchemyWindow::a11yAddIngredient(int index)
+    {
+        if (!mSortModel || index < 0 || index >= static_cast<int>(mSortModel->getItemCount()))
+            return;
+        onSelectedItem(index);
+        // onSelectedItem only plays a sound on success; announce the resulting
+        // combined effects so the player knows whether the addition produced a
+        // shared (and thus brewable) effect.
+        a11yAnnounceEffects();
+    }
+
+    std::string AlchemyWindow::a11yFilterValue() const
+    {
+        if (mA11yActiveFilter.empty())
+            return "none";
+        return mA11yActiveFilter;
+    }
+
+    void AlchemyWindow::a11yApplyFilter(const std::string& value)
+    {
+        // Single-select toggle: re-activating the active value clears it. The
+        // engine model holds only one filter string at a time (name and effect
+        // filters are mutually exclusive), so multi-select isn't possible here.
+        const bool clearing = value.empty() || value == mA11yActiveFilter;
+        if (clearing)
+        {
+            mA11yActiveFilter.clear();
+            mFilterValue->clearIndexSelected();
+            applyFilter({});
+            A11y::say("Filter cleared.", /*interrupt=*/true);
+        }
+        else
+        {
+            mA11yActiveFilter = value;
+            applyFilter(value);
+            A11y::say(value + ", selected.", /*interrupt=*/true);
+        }
+        // If toggled from the open filter submenu, re-snapshot it so the
+        // selected/not-selected marks reflect the change (no re-announce: we
+        // just spoke the result above). No-op when no submenu is open.
+        mA11y.refreshSubmenu(/*announce=*/false);
+    }
+
+    std::vector<A11y::SubItem> AlchemyWindow::a11yFilterValues()
+    {
+        std::vector<A11y::SubItem> items;
+
+        // A leading entry to clear any active filter.
+        items.push_back({ .label = mA11yActiveFilter.empty() ? "Clear filter (none active)" : "Clear filter",
+            .activate = [this] { a11yApplyFilter({}); } });
+
+        for (size_t i = 0; i < mFilterValue->getItemCount(); ++i)
+        {
+            std::string value = mFilterValue->getItemNameAt(i);
+            const bool selected = (value == mA11yActiveFilter);
+            // Mark the active value so the user can tell what's filtering. The
+            // state suffix goes at the end (project convention for status info).
+            std::string label = value + (selected ? ", selected" : ", not selected");
+            items.push_back({ .label = std::move(label), .activate = [this, value] { a11yApplyFilter(value); } });
+        }
+        return items;
+    }
+
+    long long AlchemyWindow::a11ySignature() const
+    {
+        // Fold the chosen ingredients, apparatus slots, available-ingredient set
+        // and suggested name into a cheap rolling hash. Any change to the mix or
+        // the filtered list shifts it, triggering a rebuild of the spoken list.
+        long long sig = 1469598103934665603LL; // FNV offset basis
+        auto mix = [&sig](long long v) { sig = (sig ^ v) * 1099511628211LL; };
+
+        for (auto it = mAlchemy->beginIngredients(); it != mAlchemy->endIngredients(); ++it)
+        {
+            if (!it->isEmpty())
+            {
+                mix(static_cast<long long>(std::hash<std::string>{}(it->getCellRef().getRefId().toString())));
+                mix(it->getCellRef().getCount());
+            }
+            else
+                mix(0);
+        }
+        for (auto it = mAlchemy->beginTools(); it != mAlchemy->endTools(); ++it)
+            mix(it->isEmpty() ? 0 : static_cast<long long>(std::hash<std::string>{}(it->getCellRef().getRefId().toString())));
+
+        if (mSortModel)
+        {
+            mix(static_cast<long long>(mSortModel->getItemCount()));
+            for (size_t i = 0; i < mSortModel->getItemCount(); ++i)
+            {
+                const ItemStack item = mSortModel->getItem(static_cast<int>(i));
+                mix(static_cast<long long>(std::hash<std::string>{}(item.mBase.getCellRef().getRefId().toString())));
+                mix(item.mCount);
+            }
+        }
+        mix(static_cast<long long>(std::hash<std::string>{}(mSuggestedPotionName)));
+        return sig;
+    }
+
+    void AlchemyWindow::buildAccessibility()
+    {
+        mA11y.clear();
+        MWBase::WindowManager* wm = MWBase::Environment::get().getWindowManager();
+
+        const std::string ingredientsSection
+            = std::string(wm->getGameSettingString("sIngredients", "Ingredients"));
+
+        // 1. Potion name (editable text field).
+        mA11y.add({ .widget = nullptr,
+            .label = std::string(wm->getGameSettingString("sName", "Name")),
+            .value = [this] { return a11yNameValue(); },
+            .edit = &mA11yNameEdit });
+
+        // 2. Brew count (Left/Right to adjust, clamped to what's brewable).
+        //    asyncValue suppresses the framework's auto re-announce: our change
+        //    handler speaks richer feedback ("N of max", "maximum", "minimum").
+        mA11y.add({ .widget = nullptr,
+            .label = std::string(wm->getGameSettingString("sQuantityMenuMessage02", "Quantity")),
+            .value = [this] { return a11yQuantityValue(); },
+            .change = [this](bool next) { a11yChangeQuantity(next); },
+            .asyncValue = true });
+
+        // 3. Filter type (by name / by effect). Switching clears any active
+        //    filter value (the two filter kinds are mutually exclusive).
+        mA11y.add({ .widget = nullptr,
+            .label = std::string(wm->getGameSettingString("sShowAll", "Filter")),
+            .value = [this] { return a11yFilterTypeName(); },
+            .change =
+                [this](bool) {
+                    switchFilterType(mFilterType);
+                    mA11yActiveFilter.clear();
+                } });
+
+        // 4. Filter value (submenu of available values for the current type).
+        //    The value reports the active filter so it's audible on focus.
+        mA11y.add({ .widget = nullptr,
+            .label = std::string(wm->getGameSettingString("sFilter", "Filter value")),
+            .value = [this] { return a11yFilterValue(); },
+            .children = [this] { return a11yFilterValues(); } });
+
+        // 5. Apparatus slots. Enter opens the picker for an empty slot, or
+        //    removes the tool in a filled one. Names mirror the on-screen labels.
+        //    The value is read LIVE from mAlchemy (not captured), so the picker's
+        //    resume-announcement and a removal both reflect the real slot state
+        //    without waiting for the next-frame rebuild.
+        static const char* const appaNames[] = { "sMortar", "sAlembic", "sCalcinator", "sRetort" };
+        const std::string apparatusSection = std::string(wm->getGameSettingString("sApparatus", "Apparatus"));
+        for (size_t i = 0; i < mApparatus.size(); ++i)
+        {
+            const std::string slotName = std::string(wm->getGameSettingString(appaNames[i], appaNames[i]));
+            mA11y.add({ .widget = nullptr,
+                .label = slotName,
+                .section = apparatusSection,
+                .value =
+                    [this, i] {
+                        auto it = mAlchemy->beginTools();
+                        std::advance(it, i);
+                        if (it != mAlchemy->endTools() && !it->isEmpty())
+                            return std::string(it->getClass().getName(*it));
+                        return std::string("empty");
+                    },
+                .activate =
+                    [this, i, slotName] {
+                        const bool wasFilled = !mApparatus[i]->getUserData<MWWorld::Ptr>()->isEmpty();
+                        onApparatusSelected(mApparatus[i]);
+                        // A removal stays in-window (no picker to close, so nothing
+                        // re-announces); speak the now-empty slot. An add opens the
+                        // picker, which announces on its own when it closes.
+                        if (wasFilled)
+                            A11y::say(slotName + ", empty.", /*interrupt=*/true);
+                    } });
+        }
+
+        // 6. Chosen ingredients (the current mix). Enter removes one from the mix.
+        {
+            size_t slot = 0;
+            for (auto it = mAlchemy->beginIngredients(); it != mAlchemy->endIngredients(); ++it, ++slot)
+            {
+                if (it->isEmpty())
+                    continue;
+                const size_t i = slot;
+                std::string label = a11yIngredientLabel(*it, it->getCellRef().getCount());
+                mA11y.add({ .widget = nullptr,
+                    .label = label,
+                    .section = "Selected ingredients",
+                    .activate =
+                        [this, i] {
+                            mAlchemy->removeIngredient(i);
+                            update();
+                            a11yAnnounceEffects();
+                        } });
+            }
+        }
+
+        // 7. Current potion effects (read-only; expand to hear each effect).
+        mA11y.add({ .widget = nullptr,
+            .label = std::string(wm->getGameSettingString("sEffects", "Effects")),
+            .children =
+                [this] {
+                    std::vector<A11y::SubItem> items;
+                    for (const std::string& line : a11yCurrentEffectLines())
+                        items.push_back({ .label = line });
+                    return items;
+                } });
+
+        // 8. Available ingredients in inventory (the primary list). Enter adds
+        //    one to the mix. The T-key tooltip carries weight/value/effects.
+        if (mSortModel)
+        {
+            for (size_t i = 0; i < mSortModel->getItemCount(); ++i)
+            {
+                const int index = static_cast<int>(i);
+                const ItemStack item = mSortModel->getItem(index);
+                mA11y.add({ .widget = nullptr,
+                    .label = a11yIngredientLabel(item.mBase, static_cast<int>(item.mCount)),
+                    .section = ingredientsSection,
+                    .tooltips = [base = item.mBase, count = item.mCount]
+                    { return A11y::itemTooltipLines(base, static_cast<int>(count)); },
+                    .activate = [this, index] { a11yAddIngredient(index); } });
+            }
+        }
+
+        // 9. Create button -- LAST, after the ingredient list, so navigating
+        //    down through the ingredients ends on the action that consumes them.
+        mA11y.add({ .widget = nullptr,
+            .label = std::string(wm->getGameSettingString("sCreate", "Create")),
+            .activate = [this] { onCreateButtonClicked(mCreateButton); } });
     }
 }
