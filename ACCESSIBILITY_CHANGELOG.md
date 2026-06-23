@@ -4,6 +4,17 @@ A running log of screen-reader accessibility features added to this OpenMW fork.
 Newest changes are listed first. (OpenMW's own engine changelog lives in
 `CHANGELOG.md`.)
 
+## 2026-06-23
+
+- **New: a Lua scripting API for speech output (`openmw.accessibility`).** Mods
+  can now speak text through the same screen-reader backend the engine uses, via
+  `accessibility.say(text)` (plus `sayRereadable` and `reread`). This is the
+  foundation for making custom mod menus — which the engine's built-in screen
+  reader can't see into — accessible: a small standalone "accessibility plugin"
+  mod can narrate another mod's UI without that mod bundling its own
+  text-to-speech and without any changes to the engine. Available to player and
+  menu scripts; documented in the Lua API reference.
+
 ## 2026-06-22
 
 - **Fixed: filled soul gems now say which soul they hold.** A charged soul gem's

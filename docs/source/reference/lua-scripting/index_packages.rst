@@ -7,6 +7,7 @@ Packages
 .. toctree::
     :hidden:
 
+    accessibility <openmw_accessibility>
     ambient <openmw_ambient>
     animation <openmw_animation>
     async <openmw_async>

@@ -7,6 +7,7 @@
 #include "../mwbase/world.hpp"
 #include "../mwworld/datetimemanager.hpp"
 
+#include "accessibilitybindings.hpp"
 #include "animationbindings.hpp"
 #include "camerabindings.hpp"
 #include "cellbindings.hpp"
@@ -69,6 +70,7 @@ namespace MWLua
     std::map<std::string, sol::object> initPlayerPackages(const Context& context)
     {
         return {
+            { "openmw.accessibility", initAccessibilityPackage(context) },
             { "openmw.ambient", initAmbientPackage(context) },
             { "openmw.camera", initCameraPackage(context.sol()) },
             { "openmw.debug", initDebugPackage(context) },
@@ -81,6 +83,7 @@ namespace MWLua
     std::map<std::string, sol::object> initMenuPackages(const Context& context)
     {
         return {
+            { "openmw.accessibility", initAccessibilityPackage(context) },
             { "openmw.core", initCorePackage(context) },
             { "openmw.ambient", initAmbientPackage(context) },
             { "openmw.ui", initUserInterfacePackage(context) },

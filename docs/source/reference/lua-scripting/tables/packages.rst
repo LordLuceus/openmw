@@ -5,6 +5,9 @@
    * - Package
      - Context
      - Description
+   * - :doc:`accessibility </reference/lua-scripting/openmw_accessibility>`
+     - |bdg-ctx-menu| |bdg-ctx-player|
+     - Screen-reader / text-to-speech output.
    * - :doc:`ambient </reference/lua-scripting/openmw_ambient>`
      - |bdg-ctx-menu| |bdg-ctx-player|
      - Controls background sounds for given player.
