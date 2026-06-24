@@ -4,6 +4,24 @@ A running log of screen-reader accessibility features added to this OpenMW fork.
 Newest changes are listed first. (OpenMW's own engine changelog lives in
 `CHANGELOG.md`.)
 
+## 2026-06-24
+
+- **Fixed: auto-walk now works in multi-level interiors like Dwemer ruins.**
+  Auto-walking to something on a different floor of a complex interior — the
+  classic case being the steep staircases of a Dwemer ruin such as Arkngthand —
+  used to fail badly: it would get you partway, then either stop short at the
+  edge of a level it couldn't cross, or, going up, get caught walking up a few
+  steps and back down again over and over without ever reaching the top, never
+  giving up on its own. Getting back *up* and out was the worst case. This is now
+  fixed, and you can auto-walk down to a lower floor and all the way back up and
+  out in a single go, no manual nudging or levitation needed. Three things were
+  behind the fix: auto-walk now falls back to the area's hand-authored path
+  network when the automatic one leaves floors disconnected (steep stairs exceed
+  what it will connect on its own); it follows that route steadily instead of
+  re-planning every second, which was what made it turn around on the stairs; and
+  if it ever genuinely can't get through, it now recognises it's circling and
+  tells you honestly rather than walking in place forever.
+
 ## 2026-06-23
 
 - **New: a Lua scripting API for speech output (`openmw.accessibility`).** Mods
