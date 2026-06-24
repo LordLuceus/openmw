@@ -317,6 +317,16 @@ namespace MWAccessibility
         // waypoint/location list builds so every category filters identically.
         bool passesDirectionFilter(const osg::Vec3f& worldPos) const;
 
+        // Sort \p objects for listing: grouped by vertical level (the player's
+        // own storey first, then nearest storeys outward), nearest-first within
+        // each level. Keeps a multi-storey interior from interleaving floors as
+        // the player cycles the scanner, so they can sweep one level then move on
+        // rather than walking up and down. \p playerPos is the player's world
+        // position. Wraps lessByLevelThenDistance (the pure ordering) with the
+        // per-object position lookups. Used by every Ptr-based category build.
+        static void sortObjectsByLevelThenDistance(
+            std::vector<MWWorld::Ptr>& objects, const osg::Vec3f& playerPos);
+
         void rebuildCurrentList();
         // Compute stable A/B/C suffixes for same-named objects in the active
         // category's list (populates CategoryState::mLabels). Called at the end
@@ -379,6 +389,14 @@ namespace MWAccessibility
         // Gather the player's waypoints (all map notes across the world plus the
         // Mark spell location) into \p out, reachable-first.
         void collectWaypoints(std::vector<Waypoint>& out) const;
+        // Waypoint counterpart of sortObjectsByLevelThenDistance's comparator:
+        // true if reachable waypoint \p a should come before \p b (level group
+        // first, nearest-first within a level). Used for the Waypoints (map
+        // notes) category, which can span the storeys of a multi-level interior.
+        // NOT used for Locations, whose entries are global-map towns at unrelated
+        // exterior altitudes where vertical banding is meaningless.
+        static bool lessWaypointByLevelThenDistance(
+            const Waypoint& a, const Waypoint& b, const osg::Vec3f& playerPos);
         // Gather discovered global-map locations (visited named cells + NPC-
         // marked places, one entry per town) into \p out as waypoints, nearest
         // first. All are reachable exterior positions.

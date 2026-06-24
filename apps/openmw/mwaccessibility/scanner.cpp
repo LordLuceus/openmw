@@ -2652,6 +2652,35 @@ namespace MWAccessibility
         return text.empty() ? "Target: none" : "Target: " + text;
     }
 
+    void Scanner::sortObjectsByLevelThenDistance(
+        std::vector<MWWorld::Ptr>& objects, const osg::Vec3f& playerPos)
+    {
+        std::sort(objects.begin(), objects.end(),
+            [&playerPos](const MWWorld::Ptr& a, const MWWorld::Ptr& b) {
+                const osg::Vec3f pa = a.getRefData().getPosition().asVec3();
+                const osg::Vec3f pb = b.getRefData().getPosition().asVec3();
+                // Horizontal (x,y) squared distance -- vertical is handled by the
+                // level grouping, not folded into the in-level distance.
+                const float aHoriz2 = (pa.x() - playerPos.x()) * (pa.x() - playerPos.x())
+                    + (pa.y() - playerPos.y()) * (pa.y() - playerPos.y());
+                const float bHoriz2 = (pb.x() - playerPos.x()) * (pb.x() - playerPos.x())
+                    + (pb.y() - playerPos.y()) * (pb.y() - playerPos.y());
+                return lessByLevelThenDistance(
+                    pa.z() - playerPos.z(), aHoriz2, pb.z() - playerPos.z(), bHoriz2);
+            });
+    }
+
+    bool Scanner::lessWaypointByLevelThenDistance(
+        const Waypoint& a, const Waypoint& b, const osg::Vec3f& playerPos)
+    {
+        const float aHoriz2 = (a.mPosition.x() - playerPos.x()) * (a.mPosition.x() - playerPos.x())
+            + (a.mPosition.y() - playerPos.y()) * (a.mPosition.y() - playerPos.y());
+        const float bHoriz2 = (b.mPosition.x() - playerPos.x()) * (b.mPosition.x() - playerPos.x())
+            + (b.mPosition.y() - playerPos.y()) * (b.mPosition.y() - playerPos.y());
+        return lessByLevelThenDistance(
+            a.mPosition.z() - playerPos.z(), aHoriz2, b.mPosition.z() - playerPos.z(), bHoriz2);
+    }
+
     void Scanner::rebuildCurrentList()
     {
         auto& state = mLists[static_cast<size_t>(mCategory)];
@@ -2723,12 +2752,7 @@ namespace MWAccessibility
             }
 
             osg::Vec3f pp = player.getRefData().getPosition().asVec3();
-            std::sort(state.mObjects.begin(), state.mObjects.end(),
-                [&pp](const MWWorld::Ptr& a, const MWWorld::Ptr& b) {
-                    float da = (a.getRefData().getPosition().asVec3() - pp).length2();
-                    float db = (b.getRefData().getPosition().asVec3() - pp).length2();
-                    return da < db;
-                });
+            sortObjectsByLevelThenDistance(state.mObjects, pp);
 
             if (state.mSelectedRef.isSet())
             {
@@ -2820,12 +2844,7 @@ namespace MWAccessibility
         }
 
         osg::Vec3f pp = player.getRefData().getPosition().asVec3();
-        std::sort(state.mObjects.begin(), state.mObjects.end(),
-            [&pp](const MWWorld::Ptr& a, const MWWorld::Ptr& b) {
-                float da = (a.getRefData().getPosition().asVec3() - pp).length2();
-                float db = (b.getRefData().getPosition().asVec3() - pp).length2();
-                return da < db;
-            });
+        sortObjectsByLevelThenDistance(state.mObjects, pp);
 
         // Re-pin the selection onto the same physical object it was on before
         // this rebuild (matched by stable RefNum), so crossing a cell boundary
@@ -3176,7 +3195,7 @@ namespace MWAccessibility
             if (a.mReachable != b.mReachable)
                 return a.mReachable; // reachable sorts before unreachable
             if (a.mReachable)
-                return (a.mPosition - playerPos).length2() < (b.mPosition - playerPos).length2();
+                return lessWaypointByLevelThenDistance(a, b, playerPos);
             return a.mName < b.mName;
         });
     }

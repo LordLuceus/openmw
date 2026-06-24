@@ -2,6 +2,7 @@
 
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 
 namespace MWAccessibility
 {
@@ -64,5 +65,37 @@ namespace MWAccessibility
         static const char* kPoints[8]
             = { "north", "northeast", "east", "southeast", "south", "southwest", "west", "northwest" };
         return kPoints[compassSector(absYaw)];
+    }
+
+    int floorBand(float dzUnits)
+    {
+        // Round to the nearest storey: an object within half a floor-height of
+        // the player's level (or of a given storey) belongs to that level.
+        return static_cast<int>(std::lround(dzUnits / kFloorHeight));
+    }
+
+    bool lessByLevelThenDistance(float aDz, float aHorizDist2, float bDz, float bHorizDist2)
+    {
+        const int aBand = floorBand(aDz);
+        const int bBand = floorBand(bDz);
+        if (aBand != bBand)
+        {
+            // Primary key: how far this level is from the player's own (band 0),
+            // counted in storeys. The own level (0) sorts first, then the next
+            // nearest level outward, so the listing exhausts one storey before
+            // moving to another.
+            const int aRank = std::abs(aBand);
+            const int bRank = std::abs(bBand);
+            if (aRank != bRank)
+                return aRank < bRank;
+            // Same number of storeys away but opposite sides (e.g. one up vs one
+            // down): order the lower one first, deterministically, so the
+            // grouping is stable rather than distance-dependent across the split.
+            return aBand < bBand;
+        }
+        // Same level: nearest-first by horizontal distance (vertical ignored
+        // within a level so a tall-but-close object doesn't sink below a
+        // far-but-flat one on the same storey).
+        return aHorizDist2 < bHorizDist2;
     }
 }

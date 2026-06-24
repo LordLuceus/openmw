@@ -172,5 +172,66 @@ namespace MWAccessibility
                 EXPECT_STREQ(compassLabel(deg(static_cast<float>(d))), kPoints[compassSector(deg(static_cast<float>(d)))])
                     << "disagreement at " << d << " degrees";
         }
+
+        // --- floorBand -------------------------------------------------------
+        // Buckets a target's height offset into signed storey indices (0 = the
+        // player's own level), rounding so half a storey either side is "level".
+        TEST(MWAccessibilitySpokenFormat, floorBandOwnLevel)
+        {
+            EXPECT_EQ(floorBand(0.f), 0);
+            EXPECT_EQ(floorBand(50.f), 0); // a few steps up is still this floor
+            EXPECT_EQ(floorBand(-50.f), 0);
+            // Just under half a storey stays on level; just over rolls to the next.
+            EXPECT_EQ(floorBand(kFloorHeight * 0.49f), 0);
+            EXPECT_EQ(floorBand(kFloorHeight * 0.51f), 1);
+        }
+
+        TEST(MWAccessibilitySpokenFormat, floorBandUpAndDown)
+        {
+            EXPECT_EQ(floorBand(kFloorHeight), 1);
+            EXPECT_EQ(floorBand(2.f * kFloorHeight), 2);
+            EXPECT_EQ(floorBand(-kFloorHeight), -1);
+            EXPECT_EQ(floorBand(-2.f * kFloorHeight), -2);
+        }
+
+        // --- lessByLevelThenDistance -----------------------------------------
+        // Groups by level (own first, then nearest storey outward), nearest-first
+        // within a level. dz = target.z - player.z; horiz is SQUARED horizontal
+        // distance.
+        TEST(MWAccessibilitySpokenFormat, levelSortSameLevelIsNearestFirst)
+        {
+            // Both on the player's floor: the closer one wins regardless of a
+            // small height wobble.
+            EXPECT_TRUE(lessByLevelThenDistance(10.f, 100.f, -10.f, 400.f));
+            EXPECT_FALSE(lessByLevelThenDistance(-10.f, 400.f, 10.f, 100.f));
+        }
+
+        TEST(MWAccessibilitySpokenFormat, levelSortOwnLevelBeatsCloserOtherFloor)
+        {
+            // A far object on the player's OWN floor still precedes a horizontally
+            // closer one a storey up -- the whole point: sweep this floor first.
+            const float farSameFloor = 5000.f * 5000.f;
+            const float nearNextFloor = 100.f * 100.f;
+            EXPECT_TRUE(lessByLevelThenDistance(0.f, farSameFloor, kFloorHeight, nearNextFloor));
+            EXPECT_FALSE(lessByLevelThenDistance(kFloorHeight, nearNextFloor, 0.f, farSameFloor));
+        }
+
+        TEST(MWAccessibilitySpokenFormat, levelSortNearerFloorBeatsFartherFloor)
+        {
+            // One storey up precedes two storeys up (nearest level outward).
+            EXPECT_TRUE(lessByLevelThenDistance(kFloorHeight, 400.f, 2.f * kFloorHeight, 100.f));
+            // One down also precedes two up (|1| < |2|).
+            EXPECT_TRUE(lessByLevelThenDistance(-kFloorHeight, 400.f, 2.f * kFloorHeight, 100.f));
+        }
+
+        TEST(MWAccessibilitySpokenFormat, levelSortSameDistanceUpVsDownIsDeterministic)
+        {
+            // One up vs one down (same rank, opposite sign): lower sorts first,
+            // and the order is strict (never reports a < b AND b < a).
+            const bool ab = lessByLevelThenDistance(-kFloorHeight, 100.f, kFloorHeight, 100.f);
+            const bool ba = lessByLevelThenDistance(kFloorHeight, 100.f, -kFloorHeight, 100.f);
+            EXPECT_TRUE(ab); // the lower (down) one comes first
+            EXPECT_FALSE(ba);
+        }
     }
 }

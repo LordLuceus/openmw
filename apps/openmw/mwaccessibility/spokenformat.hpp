@@ -54,6 +54,33 @@ namespace MWAccessibility
     // direction" (e.g. a direction filter) using the exact partition the spoken
     // labels use, so the maths can never disagree with what the player hears.
     int compassSector(float absYaw);
+
+    // Approximate height of one storey in world units (~3.3 m). Used only to
+    // bucket objects into vertical "levels" for scanner ordering -- NOT a real
+    // measurement of any given building's floor spacing, just a threshold big
+    // enough to ignore stairs/ramps/uneven ground (well above formatElevation's
+    // ~0.75 m same-level dead-band) yet small enough to separate true storeys.
+    inline constexpr float kFloorHeight = 230.0f;
+
+    // Which vertical "level" an object on a given signed height offset from the
+    // player sits on, as a signed band index: 0 = the player's own level,
+    // +1/+2 = one/two storeys up, -1/-2 = down. \p dzUnits is objectZ - playerZ
+    // in world units. Rounded so an object within half a storey of the player's
+    // level counts as the same level (band 0), and likewise around each storey.
+    int floorBand(float dzUnits);
+
+    // Orders two objects for the scanner's level-grouped listing, returning true
+    // if \p a should come before \p b. Objects are first grouped by vertical
+    // level (floorBand); the player's OWN level comes first, then the next
+    // nearest level outward (one up or one down before two), so cycling the
+    // scanner sweeps one storey fully before moving to another instead of
+    // bouncing between floors. Within a level, and to break ties between a level
+    // the same number of storeys above vs below, the nearer (smaller horizontal
+    // distance) object comes first; \p aHorizDist2 / \p bHorizDist2 are SQUARED
+    // horizontal (x,y only) distances from the player. \p aDz / \p bDz are each
+    // object's signed height offset (objectZ - playerZ). A strict weak ordering,
+    // suitable as a std::sort comparator.
+    bool lessByLevelThenDistance(float aDz, float aHorizDist2, float bDz, float bHorizDist2);
 }
 
 #endif
