@@ -303,6 +303,20 @@ namespace MWAccessibility
         // Turn the player 180 degrees (Ctrl+S), announcing the new facing.
         void turnAround();
 
+        // Toggle the direction filter (Ctrl+Up). When engaged, every category is
+        // restricted to objects whose absolute compass bearing matches the way
+        // the player is currently facing (a single 45-degree compass sector), so
+        // a player given "it's to the north" can face north, engage, and declutter
+        // the scanner to just what lies that way. The filter tracks live facing:
+        // turn (or Ctrl+Left/Right/Down) and the kept sector follows. Pressing
+        // again disengages. Announces the engaged direction or "Direction filter
+        // off". See mDirectionFilterActive / passesDirectionFilter.
+        void toggleDirectionFilter();
+        // True if \p worldPos lies within the active direction-filter sector
+        // (always true when the filter is off). Shared by the object (Ptr) and
+        // waypoint/location list builds so every category filters identically.
+        bool passesDirectionFilter(const osg::Vec3f& worldPos) const;
+
         void rebuildCurrentList();
         // Compute stable A/B/C suffixes for same-named objects in the active
         // category's list (populates CategoryState::mLabels). Called at the end
@@ -369,6 +383,12 @@ namespace MWAccessibility
         // marked places, one entry per town) into \p out as waypoints, nearest
         // first. All are reachable exterior positions.
         void collectLocations(std::vector<Waypoint>& out) const;
+        // Drop in-place any reachable waypoints/locations outside the active
+        // direction-filter sector (no-op when the filter is off). Unreachable
+        // entries -- in another worldspace, with no comparable bearing -- are
+        // dropped while the filter is engaged, since "this direction" can't be
+        // meaningfully decided for them.
+        void filterWaypointsByDirection(std::vector<Waypoint>& waypoints) const;
         // Announce the currently-selected waypoint (name, distance, bearing,
         // N of M) -- the position-based analogue of announceCurrent().
         void announceCurrentWaypoint();
@@ -421,6 +441,19 @@ namespace MWAccessibility
         // indoors and outdoors (a common "why can't I see this door?" trap), but
         // NOT on exterior-to-exterior walking where filters should persist.
         int mLastCellExterior = -1;
+
+        // Direction filter (Ctrl+Up). Unlike the per-category name filter, this
+        // one is GLOBAL: it applies to every category at once, since a compass
+        // direction isn't category-specific (a player following NPC directions
+        // wants doors AND people AND places that way). When active, list builds
+        // keep only objects whose absolute bearing from the player falls in
+        // mDirectionSector (0 = north .. 7 = northwest, the same 8-way partition
+        // compassLabel/compassSector use). mDirectionSector is refreshed from the
+        // player's live facing each frame so the kept wedge follows as they turn;
+        // a change re-marks the lists dirty so the visible set updates. Like the
+        // name/subcategory filters it clears on an interior<->exterior crossing.
+        bool mDirectionFilterActive = false;
+        int mDirectionSector = -1; // -1 = unset/off
 
         // The last cell name we announced on entry. Cities span several cells
         // that all share one name (e.g. every Balmora exterior cell is named

@@ -135,5 +135,42 @@ namespace MWAccessibility
             EXPECT_STREQ(compassLabel(deg(360.f)), "north");
             EXPECT_STREQ(compassLabel(deg(450.f)), "east");
         }
+
+        // --- compassSector ---------------------------------------------------
+        // Integer counterpart of compassLabel (0 = north .. 7 = northwest), used
+        // by the scanner's direction filter to decide "same compass direction".
+        TEST(MWAccessibilitySpokenFormat, compassSectorIndices)
+        {
+            EXPECT_EQ(compassSector(deg(0.f)), 0); // north
+            EXPECT_EQ(compassSector(deg(45.f)), 1); // northeast
+            EXPECT_EQ(compassSector(deg(90.f)), 2); // east
+            EXPECT_EQ(compassSector(deg(135.f)), 3); // southeast
+            EXPECT_EQ(compassSector(deg(180.f)), 4); // south
+            EXPECT_EQ(compassSector(deg(225.f)), 5); // southwest
+            EXPECT_EQ(compassSector(deg(270.f)), 6); // west
+            EXPECT_EQ(compassSector(deg(315.f)), 7); // northwest
+        }
+
+        TEST(MWAccessibilitySpokenFormat, compassSectorNormalisesAndSnapsLikeLabel)
+        {
+            // Negative / >2pi angles fold in, same as compassLabel.
+            EXPECT_EQ(compassSector(deg(-90.f)), 6); // west
+            EXPECT_EQ(compassSector(deg(360.f)), 0); // north
+            // Boundary parity with compassLabel: <22.5 stays north (0), at/just
+            // past rolls into northeast (1).
+            EXPECT_EQ(compassSector(deg(22.f)), 0);
+            EXPECT_EQ(compassSector(deg(23.f)), 1);
+        }
+
+        TEST(MWAccessibilitySpokenFormat, compassSectorAgreesWithLabel)
+        {
+            // The two must never disagree -- the filter relies on this so the
+            // kept set always matches the spoken bearing. Sweep all 360 degrees.
+            static const char* kPoints[8]
+                = { "north", "northeast", "east", "southeast", "south", "southwest", "west", "northwest" };
+            for (int d = 0; d < 360; ++d)
+                EXPECT_STREQ(compassLabel(deg(static_cast<float>(d))), kPoints[compassSector(deg(static_cast<float>(d)))])
+                    << "disagreement at " << d << " degrees";
+        }
     }
 }

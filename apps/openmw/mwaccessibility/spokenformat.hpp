@@ -45,6 +45,15 @@ namespace MWAccessibility
     // pre-normalised -- any real angle is folded into [0, 2*pi) first. Each
     // point covers a 45-degree sector centred on it (north = [-22.5, +22.5)).
     const char* compassLabel(float absYaw);
+
+    // Which of the eight compass sectors a world-space bearing \p absYaw falls
+    // in, as an index 0..7 (0 = north, 1 = northeast, ... 7 = northwest) -- the
+    // integer counterpart of compassLabel, snapped identically (each sector
+    // centred on its point, north = [-22.5, +22.5)). Input need not be
+    // pre-normalised. Lets callers compare two bearings for "same compass
+    // direction" (e.g. a direction filter) using the exact partition the spoken
+    // labels use, so the maths can never disagree with what the player hears.
+    int compassSector(float absYaw);
 }
 
 #endif

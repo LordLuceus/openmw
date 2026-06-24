@@ -103,6 +103,7 @@ combat.
 | **End** | Clear the current selection |
 | **/** (slash) | Search: filter the current category by name |
 | **Ctrl + /** | Clear an active search filter |
+| **Ctrl + Up** | Direction filter: show only things lying the way you're facing. Affects every category at once and follows you as you turn; press again to switch off. Handy when an NPC says something is "to the north" |
 
 ### Acting on the target
 
@@ -128,6 +129,7 @@ combat.
 | **Shift + L** | Announce which way you're facing |
 | **Ctrl + Left / Right** | Snap your facing to the previous / next compass point |
 | **Ctrl + Down** | Turn around 180 degrees |
+| **Ctrl + Up** | Direction filter: narrow the scanner to only what lies the way you're facing (see Scanning and targets) |
 | **N** | Drop a named map note (waypoint) at your current position |
 
 ### The accessible HUD

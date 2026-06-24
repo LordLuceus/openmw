@@ -677,6 +677,11 @@ namespace MWAccessibility
         mProximityCue.stop();
         mLastCellId = nullptr;
         mLastCellExterior = -1;
+        // The direction filter is a transient global mode tied to live facing,
+        // not a saved preference, so drop it on world teardown -- a heading set
+        // in the old game must not silently constrain the freshly loaded one.
+        mDirectionFilterActive = false;
+        mDirectionSector = -1;
         mCellNamePrimed = false;
         mMeleeReachCooldown = 0.f;
         mPendingJournalCue = 0;
@@ -880,6 +885,17 @@ namespace MWAccessibility
             // we don't want "Balmora" repeated as the player walks across it.
             announceCellChange();
 
+            // The global direction filter (Ctrl+Up) also clears on an indoor<->
+            // outdoor crossing, same rationale as the name/subcategory filters:
+            // a heading you set in one space rarely makes sense in the next, and
+            // a forgotten one is the same "why can't I see this?" trap.
+            if (crossedInOut && mDirectionFilterActive)
+            {
+                mDirectionFilterActive = false;
+                mDirectionSector = -1;
+                clearedAnyFilter = true;
+            }
+
             // Let the player know a filter was dropped, so the change in what's
             // listed isn't mysterious. Only when something was actually cleared.
             if (clearedAnyFilter)
@@ -892,6 +908,24 @@ namespace MWAccessibility
         // dirty -- it'll be rebuilt from scratch on next access anyway.
         if (!mLists[static_cast<size_t>(mCategory)].mDirty)
             pruneDeadObjects();
+
+        // Direction filter follows live facing: if it's engaged and the player
+        // has turned into a new compass sector (via mouselook, Ctrl+Left/Right,
+        // Ctrl+Down, or any other rotation), re-key the kept wedge to the new
+        // heading and invalidate the cached lists so the next read reflects it.
+        // We do NOT speak here -- this is passive tracking, and announcing on
+        // every turn would be noise; the engaged direction was announced on the
+        // Ctrl+Up press, and turn keys already speak the new facing themselves.
+        if (mDirectionFilterActive)
+        {
+            const int sector = compassSector(player.getRefData().getPosition().rot[2]);
+            if (sector != mDirectionSector)
+            {
+                mDirectionSector = sector;
+                for (auto& s : mLists)
+                    s.mDirty = true;
+            }
+        }
 
         mAutoWalker.onFrame(dt);
         mProximityCue.onFrame(dt);
@@ -1126,6 +1160,17 @@ namespace MWAccessibility
                 if (ctrl && !shift && !alt)
                 {
                     snapToDirection(/*clockwise=*/true);
+                    return true;
+                }
+                return false;
+            case SDL_SCANCODE_UP:
+                // Ctrl+Up toggles the direction filter: restrict every category
+                // to objects lying the way the player currently faces (and keep
+                // following their facing). Completes the Ctrl+arrow facing
+                // cluster (Left/Right snap compass, Down turns around).
+                if (ctrl && !shift && !alt)
+                {
+                    toggleDirectionFilter();
                     return true;
                 }
                 return false;
@@ -2375,6 +2420,68 @@ namespace MWAccessibility
         speak(std::string("Facing ") + compassLabel(yaw) + ".");
     }
 
+    void Scanner::toggleDirectionFilter()
+    {
+        MWBase::World* world = MWBase::Environment::get().getWorld();
+        MWWorld::Ptr player = world->getPlayerPtr();
+        if (player.isEmpty())
+            return;
+
+        if (mDirectionFilterActive)
+        {
+            // Disengage: drop the kept sector and show the full lists again.
+            mDirectionFilterActive = false;
+            mDirectionSector = -1;
+            for (auto& s : mLists)
+                s.mDirty = true;
+            speak("Direction filter off.");
+            return;
+        }
+
+        // Engage on the player's current facing. mDirectionSector is the 8-way
+        // compass sector of their yaw; onFrame keeps it tracking as they turn.
+        mDirectionFilterActive = true;
+        mDirectionSector = compassSector(player.getRefData().getPosition().rot[2]);
+        for (auto& s : mLists)
+            s.mDirty = true;
+        speak(std::string("Direction filter, ") + compassLabel(player.getRefData().getPosition().rot[2]) + ".");
+    }
+
+    bool Scanner::passesDirectionFilter(const osg::Vec3f& worldPos) const
+    {
+        if (!mDirectionFilterActive || mDirectionSector < 0)
+            return true;
+
+        MWBase::World* world = MWBase::Environment::get().getWorld();
+        MWWorld::Ptr player = world->getPlayerPtr();
+        if (player.isEmpty())
+            return true;
+
+        // Keep objects whose absolute bearing snaps to the same compass sector
+        // the player faces. atan2(x, y) matches the bearing convention used
+        // everywhere in the scanner (0 = north, +X = east); compassSector snaps
+        // it with the EXACT partition compassLabel speaks, so the kept set always
+        // agrees with what the player would hear as the object's direction.
+        const osg::Vec3f delta = worldPos - player.getRefData().getPosition().asVec3();
+        // A target essentially on top of the player has no meaningful bearing;
+        // keep it rather than let float noise decide a direction for it.
+        if (delta.x() * delta.x() + delta.y() * delta.y() < 1.0f)
+            return true;
+        return compassSector(std::atan2(delta.x(), delta.y())) == mDirectionSector;
+    }
+
+    void Scanner::filterWaypointsByDirection(std::vector<Waypoint>& waypoints) const
+    {
+        if (!mDirectionFilterActive)
+            return;
+        std::erase_if(waypoints, [&](const Waypoint& wp) {
+            // An unreachable note (different worldspace) has no comparable
+            // bearing, so it can't belong to "this direction" -- drop it while
+            // filtering. A reachable one is kept only if it's in the sector.
+            return !wp.mReachable || !passesDirectionFilter(wp.mPosition);
+        });
+    }
+
     std::string Scanner::playerStatText(int index, const char* label) const
     {
         MWWorld::Ptr player = MWBase::Environment::get().getWorld()->getPlayerPtr();
@@ -2564,6 +2671,7 @@ namespace MWAccessibility
         if (mCategory == Category::Waypoints)
         {
             collectWaypoints(state.mWaypoints);
+            filterWaypointsByDirection(state.mWaypoints);
             return;
         }
 
@@ -2572,6 +2680,7 @@ namespace MWAccessibility
         if (mCategory == Category::Locations)
         {
             collectLocations(state.mWaypoints);
+            filterWaypointsByDirection(state.mWaypoints);
             return;
         }
 
@@ -2602,6 +2711,14 @@ namespace MWAccessibility
                 std::erase_if(state.mObjects, [&](const MWWorld::Ptr& ptr) {
                     return Misc::StringUtils::ciFind(objectSearchText(ptr), state.mFilter)
                         == std::string_view::npos;
+                });
+            }
+
+            // Global direction filter (Ctrl+Up), same as the cell-scan path.
+            if (mDirectionFilterActive)
+            {
+                std::erase_if(state.mObjects, [&](const MWWorld::Ptr& ptr) {
+                    return !passesDirectionFilter(ptr.getRefData().getPosition().asVec3());
                 });
             }
 
@@ -2692,6 +2809,10 @@ namespace MWAccessibility
                 if (!state.mFilter.empty()
                     && Misc::StringUtils::ciFind(objectSearchText(ptr), state.mFilter)
                         == std::string_view::npos)
+                    return true;
+                // Global direction filter (Ctrl+Up): drop anything not lying in
+                // the compass sector the player faces. No-op when disengaged.
+                if (!passesDirectionFilter(ptr.getRefData().getPosition().asVec3()))
                     return true;
                 state.mObjects.push_back(ptr);
                 return true;

@@ -6,6 +6,20 @@ Newest changes are listed first. (OpenMW's own engine changelog lives in
 
 ## 2026-06-24
 
+- **New: a direction filter for the scanner — show only what lies the way you're
+  facing.** When an NPC tells you something is "to the north" or "east of here",
+  you can now declutter the scanner to just that direction. Face the way you want
+  (turn, or use the compass-snap keys), then press Ctrl+Up to engage the filter:
+  every scanner category — doors, people, containers, items, places, everything —
+  is narrowed to only the things in that compass direction, so cycling through
+  the list no longer wades past everything behind and beside you. The filter
+  follows you as you turn: rotate to a new heading and what's listed updates to
+  match, so you can sweep around and sample each direction in turn. Press Ctrl+Up
+  again to switch it off and see everything again ("Direction filter off"). Like
+  the name search and the indoor/outdoor list, it clears automatically when you
+  cross between inside and outside. It pairs with the existing facing keys
+  (Ctrl+Left/Right to snap to a compass point, Ctrl+Down to turn around).
+
 - **Fixed: auto-walk now works in multi-level interiors like Dwemer ruins.**
   Auto-walking to something on a different floor of a complex interior — the
   classic case being the steep staircases of a Dwemer ruin such as Arkngthand —
