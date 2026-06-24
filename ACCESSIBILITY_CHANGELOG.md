@@ -6,6 +6,16 @@ Newest changes are listed first. (OpenMW's own engine changelog lives in
 
 ## 2026-06-24
 
+- **Fixed: auto-walk no longer falsely says "Arrived" beneath an overhead
+  trapdoor.** Walking to a trapdoor or hatch in the ceiling above you (for
+  example in an Imperial Legion fort) could announce "Arrived" while the door was
+  still several metres straight up, too high to actually open. A related case was
+  fixed before, but this one slipped through a second arrival path that only
+  checked how far you were horizontally — so standing directly underneath counted
+  as "there". Auto-walk now also checks you can really reach the trapdoor before
+  declaring arrival; when it's genuinely too high to get to, it tells you how far
+  short you stopped instead of pretending you made it.
+
 - **New: a direction filter for the scanner — show only what lies the way you're
   facing.** When an NPC tells you something is "to the north" or "east of here",
   you can now declutter the scanner to just that direction. Face the way you want

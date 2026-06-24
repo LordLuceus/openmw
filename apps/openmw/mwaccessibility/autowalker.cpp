@@ -1509,7 +1509,30 @@ namespace MWAccessibility
 
             const float reachDist = world->getMaxActivationDistance();
             const float trueDist = horizDistTo(targetPos);
-            if (trueDist <= reachDist)
+            // Horizontal proximity is necessary but NOT sufficient: a target
+            // meaningfully above or below us (an overhead trapdoor, a balcony
+            // hatch) can be ~on top of us horizontally yet metres out of reach.
+            // This is the SAME false-vertical-arrival the primary arrival check
+            // above guards against (fix c4a800441b) -- but this completed-path
+            // branch was still horizontal-only, so a partial/1-node route that
+            // ran out directly beneath a ceiling trapdoor (snap to navmesh
+            // failed, so the route just walks under it) announced a false
+            // "Arrived" while the door sat ~5 m up. Apply the identical gate:
+            // for a non-actor object target require real activation reach (3D
+            // distance to its nearest bounding-box surface, honouring
+            // Telekinesis); for an actor require vertical proximity too; a bare
+            // waypoint (no Ptr) keeps the horizontal rule. A hatch you CAN open
+            // from directly below still passes (it's within activation range --
+            // exactly why the engine lets you open it).
+            bool reachOk = trueDist <= reachDist;
+            if (reachOk && mHasPtrTarget && !mTarget.isEmpty())
+            {
+                if (mTarget.getClass().isActor())
+                    reachOk = std::abs(targetPos.z() - playerPos.z()) <= kVerticalGapNotable;
+                else
+                    reachOk = Scanner::isWithinActivationReach(mTarget);
+            }
+            if (reachOk)
             {
                 speakQueued("Arrived at " + mTargetName + ".");
                 cancel();
