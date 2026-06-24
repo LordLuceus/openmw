@@ -143,6 +143,14 @@ namespace MWMechanics
             mPath.push_back(point);
         }
 
+        /// Drop the leading (current) waypoint. No-op on an empty path. Used to
+        /// skip a waypoint the caller has determined is already behind the actor.
+        void popFrontPoint()
+        {
+            if (!mPath.empty())
+                mPath.pop_front();
+        }
+
     private:
         bool mConstructed = false;
         std::deque<osg::Vec3f> mPath;

@@ -110,6 +110,28 @@ namespace
     constexpr float kStuckTimeout = 1.0f; // seconds wedged in place
     constexpr float kNoProgressTimeout = 10.0f; // seconds without nearing goal
 
+    // Oscillation ("limit cycle") detection. Distinct from the physical-wedge
+    // check: here the body IS moving (full running speed) but in a loop, so we
+    // make no net headway -- e.g. a coarse stair route whose next waypoint flips
+    // across us and steers us alternately up then back down. We anchor a
+    // reference point and, as long as we stay within kOscBubbleRadius of it while
+    // commanding movement, count time; if we never break out of the bubble for
+    // kOscTimeout we declare an oscillation and recover/give up. The radius is a
+    // couple of body-widths (big enough to ignore normal weaving, small enough
+    // that real travel escapes it within a second), and the timeout is long
+    // enough that a legitimate tight switchback isn't misread. The anchor
+    // re-seeds the instant we travel clear of it, so only true confinement trips.
+    constexpr float kOscBubbleRadius = 160.0f; // ~2.3 m
+    constexpr float kOscTimeout = 6.0f; // seconds confined => circling
+
+    // DIAGNOSTIC TOGGLE for the verbose per-frame stair-follow log in onFrame.
+    // OFF by default: it fires ~5x/sec for the entire duration of every walk and
+    // would flood openmw.log during normal play. Flip to true and rebuild to
+    // re-enable it when debugging steering / oscillation behaviour. (The sparse
+    // per-repath "[a11y] autowalk repath:" log in rebuildPath stays on always --
+    // it's low-volume and pinpoints routing/pathgrid-fallback decisions.)
+    constexpr bool kLogStairDiag = false;
+
     // How far a target actor must have moved from where it stood when the walk
     // began before we treat it as a "moving target" (a wandering NPC). Past this
     // we suppress the no-progress backstop -- which measures all-time-closest
@@ -456,6 +478,7 @@ namespace MWAccessibility
             // Fresh budget so the timers that just expired don't instantly fire
             // again before we've had a chance to walk through the now-open gap.
             mBestDistToGoal = std::numeric_limits<float>::max();
+            mBestPathRemaining = std::numeric_limits<float>::max();
             mTimeSinceProgress = 0.0f;
             mTimeSinceMove = 0.0f;
             mRecoveryAttempts = 0;
@@ -518,9 +541,11 @@ namespace MWAccessibility
         mFinalApproach = false;
         mTimeSinceRepath = 0.0f;
         mBestDistToGoal = std::numeric_limits<float>::max();
+        mBestPathRemaining = std::numeric_limits<float>::max();
         mTimeSinceProgress = 0.0f;
-        // Seed mLastPos from the player so the first frame's speed reading is
-        // sane (otherwise a zero-init mLastPos yields a huge bogus displacement).
+        // Seed mLastPos / the oscillation anchor from the player so the first
+        // frame's speed reading is sane (otherwise a zero-init mLastPos yields a
+        // huge bogus displacement) and the bubble is centred where we start.
         MWBase::World* world = MWBase::Environment::get().getWorld();
         if (world)
         {
@@ -528,6 +553,8 @@ namespace MWAccessibility
             if (!player.isEmpty())
                 mLastPos = player.getRefData().getPosition().asVec3();
         }
+        mOscAnchor = mLastPos;
+        mTimeInOscBubble = 0.0f;
         mTimeSinceMove = 0.0f;
         mRecoveryTimer = 0.0f;
         mRecoveryAttempts = 0;
@@ -584,6 +611,11 @@ namespace MWAccessibility
 
         osg::Vec3f start = player.getRefData().getPosition().asVec3();
         const osg::Vec3f rawEnd = targetPosition();
+
+        // Assume a normal (navmesh / straight) route until proven otherwise; only
+        // an adopted pathgrid fallback below sets this, which in turn suppresses
+        // the periodic re-path (see mStablePath in the header / onFrame).
+        mStablePath = false;
 
         DetourNavigator::AgentBounds bounds = world->getPathfindingAgentBounds(player);
         DetourNavigator::Flags flags = playerNavigatorFlags();
@@ -709,6 +741,12 @@ namespace MWAccessibility
                     {
                         mPathFinder = std::move(pg);
                         usedPathgrid = true;
+                        // Coarse hand-authored route: follow it as-is. Rebuilding
+                        // it every second re-inserts nodes we just passed and, on
+                        // steep stairs, flips the "next" waypoint back across us
+                        // into a backstep oscillation -- so freeze periodic
+                        // re-pathing while we ride this route.
+                        mStablePath = true;
                     }
                 }
             }
@@ -719,6 +757,37 @@ namespace MWAccessibility
         // reach" only when even straight-line fails.
         if (!mPathFinder.isPathConstructed())
             mPathFinder.buildStraightPath(end);
+
+        // NO-BACKSTEP PRUNE. A freshly built route can begin with one or more
+        // waypoints we have ALREADY walked past -- most visibly with the coarse
+        // pathgrid fallback, where the nearest node is often just behind us on a
+        // staircase. Steering to such a node turns us around and (combined with
+        // the next rebuild re-adding it) produces the up-then-back-down stair
+        // oscillation. Drop any leading waypoints that lie behind us relative to
+        // the direction of the FOLLOWING waypoint: a node is "behind" when the
+        // player has already passed the plane through it perpendicular to the
+        // node->next segment, i.e. (player - node) . (next - node) > 0. We keep
+        // at least one waypoint so there is always something to steer toward.
+        {
+            std::size_t pruned = 0;
+            while (mPathFinder.getPath().size() > 1)
+            {
+                const std::deque<osg::Vec3f>& path = mPathFinder.getPath();
+                const osg::Vec3f& node = path[0];
+                const osg::Vec3f& next = path[1];
+                const osg::Vec3f seg = next - node;
+                if (seg.length2() < 1.0f)
+                    break; // degenerate; leave it
+                if ((start - node) * seg > 0.0f)
+                {
+                    mPathFinder.popFrontPoint();
+                    ++pruned;
+                }
+                else
+                    break;
+            }
+            (void)pruned;
+        }
 
         // [a11y] DIAGNOSTIC (temporary): multi-level navmesh-island bug. Logs the
         // agent bounds, the navmesh route's shortfall, and the pathgrid-fallback
@@ -970,6 +1039,23 @@ namespace MWAccessibility
             const float dy = p.y() - playerPos.y();
             return std::sqrt(dx * dx + dy * dy);
         };
+        // Total remaining distance ALONG the planned route: from the player to
+        // the first (current) waypoint, then summed waypoint-to-waypoint to the
+        // end. This is the honest "how much walking is left" measure used for
+        // no-progress detection -- unlike straight-line distance to the goal it
+        // shrinks monotonically as we follow a route that legitimately winds
+        // away from the target (stairs, galleries, switchbacks). Measured in 3D:
+        // stair waypoints carry a large vertical component, and ignoring z would
+        // understate progress while climbing/descending.
+        auto remainingPathLength = [&playerPos, this]() {
+            const auto& path = mPathFinder.getPath();
+            if (path.empty())
+                return 0.0f;
+            float total = (path.front() - playerPos).length();
+            for (std::size_t i = 1; i < path.size(); ++i)
+                total += (path[i] - path[i - 1]).length();
+            return total;
+        };
         // When the target is another actor (an NPC/creature), we can never
         // reach its CENTRE: its collision capsule plus the player's keep us a
         // body-width apart, so the player wedges ~60-90 units away and the tight
@@ -1143,15 +1229,96 @@ namespace MWAccessibility
             mTimeSinceMove = 0.0f;
 
         constexpr float kProgressEpsilon = 8.0f; // units of improvement that "counts"
-        if (horizDist < mBestDistToGoal - kProgressEpsilon)
-        {
+        // Track closest straight-line approach to the goal separately -- it no
+        // longer drives the no-progress timeout (see below) but still feeds the
+        // closest-approach distance reported when we genuinely stop short.
+        if (horizDist < mBestDistToGoal)
             mBestDistToGoal = horizDist;
+        // No-progress detection runs on REMAINING PATH LENGTH, not straight-line
+        // distance to the goal. Following a correct route up a spiralling stair
+        // increases goal-distance for many seconds while we are in fact advancing
+        // -- measuring the route remainder instead makes "progress" mean "we are
+        // consuming the planned path", which is what we actually want. (The
+        // independent physical-wedge check above still aborts if the body truly
+        // stops moving.)
+        const float pathRemaining = remainingPathLength();
+        if (pathRemaining < mBestPathRemaining - kProgressEpsilon)
+        {
+            mBestPathRemaining = pathRemaining;
             mTimeSinceProgress = 0.0f;
             mRecoveryAttempts = 0; // genuine progress: fresh set of wiggles next snag
         }
         else
         {
             mTimeSinceProgress += dt;
+        }
+
+        // OSCILLATION ("limit cycle") DETECTION. The two checks above can both be
+        // defeated at once by a route that makes us move fast in a LOOP: the
+        // body never stops (so the physical-wedge timer stays at 0) and each lap
+        // can jitter the remaining-path length by just over kProgressEpsilon (so
+        // the no-progress timer keeps resetting) -- the player then circles
+        // forever and the walk never honestly ends. This check is independent of
+        // both: it watches our straight-line displacement from an anchor point.
+        // While we stay within a small bubble of the anchor we accrue time; the
+        // instant we travel clear of it we re-anchor and reset. Staying confined
+        // for kOscTimeout while commanding movement means we're going in circles,
+        // not progressing -- so we force the same honest recovery-then-give-up
+        // path the wedge check uses. Suppressed for a moving target (chasing a
+        // wandering NPC around a pillar is legitimate "confinement"). Skipped
+        // during a recovery wiggle, which drives its own deliberate motion.
+        if (mRecoveryTimer <= 0.0f)
+        {
+            if ((playerPos - mOscAnchor).length2() > kOscBubbleRadius * kOscBubbleRadius)
+            {
+                mOscAnchor = playerPos; // broke out of the bubble: genuine travel
+                mTimeInOscBubble = 0.0f;
+            }
+            else
+            {
+                mTimeInOscBubble += dt;
+            }
+        }
+        if (!mTargetMoving && mTimeInOscBubble >= kOscTimeout && mRecoveryTimer <= 0.0f)
+        {
+            // Confined too long while trying to move: treat exactly like a
+            // physical wedge -- try the door/blocker/recovery escalation, and if
+            // that's exhausted, give up honestly rather than circle in silence.
+            const float oscYaw = player.getRefData().getPosition().rot[2];
+            if (tryOpenBlockingDoor(player, playerPos, oscYaw))
+            {
+                mTimeSinceMove = 0.0f;
+                mTimeSinceProgress = 0.0f;
+                mBestDistToGoal = std::numeric_limits<float>::max();
+                mBestPathRemaining = std::numeric_limits<float>::max();
+                mRecoveryAttempts = 0;
+                mTimeInOscBubble = 0.0f;
+                mOscAnchor = playerPos;
+                mDoorBackoffTimer = kDoorBackoffDuration;
+                return;
+            }
+            if (mRecoveryAttempts >= kMaxRecoveryAttempts)
+            {
+                if (handleGiveUp(player, playerPos, targetPos))
+                {
+                    cancel();
+                    return;
+                }
+                // Phased through a blocker: reset the bubble and keep walking.
+                mTimeInOscBubble = 0.0f;
+                mOscAnchor = playerPos;
+                return;
+            }
+            // Kick off a recovery wiggle (and a re-path) to try to break the
+            // loop; reset the bubble so we give the wiggle a fair chance.
+            ++mRecoveryAttempts;
+            mRecoveryTimer = kRecoveryDuration;
+            mRecoveryDir = chooseRecoverySide(player, playerPos, oscYaw, -mRecoveryDir);
+            mTimeInOscBubble = 0.0f;
+            mOscAnchor = playerPos;
+            mTimeSinceMove = 0.0f;
+            rebuildPath();
+            return;
         }
 
         // Backstop: moving but never getting closer for a long time -> give up.
@@ -1175,6 +1342,7 @@ namespace MWAccessibility
                 mTimeSinceMove = 0.0f;
                 mTimeSinceProgress = 0.0f;
                 mBestDistToGoal = std::numeric_limits<float>::max();
+                mBestPathRemaining = std::numeric_limits<float>::max();
                 mRecoveryAttempts = 0;
                 mDoorBackoffTimer = kDoorBackoffDuration; // step back so it can swing
                 return;
@@ -1206,6 +1374,7 @@ namespace MWAccessibility
                 mTimeSinceMove = 0.0f;
                 mTimeSinceProgress = 0.0f;
                 mBestDistToGoal = std::numeric_limits<float>::max();
+                mBestPathRemaining = std::numeric_limits<float>::max();
                 mRecoveryAttempts = 0;
                 mDoorBackoffTimer = kDoorBackoffDuration; // step back so it can swing
                 return;
@@ -1275,11 +1444,20 @@ namespace MWAccessibility
         // from getting nudged off course by physics. Skipped during the final
         // straight-line approach: rebuildPath() would replace our deliberate
         // straight line with another short navmesh path and we'd never close
-        // the gap.
+        // the gap. Also throttled on a stable pathgrid route (mStablePath): that
+        // coarse route is correct as built, and re-running it every second
+        // re-inserts the node we just passed -- on steep stairs that flips the
+        // next waypoint back across us and drives a backstep oscillation. We
+        // STILL rebuild the moment the route is consumed (isPathConstructed()
+        // false) or for a moving target (so we keep chasing a wandering NPC);
+        // recovery and arrival logic rebuild on their own when actually needed.
         if (!mFinalApproach)
         {
             mTimeSinceRepath += dt;
-            if (mTimeSinceRepath >= kRepathInterval || !mPathFinder.isPathConstructed())
+            const bool periodicDue = mTimeSinceRepath >= kRepathInterval;
+            const bool pathGone = !mPathFinder.isPathConstructed();
+            const bool suppressPeriodic = mStablePath && !mTargetMoving;
+            if (pathGone || (periodicDue && !suppressPeriodic))
             {
                 mTimeSinceRepath = 0.0f;
                 rebuildPath();
@@ -1356,6 +1534,7 @@ namespace MWAccessibility
                 mPathFinder.buildStraightPath(targetPos);
                 // Fresh progress budget for the straight-line leg.
                 mBestDistToGoal = std::numeric_limits<float>::max();
+                mBestPathRemaining = std::numeric_limits<float>::max();
                 mTimeSinceProgress = 0.0f;
                 mTimeSinceMove = 0.0f;
                 mRecoveryAttempts = 0;
@@ -1396,6 +1575,8 @@ namespace MWAccessibility
         while (yawDelta < -kPi)
             yawDelta += 2.0f * kPi;
 
+        const float yawErr = yawDelta; // [a11y] temporary: true steer error pre-clamp
+
         // Apply only a fraction per frame so we don't snap.
         const float kTurnSpeed = 6.0f; // rad/s
         float maxTurn = kTurnSpeed * dt;
@@ -1403,6 +1584,35 @@ namespace MWAccessibility
             yawDelta = maxTurn;
         else if (yawDelta < -maxTurn)
             yawDelta = -maxTurn;
+
+        // [a11y] STAIR-FOLLOW DIAGNOSTIC (debug-gated via kLogStairDiag, OFF by
+        // default; throttled ~5x/sec when on). The repath log shows position over
+        // time but not WHY the steer fails on stairs; this logs, per frame: the
+        // actual move speed (sliding vs truly stuck), the next waypoint and its
+        // height delta (steering UP the stairs or ACROSS them?), the steer angle,
+        // goal/route progress, recovery state, and the stable-path / oscillation
+        // state. Kept (gated) rather than removed so steering regressions can be
+        // re-diagnosed instantly -- flip kLogStairDiag to true and rebuild.
+        if (kLogStairDiag)
+            mStairDiagTimer += dt;
+        if (kLogStairDiag && mStairDiagTimer >= 0.2f)
+        {
+            mStairDiagTimer = 0.0f;
+            osg::Vec3f wp = targetPos;
+            if (!mPathFinder.getPath().empty())
+                wp = mPathFinder.getPath().front();
+            constexpr float kRad2Deg = 57.2957795f;
+            Log(Debug::Warning) << "[a11y] autowalk stairdiag: pos=(" << playerPos.x() << "," << playerPos.y() << ","
+                                << playerPos.z() << ") speed=" << speed << " horizDist=" << horizDist
+                                << " bestDist=" << mBestDistToGoal << " pathRem=" << pathRemaining
+                                << " bestPathRem=" << mBestPathRemaining << " wp=(" << wp.x() << "," << wp.y() << ","
+                                << wp.z() << ") wpDz=" << (wp.z() - playerPos.z()) << " pathSize="
+                                << mPathFinder.getPathSize() << " yawErrDeg=" << (yawErr * kRad2Deg)
+                                << " tSinceMove=" << mTimeSinceMove << " tSinceProg=" << mTimeSinceProgress
+                                << " recovTimer=" << mRecoveryTimer << " recovAtt=" << mRecoveryAttempts
+                                << " final=" << mFinalApproach << " prog=" << mProgressive
+                                << " stable=" << mStablePath << " oscT=" << mTimeInOscBubble;
+        }
 
         auto* controls
             = MWBase::Environment::get().getLuaManager()->getActorControls(player);

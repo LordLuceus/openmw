@@ -124,6 +124,21 @@ namespace MWAccessibility
         MWMechanics::PathFinder mPathFinder;
         float mTimeSinceRepath = 0.0f;
 
+        // Set when the current route came from the hand-authored pathgrid
+        // fallback (rebuildPath adopted it because the navmesh route fell short
+        // in a multi-level interior). Such routes are COARSE and, crucially,
+        // rebuilding them every frame-second re-inserts the node we just passed,
+        // which on steep stairs makes the "next" waypoint flip back and forth
+        // across the player and drives a backstep oscillation. So while this is
+        // set we SUPPRESS the periodic re-path and just follow the route we have
+        // (we still re-path when the path is consumed, on recovery, or for a
+        // moving target). Recomputed on every rebuildPath.
+        bool mStablePath = false;
+
+        // [a11y] TEMPORARY: throttle for the per-frame stair-follow diagnostic so
+        // we log ~5x/sec instead of every frame. Remove with the diagnostic.
+        float mStairDiagTimer = 0.0f;
+
         // Resolve the current target's world position, whether it's a Ptr or a
         // fixed point. Returns false (via the out-param being left untouched is
         // avoided) only conceptually; callers check mActive/emptiness first.
@@ -146,16 +161,39 @@ namespace MWAccessibility
         //    mLastPos is the previous frame's position; mTimeSinceMove counts
         //    how long we've been commanding forward motion without the body
         //    actually moving.
-        // 2. GOAL progress (mBestDistToGoal / mTimeSinceProgress): the closest
-        //    horizontal distance to the target we've achieved, and how long
-        //    we've failed to beat it. This resets the recovery-attempt counter
-        //    on genuine progress and acts as a long-timeout backstop that gives
-        //    up if we're moving but never actually getting closer (e.g. circling
-        //    / path oscillation) -- a case the physical check alone would miss.
+        // 2. ROUTE progress (mBestPathRemaining / mTimeSinceProgress): the
+        //    shortest remaining-path-length along the planned route we've
+        //    achieved, and how long we've failed to beat it. This resets the
+        //    recovery-attempt counter on genuine progress and acts as a
+        //    long-timeout backstop that gives up if we're moving but never
+        //    advancing along the route (e.g. truly circling) -- a case the
+        //    physical check alone would miss. We measure progress ALONG THE PATH
+        //    rather than straight-line distance to the goal because a correct
+        //    route through multi-level geometry legitimately winds AWAY from the
+        //    goal (up a spiralling stair, around a gallery, doubling back), so
+        //    straight-line goal-distance can grow for many seconds while we are
+        //    in fact making perfect progress -- which used to trip a false
+        //    give-up on stairs. mBestDistToGoal is retained only for diagnostics
+        //    and closest-approach callouts.
         osg::Vec3f mLastPos;
         float mTimeSinceMove = 0.0f;
         float mBestDistToGoal = std::numeric_limits<float>::max();
+        float mBestPathRemaining = std::numeric_limits<float>::max();
         float mTimeSinceProgress = 0.0f;
+
+        // Oscillation detection. The physical-wedge check (mTimeSinceMove) only
+        // catches us when the BODY stops moving; it misses a "limit cycle" where
+        // we move at full speed but in a loop -- e.g. a coarse stair route whose
+        // next waypoint flips back and forth across us, so we climb a few steps,
+        // get told to go back down, slide down, get told to climb, forever. To
+        // catch that we anchor a reference position and watch how long we stay
+        // within a small radius of it while still commanding movement: if we
+        // never escape that bubble for long enough, we're circling, not
+        // progressing, and must recover then honestly give up (a speech-only UI
+        // must never leave the player silently walking in a ring). mOscAnchor is
+        // re-seeded whenever we travel clear of it.
+        osg::Vec3f mOscAnchor;
+        float mTimeInOscBubble = 0.0f;
 
         // Stuck-recovery state. When we stop making progress we enter a short
         // recovery "wiggle" (jump + sidestep) instead of aborting outright; see
