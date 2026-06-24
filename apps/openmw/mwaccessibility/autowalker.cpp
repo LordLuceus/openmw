@@ -29,9 +29,12 @@
 #include "../mwphysics/collisiontype.hpp"
 #include "../mwphysics/raycasting.hpp"
 
+#include <components/esm3/loadpgrd.hpp>
+
 #include "../mwworld/cellref.hpp"
 #include "../mwworld/cellstore.hpp"
 #include "../mwworld/class.hpp"
+#include "../mwworld/esmstore.hpp"
 #include "../mwworld/doorstate.hpp"
 #include "../mwworld/player.hpp"
 #include "../mwworld/ptr.hpp"
@@ -69,6 +72,28 @@ namespace
     // generous enough to bridge a doorway/wall gap without grabbing a point in
     // a different room.
     constexpr float kNavMeshSnapRadius = 210.0f;
+
+    // PATHGRID FALLBACK (multi-level interiors). The runtime navmesh only
+    // connects surfaces within Recast's climb/slope limits (34u step, 46deg), so
+    // the steep stairs in Dwemer ruins / multi-storey interiors split a cell into
+    // DISCONNECTED navmesh islands: a route to a lower- or upper-tier target
+    // comes back as a partial path that dies at the lip of the current level.
+    // Bethesda hand-authored a pathgrid for every interior that DOES cross those
+    // stairs (it's how vanilla NPCs walk them), so when the navmesh route falls
+    // well short we rebuild on the pathgrid instead. Confirmed in Arkngthand:
+    // navmesh ended 630-780u short while the pathgrid reached within ~60u.
+    //
+    // kPathgridFallbackShortfall: how far short (horizontally) the navmesh route
+    // must end before we bother consulting the pathgrid. Comfortably above the
+    // arrival distance and normal off-mesh snap gaps so we DON'T disturb the many
+    // legit partial routes (e.g. a door up on a raised terrace we can reach the
+    // foot of) that the navmesh handles fine -- those keep their navmesh route.
+    constexpr float kPathgridFallbackShortfall = 160.0f;
+    // kPathgridFallbackImprovement: only ADOPT the pathgrid route if it ends at
+    // least this much closer to the target than the navmesh route did. Protects
+    // against swapping a decent navmesh stub for an equally-short (or worse)
+    // pathgrid one in cells where the pathgrid also can't reach.
+    constexpr float kPathgridFallbackImprovement = 96.0f;
 
     // Stuck-detection tuning.
     //
@@ -642,35 +667,75 @@ namespace MWAccessibility
             /*endTolerance=*/kArrivalDistance,
             MWMechanics::PathType::Partial);
 
+        const bool navPathOk = mPathFinder.isPathConstructed();
+
+        // How far short of the true target does the navmesh route end? A large
+        // value means the route stopped well before the goal -- typically the lip
+        // of a navmesh island in a multi-level interior (steep Dwemer stairs that
+        // Recast won't connect), where a hand-authored pathgrid does cross.
+        auto horizShortfall = [&](const osg::Vec3f& pathEnd) {
+            return std::sqrt((rawEnd.x() - pathEnd.x()) * (rawEnd.x() - pathEnd.x())
+                + (rawEnd.y() - pathEnd.y()) * (rawEnd.y() - pathEnd.y()));
+        };
+        const float navShortfall = navPathOk && !mPathFinder.getPath().empty()
+            ? horizShortfall(mPathFinder.getPath().back())
+            : std::numeric_limits<float>::max();
+
+        // PATHGRID FALLBACK: when the navmesh route falls well short, try to reach
+        // the target via the cell's hand-authored pathgrid instead. Built with
+        // PathType::Full so a partial navmesh result is discarded and PathFinder's
+        // built-in pathgrid fallback (which only runs when the navmesh path is
+        // empty) actually fires. We adopt it only if it ends meaningfully closer,
+        // so legit partial navmesh routes (e.g. the foot of a terrace door we can
+        // reach) are left untouched.
+        bool usedPathgrid = false;
+        float pgShortfall = -1.0f;
+        if (navShortfall > kPathgridFallbackShortfall)
+        {
+            MWBase::World* w = MWBase::Environment::get().getWorld();
+            const ESM::Pathgrid* pathgrid = w && player.getCell() && player.getCell()->getCell()
+                ? w->getStore().get<ESM::Pathgrid>().search(*player.getCell()->getCell())
+                : nullptr;
+            if (pathgrid && !pathgrid->mPoints.empty())
+            {
+                const MWMechanics::PathgridGraph graph(*pathgrid);
+                MWMechanics::PathFinder pg;
+                pg.buildPath(player, start, end, graph, bounds, flags, costs,
+                    /*endTolerance=*/kArrivalDistance, MWMechanics::PathType::Full);
+                if (pg.isPathConstructed() && !pg.getPath().empty())
+                {
+                    pgShortfall = horizShortfall(pg.getPath().back());
+                    if (pgShortfall < navShortfall - kPathgridFallbackImprovement)
+                    {
+                        mPathFinder = std::move(pg);
+                        usedPathgrid = true;
+                    }
+                }
+            }
+        }
+
         // Last resort: a straight-line path. Won't avoid obstacles but
         // gives the user *something* to aim at -- they'll hear "Cannot
         // reach" only when even straight-line fails.
-        const bool navPathOk = mPathFinder.isPathConstructed();
-        if (!navPathOk)
+        if (!mPathFinder.isPathConstructed())
             mPathFinder.buildStraightPath(end);
 
-        // [a11y] DIAGNOSTIC (temporary): the autowalk-gets-stuck-for-one-character
-        // bug. The interior navmesh is eroded by THIS character's collision
-        // radius (getPathfindingAgentBounds -> physicsActor->getHalfExtents()),
-        // so a wider body (different race) can get a pinched/partial route where
-        // a slimmer one gets through. Log the agent bounds, whether a real
-        // navmesh path was built (vs straight-line fallback), the snap result,
-        // the path's far end, and how far short of the true target that end sits
-        // -- so we can compare the two characters at the stuck spot.
+        // [a11y] DIAGNOSTIC (temporary): multi-level navmesh-island bug. Logs the
+        // agent bounds, the navmesh route's shortfall, and the pathgrid-fallback
+        // decision so we can confirm the fix in game (e.g. Arkngthand).
         {
             osg::Vec3f pathEnd = end;
             if (mPathFinder.isPathConstructed() && !mPathFinder.getPath().empty())
                 pathEnd = mPathFinder.getPath().back();
-            const float endShortHoriz = std::sqrt((rawEnd.x() - pathEnd.x()) * (rawEnd.x() - pathEnd.x())
-                + (rawEnd.y() - pathEnd.y()) * (rawEnd.y() - pathEnd.y()));
             Log(Debug::Warning) << "[a11y] autowalk repath: agentHalfExtents=(" << bounds.mHalfExtents.x() << ","
                                 << bounds.mHalfExtents.y() << "," << bounds.mHalfExtents.z()
                                 << ") shapeType=" << static_cast<int>(bounds.mShapeType)
                                 << " start=(" << start.x() << "," << start.y() << "," << start.z() << ")"
                                 << " rawEnd=(" << rawEnd.x() << "," << rawEnd.y() << "," << rawEnd.z() << ")"
                                 << " snappedOk=" << snappedOk << " navPathOk=" << navPathOk
-                                << " pathSize=" << mPathFinder.getPathSize() << " pathEnd=(" << pathEnd.x() << ","
-                                << pathEnd.y() << "," << pathEnd.z() << ") endShortOfTarget=" << endShortHoriz;
+                                << " navShortfall=" << navShortfall << " usedPathgrid=" << usedPathgrid
+                                << " pgShortfall=" << pgShortfall << " pathSize=" << mPathFinder.getPathSize()
+                                << " pathEnd=(" << pathEnd.x() << "," << pathEnd.y() << "," << pathEnd.z() << ")";
         }
 
         warnRouteHazards();
