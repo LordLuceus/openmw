@@ -100,3 +100,4 @@ reconfigure_dev.bat
 run_prebuild.sh
 build_patch.bat
 package_beta.bat
+build_esmtool.bat
