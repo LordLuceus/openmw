@@ -64,10 +64,11 @@ touch or overwrite your existing OpenMW progress.
 
 **The scanner.** The world around you is grouped into categories (actors, doors,
 containers, items, and so on). You pick a category, then cycle through the
-objects in it nearest-first. In a multi-storey building the list is grouped by
-floor — everything on your current level first, then the next nearest level —
+objects in it nearest-first. Inside a multi-storey building the list is grouped
+by floor — everything on your current level first, then the next nearest level —
 so you can sweep one storey before moving on instead of being sent up and down
-stairs. The currently selected object is your *target*.
+stairs. (Outdoors it stays plain nearest-first.) The currently selected object
+is your *target*.
 
 **The target.** Almost everything you do — facing it, walking to it, activating
 it, attacking it — acts on the currently selected target, so you never need to

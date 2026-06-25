@@ -6,16 +6,18 @@ Newest changes are listed first. (OpenMW's own engine changelog lives in
 
 ## 2026-06-24
 
-- **Changed: the scanner now groups things by floor in multi-level buildings.**
-  In a building with several storeys, cycling the scanner used to mix floors
-  together by raw distance, so walking down the list could send you up and down
-  stairs over and over. The scanner now keeps each level together: it lists
-  everything on your current floor first (nearest first), then the next nearest
-  floor, and so on — so you can sweep one storey, then move to the next, instead
-  of bouncing between them. This applies to all the in-world categories (people,
-  doors, containers, items, activators) and to your map-note waypoints. Distances
-  within a floor are unchanged, and announcements still tell you how far up or
-  down something is when it's on a different level. (Global map Locations are
+- **Changed: the scanner now groups things by floor inside multi-level
+  buildings.** In an interior with several storeys, cycling the scanner used to
+  mix floors together by raw distance, so walking down the list could send you up
+  and down stairs over and over. Indoors the scanner now keeps each level
+  together: it lists everything on your current floor first (nearest first), then
+  the next nearest floor, and so on — so you can sweep one storey, then move to
+  the next, instead of bouncing between them. This applies to all the in-world
+  categories (people, doors, containers, items, activators) and to your map-note
+  waypoints. Distances within a floor are unchanged, and announcements still tell
+  you how far up or down something is when it's on a different level. Outdoors the
+  list stays plain nearest-first, since open terrain has no real storeys to group
+  by and grouping there would only scramble the order. (Global map Locations are
   unaffected, since those are whole towns rather than spots in one building.)
 
 - **Fixed: auto-walk no longer falsely says "Arrived" beneath an overhead

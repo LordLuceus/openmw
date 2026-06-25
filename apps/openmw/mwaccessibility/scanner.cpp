@@ -2653,12 +2653,20 @@ namespace MWAccessibility
     }
 
     void Scanner::sortObjectsByLevelThenDistance(
-        std::vector<MWWorld::Ptr>& objects, const osg::Vec3f& playerPos)
+        std::vector<MWWorld::Ptr>& objects, const osg::Vec3f& playerPos, bool levelGrouped)
     {
         std::sort(objects.begin(), objects.end(),
-            [&playerPos](const MWWorld::Ptr& a, const MWWorld::Ptr& b) {
+            [&playerPos, levelGrouped](const MWWorld::Ptr& a, const MWWorld::Ptr& b) {
                 const osg::Vec3f pa = a.getRefData().getPosition().asVec3();
                 const osg::Vec3f pb = b.getRefData().getPosition().asVec3();
+                // Outside (exterior worldspace), floor-banding is meaningless --
+                // terrain height varies continuously, so there are no discrete
+                // storeys to group by and banding just scrambles the honest
+                // nearest-first order (e.g. something slightly uphill jumps the
+                // queue). Fall back to plain 3D distance there; only interiors,
+                // where the player asked for it, get the level grouping.
+                if (!levelGrouped)
+                    return (pa - playerPos).length2() < (pb - playerPos).length2();
                 // Horizontal (x,y) squared distance -- vertical is handled by the
                 // level grouping, not folded into the in-level distance.
                 const float aHoriz2 = (pa.x() - playerPos.x()) * (pa.x() - playerPos.x())
@@ -2752,7 +2760,9 @@ namespace MWAccessibility
             }
 
             osg::Vec3f pp = player.getRefData().getPosition().asVec3();
-            sortObjectsByLevelThenDistance(state.mObjects, pp);
+            // Floor-grouping only indoors (see sortObjectsByLevelThenDistance).
+            const bool levelGrouped = player.getCell() && !player.getCell()->isExterior();
+            sortObjectsByLevelThenDistance(state.mObjects, pp, levelGrouped);
 
             if (state.mSelectedRef.isSet())
             {
@@ -2844,7 +2854,9 @@ namespace MWAccessibility
         }
 
         osg::Vec3f pp = player.getRefData().getPosition().asVec3();
-        sortObjectsByLevelThenDistance(state.mObjects, pp);
+        // Floor-grouping only indoors (see sortObjectsByLevelThenDistance).
+        const bool levelGrouped = player.getCell() && !player.getCell()->isExterior();
+        sortObjectsByLevelThenDistance(state.mObjects, pp, levelGrouped);
 
         // Re-pin the selection onto the same physical object it was on before
         // this rebuild (matched by stable RefNum), so crossing a cell boundary
@@ -3191,11 +3203,19 @@ namespace MWAccessibility
         // Reachable waypoints first (nearest-first within that group, matching
         // the object categories' distance sort); unreachable ones after, by
         // name, since distance is meaningless for them.
-        std::sort(out.begin(), out.end(), [&playerPos](const Waypoint& a, const Waypoint& b) {
+        // Floor-grouping only indoors: a reachable note is in the player's own
+        // worldspace, so if that's an interior its notes share its storeys;
+        // outdoors fall back to plain nearest-first (no discrete floors).
+        const bool levelGrouped = !cellStore->isExterior();
+        std::sort(out.begin(), out.end(), [&playerPos, levelGrouped](const Waypoint& a, const Waypoint& b) {
             if (a.mReachable != b.mReachable)
                 return a.mReachable; // reachable sorts before unreachable
             if (a.mReachable)
-                return lessWaypointByLevelThenDistance(a, b, playerPos);
+            {
+                if (levelGrouped)
+                    return lessWaypointByLevelThenDistance(a, b, playerPos);
+                return (a.mPosition - playerPos).length2() < (b.mPosition - playerPos).length2();
+            }
             return a.mName < b.mName;
         });
     }
