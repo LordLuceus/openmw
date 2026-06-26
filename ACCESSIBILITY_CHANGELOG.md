@@ -6,6 +6,12 @@ Newest changes are listed first. (OpenMW's own engine changelog lives in
 
 ## 2026-06-26
 
+- **Added: the jail screen now tells you your sentence.** When you're sent to
+  prison, the screen reader announces it (for example "Prison. Serving 5 days.")
+  instead of leaving you with a silent, sightless wait. The list of skills that
+  went up or down while you were locked up is already read out at the end as
+  usual.
+
 - **Fixed: a crash to desktop when closing an accessible menu** (seen on Cancel in
   the Recharge window, but the bug was general to every accessible menu). When a
   menu closed, the screen reader tried to hand keyboard focus back to whatever

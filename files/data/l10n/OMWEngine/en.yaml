@@ -130,6 +130,13 @@ GammaLight: "Light"
 GmstOverridesL10n: "Strings From ESM Files Have Priority"
 InvertXAxis: "Invert X Axis"
 InvertYAxis: "Invert Y Axis"
+# Screen-reader announcement spoken when the jail/prison progress screen opens.
+# {title} is the on-screen caption (sInPrisonTitle, e.g. "Prison").
+JailSentenceA11y: |-
+  {days, plural,
+    one{{title}. Serving {days} day.}
+    other{{title}. Serving {days} days.}
+  }
 Language: "Language"
 LanguageNote: "Note: these settings do not affect strings from ESM files."
 LightingMethod: "Lighting Method"

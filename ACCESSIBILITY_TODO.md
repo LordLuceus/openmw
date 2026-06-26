@@ -41,7 +41,10 @@ auto-walk, location announcements, and audio beacon (gameplay, not a screen).
 ### Progress / confirmation dialogs
 - [x] **Level up** (`GM_Levelup`) — attribute picks
 - [x] **Rest / wait** (`GM_Rest`, WaitDialog) — hour slider + progress bar
-- [ ] **Jail** (`GM_Jail`) — sentence / skill-loss screen
+- [x] **Jail** (`GM_Jail`) — non-interactive progress screen. Announces the
+      sentence up front ("Prison. Serving N days.") since the screen is otherwise
+      silent for a blind player; the end-of-sentence skill-change summary is
+      already spoken via the engine's interactive message box.
 
 ### Player-action UIs
 - [x] **Store items into containers** (`GM_Container`) — the loot window and the
