@@ -305,7 +305,18 @@ namespace MWGui::A11y
         // to the opener. This also repairs the engine's saved-focus memory,
         // which a blocking modal dialog (language/resolution confirm) corrupts
         // by overwriting it with our anchor.
+        //
+        // LIFETIME: this is a raw pointer to a widget we don't own, captured at
+        // activate() and dereferenced at deactivate(). That widget can be
+        // destroyed in between (e.g. a transient item-picker's button, or any
+        // volatile list widget that held focus when we opened). isEmpty-style
+        // visible/enabled guards do NOT detect freed memory, so we subscribe to
+        // its eventWidgetDestroyed and null mPreFocus the moment it dies --
+        // mirroring the EditField box-lifetime fix. setPreFocus() centralises
+        // hooking/unhooking so the subscription always matches the pointer.
         MyGUI::Widget* mPreFocus = nullptr;
+        void setPreFocus(MyGUI::Widget* widget);
+        void onPreFocusDestroyed(MyGUI::Widget* sender);
 
         // True while we've handed control to a native modal dialog
         // (confirmation / interactive message box). We re-enable engine

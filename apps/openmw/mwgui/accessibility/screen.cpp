@@ -37,6 +37,10 @@ namespace MWGui::A11y
 
     Screen::~Screen()
     {
+        // Unhook our destroy-tracking delegate from any still-live pre-focus
+        // widget, so it can't later fire into this freed Screen (the reverse
+        // dangling direction). setPreFocus(nullptr) does the clean -=.
+        setPreFocus(nullptr);
         UiManager::instance().clear(this);
     }
 
@@ -172,8 +176,10 @@ namespace MWGui::A11y
         // In virtual mode, pin real key focus to the anchor and keep it there.
         if (mVirtual && mAnchor)
         {
-            // Remember who had focus so we can hand it back on close.
-            mPreFocus = MyGUI::InputManager::getInstance().getKeyFocusWidget();
+            // Remember who had focus so we can hand it back on close. Tracked
+            // for destruction so a widget that dies before we close can't leave
+            // mPreFocus dangling (see setPreFocus / onPreFocusDestroyed).
+            setPreFocus(MyGUI::InputManager::getInstance().getKeyFocusWidget());
             mAnchor->setNeedKeyFocus(true);
             // Re-bind the key delegate fresh each activation. MyGUI throws
             // "Trying to add same delegate twice" if we += an identical
@@ -216,10 +222,12 @@ namespace MWGui::A11y
             // runs. Only skip if some *other* widget deliberately took focus.
             MyGUI::Widget* curFocus = MyGUI::InputManager::getInstance().getKeyFocusWidget();
             const bool focusFree = (curFocus == nullptr || curFocus == mAnchor);
+            // mPreFocus is null here if the remembered widget was destroyed while
+            // we were open (onPreFocusDestroyed cleared it), so this is safe.
             if (mPreFocus && mPreFocus->getInheritedVisible() && mPreFocus->getInheritedEnabled() && focusFree)
                 MWBase::Environment::get().getWindowManager()->setKeyFocusWidget(mPreFocus);
         }
-        mPreFocus = nullptr;
+        setPreFocus(nullptr);
         // Tear down all per-session state so reopening the screen starts fresh
         // (selection reset, hint cleared) and re-announces the first option.
         clear();
@@ -228,6 +236,29 @@ namespace MWGui::A11y
         // Drop any rereadable announcement so R can't repeat this screen's
         // content from an unrelated screen opened later.
         clearReread();
+    }
+
+    void Screen::setPreFocus(MyGUI::Widget* widget)
+    {
+        if (mPreFocus == widget)
+            return;
+        // Stop tracking the old widget (still alive here, so a clean -=).
+        if (mPreFocus)
+            mPreFocus->eventWidgetDestroyed -= MyGUI::newDelegate(this, &Screen::onPreFocusDestroyed);
+        mPreFocus = widget;
+        // Track the new one so we forget it the instant it's destroyed, instead
+        // of dereferencing freed memory in deactivate()'s focus-restore. Don't
+        // track the anchor itself (we own it; it outlives every activation).
+        if (mPreFocus && mPreFocus != mAnchor)
+            mPreFocus->eventWidgetDestroyed += MyGUI::newDelegate(this, &Screen::onPreFocusDestroyed);
+    }
+
+    void Screen::onPreFocusDestroyed(MyGUI::Widget* /*sender*/)
+    {
+        // The remembered widget is tearing down; its event objects are about to
+        // be freed. Just forget it -- do NOT -= (that would touch the dying
+        // delegates). deactivate() then safely skips the focus restore.
+        mPreFocus = nullptr;
     }
 
     void Screen::suspend()

@@ -6,6 +6,15 @@ Newest changes are listed first. (OpenMW's own engine changelog lives in
 
 ## 2026-06-26
 
+- **Fixed: a crash to desktop when closing an accessible menu** (seen on Cancel in
+  the Recharge window, but the bug was general to every accessible menu). When a
+  menu closed, the screen reader tried to hand keyboard focus back to whatever
+  had it before the menu opened — but if that thing had since disappeared (for
+  example a temporary picker shown while you were in the menu), the game followed
+  a stale reference into freed memory and crashed. The reader now notices the
+  moment such a widget goes away and simply skips the hand-back, so closing a
+  menu is safe.
+
 - **Added: the Recharge window is now screen-reader accessible.** Recharging an
   enchanted item with a filled soul gem was previously unusable without sight.
   The window now reads as a simple list you arrow through: first the soul gem
