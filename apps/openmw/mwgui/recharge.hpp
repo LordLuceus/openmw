@@ -5,6 +5,8 @@
 
 #include "windowbase.hpp"
 
+#include "accessibility/screen.hpp"
+
 namespace MWWorld
 {
     class Ptr;
@@ -23,6 +25,8 @@ namespace MWGui
         Recharge();
 
         void onOpen() override;
+        void onClose() override;
+        void onFrame(float dt) override;
 
         void setPtr(const MWWorld::Ptr& gem) override;
 
@@ -53,6 +57,16 @@ namespace MWGui
         void onMouseWheel(MyGUI::Widget* sender, int rel);
 
         bool onControllerButtonEvent(const SDL_ControllerButtonEvent& arg) override;
+
+        // Screen-reader controller. Virtual focus via an invisible anchor. The
+        // option list is: the soul gem (Enter opens the gem picker), then each
+        // rechargeable enchanted item (Enter recharges it with the current gem),
+        // then Cancel. Rebuilt by buildAccessibility() whenever the view changes.
+        A11y::Screen mA11y;
+        MyGUI::Widget* mA11yAnchor = nullptr;
+        void buildAccessibility();
+        // Re-read the current option after a recharge, keeping cursor position.
+        void a11yRebuildKeepingCursor();
     };
 
 }

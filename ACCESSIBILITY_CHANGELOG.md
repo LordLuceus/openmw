@@ -6,6 +6,15 @@ Newest changes are listed first. (OpenMW's own engine changelog lives in
 
 ## 2026-06-26
 
+- **Added: the Recharge window is now screen-reader accessible.** Recharging an
+  enchanted item with a filled soul gem was previously unusable without sight.
+  The window now reads as a simple list you arrow through: first the soul gem
+  (with its soul and value; press Enter to pick a different filled gem), then each
+  of your rechargeable enchanted items — each announced with its name and current
+  / maximum charge, with the full enchantment detail on the T key — and finally
+  Cancel. Press Enter on an item to recharge it with the chosen gem; on success
+  you hear the item's new charge read back, so you know it took.
+
 - **Added: hear your height above ground or depth underwater (Shift + L), and a
   tidier orientation layout.** When you're flying with Levitation or diving while
   swimming, you previously had no way to tell how high up or how deep you were.
