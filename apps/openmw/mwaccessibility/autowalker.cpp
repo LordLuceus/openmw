@@ -1251,15 +1251,29 @@ namespace MWAccessibility
         // a truly wedged body stops moving (caught by the physical-wedge timer)
         // or loops in place (caught by the oscillation check); this backstop only
         // fires when we are neither consuming the route NOR nearing the goal.
+        // CRUCIAL: each "best" is snapped down to the current value ONLY when the
+        // current value beats it by a full kProgressEpsilon -- i.e. on a discrete
+        // progress EVENT -- never every frame. If we instead ratcheted the best
+        // to the current value every frame, the best would always sit within one
+        // frame's travel of the current value, so "current < best - epsilon"
+        // could never become true while moving smoothly: at running speed (~250
+        // u/s) a 60 fps frame advances only ~4 units, under the 8-unit epsilon,
+        // so the timer would climb to the give-up threshold even as we bee-line
+        // at full speed toward the goal (the false-stuck-at-a-fixed-distance bug).
+        // Holding the best still between events lets that 8-unit margin actually
+        // accumulate over a couple of frames, firing a reset roughly continuously.
         const float pathRemaining = remainingPathLength();
-        const bool madeProgress = (pathRemaining < mBestPathRemaining - kProgressEpsilon)
-            || (horizDist < mBestDistToGoal - kProgressEpsilon);
-        // Ratchet both bests down to their all-time minima (these also feed the
-        // closest-approach distance reported when we genuinely stop short).
-        if (horizDist < mBestDistToGoal)
-            mBestDistToGoal = horizDist;
-        if (pathRemaining < mBestPathRemaining)
+        bool madeProgress = false;
+        if (pathRemaining < mBestPathRemaining - kProgressEpsilon)
+        {
             mBestPathRemaining = pathRemaining;
+            madeProgress = true;
+        }
+        if (horizDist < mBestDistToGoal - kProgressEpsilon)
+        {
+            mBestDistToGoal = horizDist;
+            madeProgress = true;
+        }
         if (madeProgress)
         {
             mTimeSinceProgress = 0.0f;
