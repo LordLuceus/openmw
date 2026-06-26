@@ -134,6 +134,8 @@ combat.
 | **Ctrl + Left / Right** | Snap your facing to the previous / next compass point |
 | **Ctrl + Down** | Turn around 180 degrees |
 | **Ctrl + Up** | Direction filter: narrow the scanner to only what lies the way you're facing (see Scanning and targets) |
+| **Shift + Up / Down** | Aim your view up / down a step. Cycles five fixed stops — straight up, up, level, down, straight down — and says where you're aimed. Use it to fly up or down with Levitation, or to surface / dive while swimming |
+| **Shift + Home** | Snap your view back to level (horizontal) |
 | **N** | Drop a named map note (waypoint) at your current position |
 
 ### The accessible HUD

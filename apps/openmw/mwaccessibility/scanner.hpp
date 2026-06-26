@@ -302,6 +302,17 @@ namespace MWAccessibility
         void snapToDirection(bool clockwise);
         // Turn the player 180 degrees (Ctrl+S), announcing the new facing.
         void turnAround();
+        // Aim the player's view up or down by snapping the PITCH to the next of
+        // five fixed stops -- straight up, up (45 deg), level, down (45 deg),
+        // straight down -- in the chosen direction (Shift+Up = aim higher,
+        // Shift+Down = aim lower). Announces the stop by name. This is the only
+        // way to pitch the view without a mouse, needed to fly with Levitation or
+        // dive/surface while swimming. Yaw and roll are preserved.
+        void aimPitch(bool up);
+        // Snap the player's view back to level (horizontal) from any pitch,
+        // announcing "Level". A one-press reset bound to Shift+Home, handy after
+        // ascending or descending. Yaw and roll are preserved.
+        void levelPitch();
 
         // Toggle the direction filter (Ctrl+Up). When engaged, every category is
         // restricted to objects whose absolute compass bearing matches the way

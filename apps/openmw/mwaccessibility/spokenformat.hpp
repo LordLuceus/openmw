@@ -17,6 +17,9 @@ namespace MWAccessibility
 
     // Pi. Shared by compassLabel and the scanner's yaw-normalisation maths.
     inline constexpr float kPi = 3.14159265358979323846f;
+    // Half pi (90 degrees). The engine clamps player pitch (rot[0]) to +/- this;
+    // shared by the scanner's pitch-aim stops.
+    inline constexpr float kHalfPi = kPi / 2.f;
 
     // Spoken distance, e.g. "4.2 metres" (one decimal under 10 m) or "23 metres"
     // (rounded to a whole number at or above 10 m). \p units is a distance in

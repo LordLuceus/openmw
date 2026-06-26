@@ -6,6 +6,15 @@ Newest changes are listed first. (OpenMW's own engine changelog lives in
 
 ## 2026-06-26
 
+- **Added: aim your view up and down without a mouse (Shift + Up / Down).** Until
+  now there was no way to look up or down, because that normally needs the mouse —
+  so flying straight up with Levitation, or diving and surfacing while swimming,
+  wasn't really possible. **Shift + Up** aims higher and **Shift + Down** aims
+  lower, snapping through five fixed stops — straight up, up, level, down, straight
+  down — and announcing where you're now pointed each time. With Levitation, aim up
+  and walk forward to rise (down to descend); in water, the same aims you up to
+  surface or down to dive. **Shift + Home** snaps you straight back to level.
+
 - **Changed: auto-walk now opens only safe doors, and stops instead of grinding
   against ones it can't.** Auto-walk opens an ordinary closed door in your way,
   but it used to be unaware of three kinds it should not just shove open. Now if

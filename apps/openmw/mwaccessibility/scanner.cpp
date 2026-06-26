@@ -7,6 +7,7 @@
 #include <SDL_scancode.h>
 
 #include <algorithm>
+#include <array>
 #include <cctype>
 #include <cmath>
 #include <cstdio>
@@ -120,7 +121,8 @@ namespace
     // Pi and Morrowind-units-per-metre live in spokenformat.hpp alongside the
     // pure distance/elevation/compass helpers (kept engine-free so they're
     // unit-testable); reused here for the spellcast-range and yaw maths.
-    using MWAccessibility::kPi;
+    using MWAccessibility::kHalfPi;
+using MWAccessibility::kPi;
     using MWAccessibility::kUnitsPerMetre;
 
     // How often (seconds) to silently rebuild the Actors list so combat state
@@ -1087,7 +1089,13 @@ namespace MWAccessibility
                     focusCamera();
                 return true;
             case SDL_SCANCODE_HOME:
-                repeatAnnouncement();
+                // Shift+Home snaps the view back to level (horizontal) from any
+                // pitch -- a quick reset after flying/diving. Plain Home repeats
+                // the last announcement.
+                if (shift && !ctrl && !alt)
+                    levelPitch();
+                else
+                    repeatAnnouncement();
                 return true;
             case SDL_SCANCODE_L:
                 // L announces the player's location (cell name); Shift+L
@@ -1173,12 +1181,26 @@ namespace MWAccessibility
                     toggleDirectionFilter();
                     return true;
                 }
+                // Shift+Up aims the view higher (snap pitch to the next stop up),
+                // for flying up with Levitation or surfacing while swimming.
+                if (shift && !ctrl && !alt)
+                {
+                    aimPitch(/*up=*/true);
+                    return true;
+                }
                 return false;
             case SDL_SCANCODE_DOWN:
                 // Ctrl+Down turns the player 180 degrees.
                 if (ctrl && !shift && !alt)
                 {
                     turnAround();
+                    return true;
+                }
+                // Shift+Down aims the view lower (snap pitch to the next stop
+                // down), for descending with Levitation or diving while swimming.
+                if (shift && !ctrl && !alt)
+                {
+                    aimPitch(/*up=*/false);
                     return true;
                 }
                 return false;
@@ -2418,6 +2440,91 @@ namespace MWAccessibility
         float yaw = pos.rot[2] + kPi;
         world->rotateObject(player, osg::Vec3f(pos.rot[0], pos.rot[1], yaw), MWBase::RotationFlag_none);
         speak(std::string("Facing ") + compassLabel(yaw) + ".");
+    }
+
+    // The five fixed pitch stops, in ascending rot[0] order (engine convention:
+    // rot[0] is pitch, NEGATIVE = looking up, POSITIVE = looking down, clamped by
+    // the engine to +/- PI/2). Listed lowest-angle-value (straight up) to highest
+    // (straight down) so a simple index +/- 1 walks them in screen-space order:
+    // Shift+Up (aim higher) moves toward index 0, Shift+Down toward index 4.
+    namespace
+    {
+        struct PitchStop
+        {
+            float angle;
+            const char* label;
+        };
+        // Spacing is PI/4 (45 deg). Keep in this exact order/!count; aimPitch and
+        // levelPitch index into it.
+        constexpr std::array<PitchStop, 5> kPitchStops = { {
+            { -kHalfPi, "Straight up" },
+            { -kHalfPi / 2.f, "Up" },
+            { 0.f, "Level" },
+            { kHalfPi / 2.f, "Down" },
+            { kHalfPi, "Straight down" },
+        } };
+    }
+
+    void Scanner::aimPitch(bool up)
+    {
+        MWBase::World* world = MWBase::Environment::get().getWorld();
+        MWWorld::Ptr player = world->getPlayerPtr();
+        if (player.isEmpty())
+            return;
+
+        const auto& pos = player.getRefData().getPosition();
+        const float pitch = pos.rot[0];
+
+        // Find the next stop in the requested direction. "Up" means a more
+        // negative pitch (lower index); "down" a more positive one (higher
+        // index). A small tolerance means that being essentially ON a stop
+        // advances a full step rather than re-selecting the same one (mirrors the
+        // snapToDirection ring logic). When already at the extreme, hold there and
+        // still announce it, so the player gets feedback rather than silence.
+        constexpr float tol = 1e-3f;
+        int idx;
+        if (up)
+        {
+            // Largest stop strictly below the current pitch (minus tolerance).
+            idx = 0;
+            for (int i = static_cast<int>(kPitchStops.size()) - 1; i >= 0; --i)
+            {
+                if (kPitchStops[i].angle < pitch - tol)
+                {
+                    idx = i;
+                    break;
+                }
+            }
+        }
+        else
+        {
+            // Smallest stop strictly above the current pitch (plus tolerance).
+            idx = static_cast<int>(kPitchStops.size()) - 1;
+            for (int i = 0; i < static_cast<int>(kPitchStops.size()); ++i)
+            {
+                if (kPitchStops[i].angle > pitch + tol)
+                {
+                    idx = i;
+                    break;
+                }
+            }
+        }
+
+        world->rotateObject(
+            player, osg::Vec3f(kPitchStops[idx].angle, pos.rot[1], pos.rot[2]), MWBase::RotationFlag_none);
+        speak(std::string(kPitchStops[idx].label) + ".");
+    }
+
+    void Scanner::levelPitch()
+    {
+        MWBase::World* world = MWBase::Environment::get().getWorld();
+        MWWorld::Ptr player = world->getPlayerPtr();
+        if (player.isEmpty())
+            return;
+
+        const auto& pos = player.getRefData().getPosition();
+        world->rotateObject(player, osg::Vec3f(0.f, pos.rot[1], pos.rot[2]), MWBase::RotationFlag_none);
+        speak("Level.");
     }
 
     void Scanner::toggleDirectionFilter()
