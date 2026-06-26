@@ -6,6 +6,17 @@ Newest changes are listed first. (OpenMW's own engine changelog lives in
 
 ## 2026-06-26
 
+- **Changed: auto-walk now opens only safe doors, and stops instead of grinding
+  against ones it can't.** Auto-walk opens an ordinary closed door in your way,
+  but it used to be unaware of three kinds it should not just shove open. Now if
+  the door across your path is **trapped**, it stops and says so rather than
+  springing the trap on you (which could be deadly). If it's **locked**, it stops
+  and tells you, instead of spinning in place trying to wiggle through a door that
+  will never open. And if it's a **door to another area** (a load door), it stops
+  and says it leads elsewhere rather than potentially carrying you somewhere you
+  didn't choose to go. In every case you get a clear spoken reason; deal with the
+  door (disarm, unlock, or step through yourself) and start auto-walk again.
+
 - **Fixed: auto-walk no longer gives up partway to far-off outdoor targets.**
   Walking to something a long way off across open country (say a hut a hundred-
   plus metres away), auto-walk would sometimes stop after about ten seconds and

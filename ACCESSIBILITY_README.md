@@ -165,7 +165,11 @@ Open the console with the default `` ` `` or `~` key. Typing and output are spok
 
 Auto-walk steers you to your selected target, routing around walls and other
 obstacles, opening ordinary closed doors in your way, and warning you up front
-about hazards (deep water, steep drops) on long cross-country routes.
+about hazards (deep water, steep drops) on long cross-country routes. It opens
+only safe doors: if a door across your path is **locked**, **trapped**, or a
+**doorway to another area**, auto-walk stops and tells you which, rather than
+forcing it — so it never springs a trap on you or teleports you somewhere you
+didn't choose. Unlock or disarm it (or step through yourself) and walk on.
 
 - **Start it** with **Shift + Enter** on a target.
 - **Cancel it** by pressing any of your movement keys, or by selecting a new

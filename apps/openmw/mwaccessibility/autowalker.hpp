@@ -47,6 +47,14 @@ namespace MWAccessibility
         const std::string& targetName() const { return mTargetName; }
 
     private:
+        // Outcome of probing for a closed door across the path (tryOpenBlockingDoor).
+        enum class DoorProbe
+        {
+            None, // no closed door ahead -- caller continues its normal escalation
+            Opened, // opened a safe, closed, in-cell, unlocked, untrapped door -- keep walking
+            Blocked, // a door is ahead we must NOT open (locked / trapped / teleport) -- stop the walk
+        };
+
         bool rebuildPath();
         // Reset all progress / stuck / recovery state for a fresh walk.
         void resetProgress();
@@ -85,14 +93,21 @@ namespace MWAccessibility
         // open it and keep walking. The navmesh routes THROUGH doors (the player
         // agent has Flag_openDoor), assuming they'll be opened -- but nothing in
         // auto-walk actuated them, so the player just wedged against a shut door.
-        // Scoped to in-cell (NON-teleport) doors only: a teleport door leads to
-        // another cell, and silently walking the player through it would yank
-        // them somewhere they didn't choose to go. Locked doors are left shut
-        // too (we can't pick them mid-walk; the give-up report handles it).
-        // Returns true if it opened a door (caller should refresh budgets and
-        // keep walking); false if nothing openable is ahead. \p yaw is the
-        // player's current facing.
-        bool tryOpenBlockingDoor(const MWWorld::Ptr& player, const osg::Vec3f& playerPos, float yaw);
+        // We only ever OPEN a door that is closed, in-cell (non-teleport),
+        // unlocked, and UNTRAPPED. The other cases are reported and stop the walk
+        // rather than being forced:
+        //   - teleport door: walking the player through would yank them into a
+        //     cell they didn't choose to enter;
+        //   - locked door: we can't pick it mid-walk, and grinding against it just
+        //     spun the recovery wiggle pointlessly;
+        //   - TRAPPED door: actuating it would spring the trap on the player --
+        //     potentially lethal -- so we must never auto-open it.
+        // Returns DoorProbe::Opened (door opened; caller refreshes budgets and
+        // keeps walking), DoorProbe::Blocked (a door we must not open is in the
+        // way; caller announces via the give-up path and stops), or
+        // DoorProbe::None (no closed door ahead; caller continues as before).
+        // \p yaw is the player's current facing.
+        DoorProbe tryOpenBlockingDoor(const MWWorld::Ptr& player, const osg::Vec3f& playerPos, float yaw);
         // Handle a give-up condition. Probes ahead for a blocking NPC: if one is
         // found and we're not already phasing, disables that NPC's collision so
         // the player slips past, announces "X is blocking the way. Moving past.",

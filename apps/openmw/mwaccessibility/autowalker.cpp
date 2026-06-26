@@ -406,13 +406,13 @@ namespace MWAccessibility
         return MWWorld::Ptr();
     }
 
-    bool AutoWalker::tryOpenBlockingDoor(
+    AutoWalker::DoorProbe AutoWalker::tryOpenBlockingDoor(
         const MWWorld::Ptr& player, const osg::Vec3f& playerPos, float yaw)
     {
         MWBase::World* world = MWBase::Environment::get().getWorld();
         const MWPhysics::RayCastingInterface* rayCasting = world ? world->getRayCasting() : nullptr;
         if (!rayCasting)
-            return false;
+            return DoorProbe::None;
 
         // Cast straight ahead from chest height, hit-testing ONLY doors.
         const osg::Vec3f forward(std::sin(yaw), std::cos(yaw), 0.0f);
@@ -422,37 +422,63 @@ namespace MWAccessibility
         const MWPhysics::RayCastingResult res
             = rayCasting->castRay(chest, to, ignore, {}, MWPhysics::CollisionType_Door);
         if (!res.mHit || res.mHitObject.isEmpty())
-            return false;
+            return DoorProbe::None;
 
         MWWorld::Ptr door = res.mHitObject;
         if (door.getType() != ESM::Door::sRecordId)
-            return false;
-
-        // Only in-cell doors: a teleport door would yank the player into another
-        // cell they didn't choose to enter. Locked doors stay shut (we can't
-        // pick them here). Both cases fall through to the normal give-up report.
-        if (door.getCellRef().getTeleport() || door.getCellRef().isLocked())
-            return false;
+            return DoorProbe::None;
 
         // Already open / opening? Then it isn't what's blocking us -- don't
-        // toggle it shut. A closed idle door has its current rotation equal to
-        // its authored (cellref) rotation; any divergence means it's swung open.
+        // toggle it shut, and don't treat it as an obstacle. A closed idle door
+        // has its current rotation equal to its authored (cellref) rotation; any
+        // divergence means it's swung open. (Checked BEFORE the lock/trap gates:
+        // an already-open door isn't in our way regardless of its flags.)
         if (door.getClass().getDoorState(door) != MWWorld::DoorState::Idle)
-            return false;
+            return DoorProbe::None;
         const float doorRot
             = door.getRefData().getPosition().rot[2] - door.getCellRef().getPosition().rot[2];
         if (doorRot != 0.0f)
-            return false; // open and idle: not our blocker
+            return DoorProbe::None; // open and idle: not our blocker
 
-        // Open it via the normal activation path (Lua objectActivated ->
-        // Door::activate -> ActionDoor) rather than World::activateDoor directly:
-        // that path also plays the open SOUND and runs the proper door semantics
-        // (calling activateDoor straight just rotates it silently). We've already
-        // gated to a CLOSED, unlocked, in-cell door, so toggling it = opening it.
-        MWBase::Environment::get().getLuaManager()->objectActivated(door, player);
         const std::string doorName = std::string(door.getClass().getName(door));
+        const std::string spoken = doorName.empty() ? std::string("the door") : doorName;
+
+        // A closed door is squarely across the path. Decide whether it's safe to
+        // open. The unsafe cases STOP the walk (DoorProbe::Blocked) with an honest
+        // reason rather than grinding the recovery wiggle into it forever.
+        //
+        //  - TRAPPED: actuating the door springs its trap on the player, which can
+        //    be lethal. We must never auto-open it -- the player has to disarm or
+        //    knowingly trigger it themselves. Checked FIRST: a trap is the most
+        //    dangerous property and a door can be both trapped and locked.
+        if (!door.getCellRef().getTrap().empty())
+        {
+            speakQueued(spoken + " is trapped. Stopping.");
+            return DoorProbe::Blocked;
+        }
+        //  - LOCKED: we can't pick it mid-walk. Say so once and stop, instead of
+        //    spinning recovery sidesteps against a door that will never give.
+        if (door.getCellRef().isLocked())
+        {
+            speakQueued(spoken + " is locked. Stopping.");
+            return DoorProbe::Blocked;
+        }
+        //  - TELEPORT: leads to another cell; silently walking the player through
+        //    would teleport them somewhere they didn't choose to go.
+        if (door.getCellRef().getTeleport())
+        {
+            speakQueued(spoken + " leads elsewhere. Stopping.");
+            return DoorProbe::Blocked;
+        }
+
+        // Safe: closed, idle, in-cell, unlocked, untrapped. Open it via the
+        // normal activation path (Lua objectActivated -> Door::activate ->
+        // ActionDoor) rather than World::activateDoor directly: that path also
+        // plays the open SOUND and runs the proper door semantics (calling
+        // activateDoor straight just rotates it silently).
+        MWBase::Environment::get().getLuaManager()->objectActivated(door, player);
         speakQueued((doorName.empty() ? std::string("A door") : doorName) + ". Opening.");
-        return true;
+        return DoorProbe::Opened;
     }
 
     bool AutoWalker::handleGiveUp(
@@ -1316,7 +1342,15 @@ namespace MWAccessibility
             // physical wedge -- try the door/blocker/recovery escalation, and if
             // that's exhausted, give up honestly rather than circle in silence.
             const float oscYaw = player.getRefData().getPosition().rot[2];
-            if (tryOpenBlockingDoor(player, playerPos, oscYaw))
+            const DoorProbe oscDoor = tryOpenBlockingDoor(player, playerPos, oscYaw);
+            if (oscDoor == DoorProbe::Blocked)
+            {
+                // Locked / trapped / teleport door across the path: it already
+                // announced why. Stop here rather than circle against it.
+                cancel();
+                return;
+            }
+            if (oscDoor == DoorProbe::Opened)
             {
                 mTimeSinceMove = 0.0f;
                 mTimeSinceProgress = 0.0f;
@@ -1368,7 +1402,13 @@ namespace MWAccessibility
             // shut door stalls progress just like a wall. If we open one, refresh
             // the budgets and let normal steering carry us through.
             const float doorYaw = player.getRefData().getPosition().rot[2];
-            if (tryOpenBlockingDoor(player, playerPos, doorYaw))
+            const DoorProbe progressDoor = tryOpenBlockingDoor(player, playerPos, doorYaw);
+            if (progressDoor == DoorProbe::Blocked)
+            {
+                cancel(); // locked / trapped / teleport: already announced, stop
+                return;
+            }
+            if (progressDoor == DoorProbe::Opened)
             {
                 mTimeSinceMove = 0.0f;
                 mTimeSinceProgress = 0.0f;
@@ -1400,7 +1440,13 @@ namespace MWAccessibility
             // the walk a fresh budget and let normal steering carry us through
             // the now-swinging doorway -- no wiggle needed.
             const float doorYaw = player.getRefData().getPosition().rot[2];
-            if (tryOpenBlockingDoor(player, playerPos, doorYaw))
+            const DoorProbe wedgeDoor = tryOpenBlockingDoor(player, playerPos, doorYaw);
+            if (wedgeDoor == DoorProbe::Blocked)
+            {
+                cancel(); // locked / trapped / teleport: already announced, stop
+                return;
+            }
+            if (wedgeDoor == DoorProbe::Opened)
             {
                 mTimeSinceMove = 0.0f;
                 mTimeSinceProgress = 0.0f;
