@@ -6,6 +6,16 @@ Newest changes are listed first. (OpenMW's own engine changelog lives in
 
 ## 2026-06-26
 
+- **Added: hear your height above ground or depth underwater (Shift + L), and a
+  tidier orientation layout.** When you're flying with Levitation or diving while
+  swimming, you previously had no way to tell how high up or how deep you were.
+  **Shift + L** now says it: "12 metres above ground" while airborne, "3 metres
+  underwater" while submerged, or "On the ground" when you've landed. To make room
+  (and to keep things memorable), the orientation keys now follow one rule —
+  **Ctrl is horizontal, Shift is vertical** — on both the arrow keys and L. So
+  "which way am I facing?" moves from Shift + L to **Ctrl + L**, leaving Shift + L
+  for the new up/down readout.
+
 - **Added: aim your view up and down without a mouse (Shift + Up / Down).** Until
   now there was no way to look up or down, because that normally needs the mouse —
   so flying straight up with Levitation, or diving and surfacing while swimming,

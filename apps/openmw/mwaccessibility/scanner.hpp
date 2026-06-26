@@ -292,9 +292,17 @@ namespace MWAccessibility
         // Neen, Census and Excise Office". A quick orientation aid bound to L.
         void announceLocation();
         // Announce the player's current facing as an absolute compass point
-        // (e.g. "Facing northeast"). A quick orientation aid bound to Shift+L,
+        // (e.g. "Facing northeast"). A quick orientation aid bound to Ctrl+L,
         // complementing L (where am I) with which-way-am-I-looking.
         void announceFacing();
+        // Announce the player's VERTICAL position: how high above the ground they
+        // are (e.g. "12 metres above ground" while levitating), or how deep below
+        // the water surface (e.g. "3 metres underwater" while diving), or "On the
+        // ground" when grounded. The vertical companion to announceFacing's
+        // horizontal heading; bound to Shift+L (Ctrl=horizontal / Shift=vertical,
+        // matching the arrow-key cluster). Needed because flying/diving without a
+        // mouse gives no other sense of altitude or depth.
+        void announceHeight();
         // Snap the player's facing to the previous/next of the eight compass
         // points (Ctrl+A = counter-clockwise, Ctrl+D = clockwise). Levels the
         // pitch and announces the new heading. A keyboard-friendly way to aim

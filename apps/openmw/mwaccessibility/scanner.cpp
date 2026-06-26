@@ -1098,12 +1098,19 @@ namespace MWAccessibility
                     repeatAnnouncement();
                 return true;
             case SDL_SCANCODE_L:
-                // L announces the player's location (cell name); Shift+L
-                // announces which way they're facing (compass point).
-                if (shift)
+                // L announces the player's location (cell name). The modified
+                // variants mirror the Ctrl=horizontal / Shift=vertical split of
+                // the arrow keys: Ctrl+L announces which way you're facing
+                // (compass point -- a horizontal heading), Shift+L announces your
+                // height above the ground / depth below the water (vertical).
+                if (ctrl && !shift && !alt)
                     announceFacing();
-                else
+                else if (shift && !ctrl && !alt)
+                    announceHeight();
+                else if (!ctrl && !shift && !alt)
                     announceLocation();
+                else
+                    return false;
                 return true;
             case SDL_SCANCODE_SLASH:
                 // Open the search prompt to filter the current category by
@@ -2385,6 +2392,69 @@ namespace MWAccessibility
         // -- the same vocabulary used for target bearings.
         const float yaw = player.getRefData().getPosition().rot[2];
         speak(std::string("Facing ") + compassLabel(yaw) + ".");
+    }
+
+    void Scanner::announceHeight()
+    {
+        MWBase::World* world = MWBase::Environment::get().getWorld();
+        MWWorld::Ptr player = world->getPlayerPtr();
+        if (player.isEmpty())
+            return;
+
+        const osg::Vec3f feet = player.getRefData().getPosition().asVec3();
+
+        // UNDERWATER first: while diving, the meaningful vertical reference is the
+        // water surface, not the seabed. Report how far below it we are -- the
+        // companion to the "above ground" readout when flying. isSwimming is true
+        // only when actually submerged enough to swim (not mere wading), which is
+        // exactly when depth matters. hasWater guards interiors with no water.
+        MWWorld::CellStore* cell = player.getCell();
+        if (cell && cell->getCell()->hasWater() && world->isSwimming(player))
+        {
+            const float surface = cell->getWaterLevel();
+            const float depth = surface - feet.z();
+            if (depth > 0.f)
+            {
+                speak(formatDistance(depth) + " underwater.");
+                return;
+            }
+        }
+
+        // Otherwise report height above the ground directly beneath us. A
+        // downward ray from the feet finds the first solid surface below -- the
+        // terrain heightmap outdoors, a floor or rooftop/bridge indoors or when
+        // levitating over a structure (Door included so a closed trapdoor counts
+        // as ground, not a gap). Actors are deliberately NOT in the mask: we want
+        // the static ground, not an NPC we happen to be standing over.
+        const MWPhysics::RayCastingInterface* rayCasting = world->getRayCasting();
+        if (!rayCasting)
+            return;
+        const int mask = MWPhysics::CollisionType_World | MWPhysics::CollisionType_HeightMap
+            | MWPhysics::CollisionType_Door;
+        // Start a little above the feet so we don't begin already embedded in the
+        // floor we're standing on (which would miss it and report a false drop).
+        // Probe a long way down to catch genuine altitude while levitating.
+        constexpr float kProbeUp = 8.f;
+        constexpr float kProbeDown = 1.0e6f;
+        const osg::Vec3f from = feet + osg::Vec3f(0.f, 0.f, kProbeUp);
+        const osg::Vec3f to = feet - osg::Vec3f(0.f, 0.f, kProbeDown);
+        const MWPhysics::RayCastingResult res = rayCasting->castRay(from, to, { player }, {}, mask);
+        if (!res.mHit)
+        {
+            // Nothing below within the probe (e.g. a bottomless void or unloaded
+            // ground): be honest rather than invent a number.
+            speak("Ground not found below.");
+            return;
+        }
+
+        const float clearance = feet.z() - res.mHitPos.z();
+        // Dead-band ~0.75 m (one stair step), matching formatElevation, so normal
+        // standing/walking reads as grounded rather than a jittery "0.2 metres".
+        constexpr float kGroundDeadBand = 52.5f;
+        if (clearance <= kGroundDeadBand)
+            speak("On the ground.");
+        else
+            speak(formatDistance(clearance) + " above ground.");
     }
 
     void Scanner::snapToDirection(bool clockwise)

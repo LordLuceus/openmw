@@ -130,7 +130,8 @@ combat.
 | **Alt + F** | Read your fatigue |
 | **Shift + Alt + H** | Read the current target's health |
 | **L** | Announce your location (cell name) |
-| **Shift + L** | Announce which way you're facing |
+| **Ctrl + L** | Announce which way you're facing (compass point) |
+| **Shift + L** | Announce your height above the ground, or depth underwater |
 | **Ctrl + Left / Right** | Snap your facing to the previous / next compass point |
 | **Ctrl + Down** | Turn around 180 degrees |
 | **Ctrl + Up** | Direction filter: narrow the scanner to only what lies the way you're facing (see Scanning and targets) |
