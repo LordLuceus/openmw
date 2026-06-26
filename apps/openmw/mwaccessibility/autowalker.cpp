@@ -1229,22 +1229,39 @@ namespace MWAccessibility
             mTimeSinceMove = 0.0f;
 
         constexpr float kProgressEpsilon = 8.0f; // units of improvement that "counts"
-        // Track closest straight-line approach to the goal separately -- it no
-        // longer drives the no-progress timeout (see below) but still feeds the
-        // closest-approach distance reported when we genuinely stop short.
+        // No-progress detection counts as progress if EITHER of two independent
+        // measures improves -- because each covers the other's blind spot:
+        //
+        //  - REMAINING PATH LENGTH. Following a correct route up a spiralling
+        //    stair increases straight-line goal-distance for many seconds while
+        //    we are in fact advancing, so the route remainder is the honest
+        //    signal there ("we are consuming the planned path").
+        //
+        //  - STRAIGHT-LINE DISTANCE TO THE TRUE TARGET. On a long OUTDOOR walk
+        //    only a cell or two of navmesh is loaded ahead, so the planned route
+        //    is PARTIAL and its far end RECEDES as new terrain streams in (in
+        //    progressive mode the "carrot" does this explicitly; in normal mode
+        //    the partial-path end does it implicitly). The route remainder then
+        //    plateaus -- we run at full speed but the route end runs away just as
+        //    fast -- so path-length alone never improves and the 10 s backstop
+        //    fired a false "stuck"/"stopped short" even though we were plainly
+        //    closing on the target. Goal-distance is the honest signal there.
+        //
+        // Requiring only ONE to improve cannot weaken genuine-stuck detection:
+        // a truly wedged body stops moving (caught by the physical-wedge timer)
+        // or loops in place (caught by the oscillation check); this backstop only
+        // fires when we are neither consuming the route NOR nearing the goal.
+        const float pathRemaining = remainingPathLength();
+        const bool madeProgress = (pathRemaining < mBestPathRemaining - kProgressEpsilon)
+            || (horizDist < mBestDistToGoal - kProgressEpsilon);
+        // Ratchet both bests down to their all-time minima (these also feed the
+        // closest-approach distance reported when we genuinely stop short).
         if (horizDist < mBestDistToGoal)
             mBestDistToGoal = horizDist;
-        // No-progress detection runs on REMAINING PATH LENGTH, not straight-line
-        // distance to the goal. Following a correct route up a spiralling stair
-        // increases goal-distance for many seconds while we are in fact advancing
-        // -- measuring the route remainder instead makes "progress" mean "we are
-        // consuming the planned path", which is what we actually want. (The
-        // independent physical-wedge check above still aborts if the body truly
-        // stops moving.)
-        const float pathRemaining = remainingPathLength();
-        if (pathRemaining < mBestPathRemaining - kProgressEpsilon)
-        {
+        if (pathRemaining < mBestPathRemaining)
             mBestPathRemaining = pathRemaining;
+        if (madeProgress)
+        {
             mTimeSinceProgress = 0.0f;
             mRecoveryAttempts = 0; // genuine progress: fresh set of wiggles next snag
         }

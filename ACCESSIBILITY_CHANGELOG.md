@@ -4,6 +4,22 @@ A running log of screen-reader accessibility features added to this OpenMW fork.
 Newest changes are listed first. (OpenMW's own engine changelog lives in
 `CHANGELOG.md`.)
 
+## 2026-06-26
+
+- **Fixed: auto-walk no longer gives up partway to far-off outdoor targets.**
+  Walking to something a long way off across open country (say a hut a hundred-
+  plus metres away), auto-walk would sometimes stop after about ten seconds and
+  announce "stuck" or how far you still had to go — even though you were running
+  straight at it the whole time. Re-triggering it just continued, often needing
+  two or three tries to actually arrive. The cause: on a long trip only the
+  ground near you is loaded, so the planned route only reaches partway and its far
+  end keeps moving forward as new terrain loads in — which the "are we still
+  making progress?" check misread as standing still. It now also watches whether
+  you're getting closer to the target as the crow flies, so steady progress
+  toward a distant goal counts and the walk carries through in one go. (Genuine
+  dead-ends still stop as before — a truly stuck body or one going in circles is
+  caught by separate checks.)
+
 ## 2026-06-24
 
 - **Changed: the scanner now groups things by floor inside multi-level
