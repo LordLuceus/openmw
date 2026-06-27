@@ -26,7 +26,17 @@ auto-walk, location announcements, and audio beacon (gameplay, not a screen).
       cycle value + magnitude/duration/area sliders (Left/Right +/-1, Ctrl +/-10,
       Home/End min/max). Main screen reclaims the single active-screen slot in
       onFrame when the child modal closes, landing on the edited effect.
-- [ ] **Enchanting** (`GM_Enchanting`) — item + effects + soul gem
+- [x] **Enchanting** (`GM_Enchanting`) — item + effects + soul gem. Reuses the
+      shared EffectEditorBase a11y infra built for spell making (same virtual-
+      focus screen, available/used effect lists, modal EditEffectDialog). Adds
+      enchanting-specific options: name (editable), item slot + soul-gem slot
+      (Enter opens the relevant picker, or clears a filled slot), cast type
+      (Enter cycles Cast Once/When Strikes/When Used/Constant), and the read-only
+      stats (enchantment points, cast cost, charge, success chance [self-enchant
+      only], price [buying only]). Slot/type changes rebuild the list; because
+      those handlers free the executing closure (and the picker's onClose
+      resumes+announces synchronously), the rebuild happens BEFORE hiding the
+      picker and spoken feedback for the cast-type cycle is deferred to onFrame.
 - [x] **Alchemy / potion-making** (`GM_Alchemy`) — ingredients grid → effects
 - [x] **Recharge** (`GM_Recharge`) — recharge enchanted items with soul gems.
       Mirrors Repair: virtual-focus A11y::Screen over the soul gem (Enter opens
