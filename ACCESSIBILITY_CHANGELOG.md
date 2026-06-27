@@ -10,7 +10,7 @@ Newest changes are listed first. (OpenMW's own engine changelog lives in
   Whether you're enchanting an item yourself or paying an enchanter, you can now
   arrow through every part of the window: the name field, the item slot and the
   soul-gem slot (press Enter to choose one from the pop-up list, or to clear a
-  slot you've already filled), the cast type (press Enter to cycle Cast Once,
+  slot you've already filled), the cast type (Left/Right to cycle Cast Once,
   When Strikes, When Used, or Constant Effect), the list of magic effects you can
   add, the effects you've already added (Enter to adjust or remove one), and the
   read-out results — enchantment points, magicka cost, charge, success chance,

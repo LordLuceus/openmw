@@ -31,12 +31,14 @@ auto-walk, location announcements, and audio beacon (gameplay, not a screen).
       focus screen, available/used effect lists, modal EditEffectDialog). Adds
       enchanting-specific options: name (editable), item slot + soul-gem slot
       (Enter opens the relevant picker, or clears a filled slot), cast type
-      (Enter cycles Cast Once/When Strikes/When Used/Constant), and the read-only
+      (Left/Right cycle Cast Once/When Strikes/When Used/Constant), and the read-only
       stats (enchantment points, cast cost, charge, success chance [self-enchant
-      only], price [buying only]). Slot/type changes rebuild the list; because
-      those handlers free the executing closure (and the picker's onClose
-      resumes+announces synchronously), the rebuild happens BEFORE hiding the
-      picker and spoken feedback for the cast-type cycle is deferred to onFrame.
+      only], price [buying only]). Slot/type changes rebuild the list, which
+      frees the executing closure: picker-SELECT rebuilds BEFORE hiding the
+      picker (its onClose resumes+announces synchronously); slot-CLEAR (Enter)
+      defers its announce to onFrame (an .activate gets no framework feedback);
+      cast-type cycling uses .change (Left/Right) safely because changeValue()
+      stack-copies the value reader before invoking the handler.
 - [x] **Alchemy / potion-making** (`GM_Alchemy`) — ingredients grid → effects
 - [x] **Recharge** (`GM_Recharge`) — recharge enchanted items with soul gems.
       Mirrors Repair: virtual-focus A11y::Screen over the soul gem (Enter opens

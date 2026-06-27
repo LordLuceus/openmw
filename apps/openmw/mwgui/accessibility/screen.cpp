@@ -563,6 +563,18 @@ namespace MWGui::A11y
         if (!element || !element->change)
             return;
 
+        // Copy the value reader and async flag onto our stack BEFORE invoking the
+        // handler. A change handler is allowed to rebuild this very screen
+        // (clear() + re-add, e.g. a cycle control whose new value alters the rest
+        // of the form), which frees `element`; reading element->value/asyncValue
+        // afterward would be a use-after-free. The copied std::function lives on
+        // our stack and its captures (typically the owning window, not the
+        // element) outlive the rebuild, so calling it post-rebuild still reads
+        // the live, updated value. mCurrent is left pointing at the rebuilt
+        // option (handlers preserve selection by label), so resetHint() is safe.
+        std::function<std::string()> valueReader = element->value;
+        const bool asyncValue = element->asyncValue;
+
         element->change(next);
 
         // The value changed, so any cached tooltip list is stale.
@@ -571,10 +583,10 @@ namespace MWGui::A11y
         // Speak the new value immediately -- UNLESS the change is applied
         // asynchronously (e.g. a global Lua setting that round-trips through the
         // global script context and only re-renders some frames later). In that
-        // case element->value() still returns the OLD value right now, so the
-        // owner announces it once it settles (see SettingsWindow::onFrame).
-        if (element->value && !element->asyncValue)
-            say(element->value());
+        // case value() still returns the OLD value right now, so the owner
+        // announces it once it settles (see SettingsWindow::onFrame).
+        if (valueReader && !asyncValue)
+            say(valueReader());
 
         // Restart the delayed "has N tooltips" hint: the new value (e.g. a
         // different race or birthsign) may have a different tooltip count, so

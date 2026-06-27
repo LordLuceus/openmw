@@ -98,10 +98,13 @@ namespace MWGui
         // suspend/resume our screen themselves; the edit-effect dialog displaces
         // it, which is what this reclaim handles.)
         bool mA11yModalWasOpen = false;
-        // Set when the user cycles the cast type via Enter. The handler triggers
-        // a full a11y-list rebuild (freeing the executing closure), so it can't
-        // safely announce the new style itself; onFrame announces it next frame
-        // once the list is stable. See the cast-type option in buildAccessibility.
+        // Set when the user presses Enter to CLEAR a filled item or soul-gem
+        // slot. That activate handler triggers a full a11y-list rebuild (freeing
+        // the executing closure), and -- unlike a value change -- the framework
+        // makes no spoken feedback after an .activate. So it can't announce the
+        // now-empty slot itself; onFrame announces it next frame once the list is
+        // stable. (Cast-type cycling uses .change instead, which the framework
+        // does announce -- see changeValue's stack-copy of the value reader.)
         bool mA11yAnnounceAfterRebuild = false;
     };
 

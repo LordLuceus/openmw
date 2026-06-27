@@ -233,24 +233,18 @@ namespace MWGui
         }
 
         // Cast type (Cast Once / When Strikes / When Used / Constant Effect).
-        // On focus it reads the current style; Enter cycles to the next, exactly
-        // like clicking the on-screen button. We deliberately use .activate (not
-        // .change/Left-Right): onTypeButtonClicked -> updateEffectsView ->
-        // notifyEffectsChanged -> buildAccessibility -> mA11y.clear() rebuilds
-        // (and frees) the whole option list -- INCLUDING the very closure we're
-        // executing -- mid-handler. So we must not touch any captured state
-        // after that call returns (reading the freed closure's `this` is a
-        // use-after-free; the same reason the framework's changeValue() path
-        // can't be used here, since it re-derefs the element to speak the new
-        // value). Instead set a one-shot flag BEFORE the rebuild and let onFrame
-        // announce the new style next frame, once the list is stable again.
+        // Left/Right cycle to the next style, like every other value control;
+        // the framework speaks the new caption afterwards. (nextCastStyle only
+        // steps forward, so both directions advance -- the same one-way cycle as
+        // the range button in the effect editor.) onTypeButtonClicked rebuilds
+        // this whole screen (updateEffectsView -> notifyEffectsChanged ->
+        // buildAccessibility -> clear()), which frees this option mid-change();
+        // changeValue() copies the value reader onto its stack before invoking
+        // the handler precisely so this is safe, and selection is preserved by
+        // label across the rebuild so focus stays on the cast type.
         mA11y.add({ .widget = mTypeButton, .label = "#{OMWEngine:EnchantType}",
             .value = [this] { return std::string(mTypeButton->getCaption()); },
-            .activate =
-                [this] {
-                    mA11yAnnounceAfterRebuild = true;
-                    onTypeButtonClicked(mTypeButton);
-                } });
+            .change = [this](bool /*next*/) { onTypeButtonClicked(mTypeButton); } });
 
         // The two effect lists (available to add / used in the enchantment).
         addEffectListElements();
