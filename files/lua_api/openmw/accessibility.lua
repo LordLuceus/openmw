@@ -1,10 +1,14 @@
 ---
--- Screen-reader / text-to-speech output for accessibility.
+-- Screen-reader / text-to-speech output and UI introspection for accessibility.
 -- Lets scripts speak text through the same backend the engine's built-in
 -- screen reader uses, so mods (including standalone accessibility "plugin" mods
 -- written for other mods) can provide spoken output without bundling their own
 -- text-to-speech. Speech is only audible when a screen-reader backend is active;
 -- calls are harmless no-ops otherwise.
+--
+-- It also provides `readUi`, which snapshots the custom UI widget tree so an
+-- accessibility plugin can inspect (and then narrate) the interface of another
+-- mod -- something the per-script Lua sandbox normally prevents.
 -- @context menu|player
 -- @module accessibility
 -- @usage local accessibility = require('openmw.accessibility')
@@ -37,5 +41,59 @@
 -- rereadable.
 -- @function [parent=#accessibility] reread
 -- @usage accessibility.reread()
+
+---
+-- Snapshot the live custom (Lua-created) user-interface tree and return it as
+-- plain tables. This lets a standalone accessibility "plugin" script inspect
+-- the interface of *another* mod, which the per-script Lua sandbox otherwise
+-- hides: there is normally no way to read another script's widgets. Use it to
+-- narrate uncooperative mod UIs -- snapshot each frame, compare with the
+-- previous snapshot, and speak what changed (for example the newly selected
+-- row) via `say`.
+--
+-- The result is an array of root nodes, one per UI element created in the
+-- current context (menu or player). Pass a layer name to return only the roots
+-- attached to that layer (for example `"Windows"`). Each node is a recursive
+-- value copy and holds no live widget references, so it stays valid even after
+-- the source mod rebuilds its interface; re-call `readUi` to get fresh state.
+--
+-- This only sees interfaces built with `openmw.ui` (custom mod UIs). It does
+-- not expose the engine's own built-in windows.
+-- @function [parent=#accessibility] readUi
+-- @param #string layer Optional. If given, only return root nodes on this UI
+--   layer; otherwise every root in the context is returned.
+-- @return #table An array (1-based) of `#AccessibilityUiNode` root nodes.
+-- @usage local accessibility = require('openmw.accessibility')
+-- for _, root in ipairs(accessibility.readUi("Windows")) do
+--     if root.name == "LMM_List" then
+--         -- walk root.children to find the selected row, then speak it
+--     end
+-- end
+
+---
+-- A snapshot of a single widget, as returned inside the tree from `readUi`.
+-- Every field is a plain value (no live widget handle).
+-- @type AccessibilityUiNode
+-- @field #string type The widget type, using the names from `openmw.ui.TYPE`
+--   (for example `"Text"`, `"Flex"`, `"Container"`). Skin-internal sub-widgets
+--   with no Lua type report their raw engine class name.
+-- @field #string name The widget's name. This is the layout's top-level `name`
+--   field; if that is empty, it falls back to a `name` or `id` string property
+--   (some mods set the name inside `props` instead). Empty string if none of
+--   these are set. Use this to locate a known window or root.
+-- @field #string layer The UI layer this widget is attached to, if any.
+-- @field #string text The displayed text, for widgets that render text
+--   (`Text`, `TextEdit`); absent otherwise.
+-- @field #boolean visible Whether the widget is currently visible.
+-- @field #boolean clickable Whether the widget has a mouse-click handler
+--   registered (a hint that it is interactive).
+-- @field position A table `{ x = #number, y = #number }`: the widget's absolute
+--   on-screen position in pixels.
+-- @field size A table `{ x = #number, y = #number }`: the widget's size in
+--   pixels.
+-- @field props A table of the widget's scalar layout properties (boolean,
+--   number and string values only; for example `selected` or `index`). Property
+--   values override template-property values of the same name.
+-- @field children An array (1-based) of child `#AccessibilityUiNode` nodes.
 
 return nil

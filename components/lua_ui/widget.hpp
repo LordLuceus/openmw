@@ -61,6 +61,14 @@ namespace LuaUi
         void setProperties(const sol::main_object& props);
         void setTemplateProperties(const sol::main_object& props) { mTemplateProperties = props; }
 
+        // Read-only access to the raw props / template-props objects, for
+        // generic introspection (the accessibility snapshot API walks foreign
+        // widget trees and copies scalar prop values out). These are the same
+        // sol objects passed to setProperties; callers must treat them as
+        // read-only (do not mutate another script's property table).
+        const sol::main_object& properties() const { return mProperties; }
+        const sol::main_object& templateProperties() const { return mTemplateProperties; }
+
         void setExternal(const sol::main_object& external) { mExternal = external; }
 
         MyGUI::IntCoord forcedCoord();
