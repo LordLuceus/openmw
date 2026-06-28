@@ -4,22 +4,32 @@ A running log of screen-reader accessibility features added to this OpenMW fork.
 Newest changes are listed first. (OpenMW's own engine changelog lives in
 `CHANGELOG.md`.)
 
-## 2026-06-27
+## 2026-06-28
 
-- **Documented: mods that shrink the player's collision box can get you killed
-  during auto-walk — remove them.** Some older mods (the known one is "Jammings
-  off") shrink your character's physical size so you don't snag on doorways. The
-  trouble is that auto-walk follows routes planned for your exact body size, and a
-  shrunk body gets routed along tighter, ledge-hugging paths it sometimes can't
-  physically climb — so at a few spots (notoriously the climb out of Arkngthand,
-  the first Dwemer ruin) it slides off an edge and takes a fatal fall, where an
-  unmodded character walks out fine. This can't be safely worked around in the
-  game (by the time you're falling it's too late, and a warning you can't act on
-  is just noise), so the fix is to not change the player's collision box: remove
-  "Jammings off" or any similar "smaller bounding box" body/skeleton replacer.
-  Auto-walk's own stuck-recovery already squeezes you through tight doorways, so
-  you lose nothing by removing them. See the "Mods that shrink the player's
-  collision box" section in the README for the full explanation.
+- **Auto-walk now catches you instead of letting you fall to your death.** If
+  auto-walk ever steers you off a ledge or crest and you pitch into a real fall,
+  the game now grabs you: it snaps you back to the last safe ground you crossed,
+  stops, and says *"Path drops off. Cannot reach … safely."* — so you end up alive
+  and standing rather than dead at the bottom. This mainly matters with mods that
+  shrink the player's collision box (see below), where a few tricky spots used to
+  mean a fatal fall, but it's a general safety net for any auto-walk drop. If you
+  ever see this catch fire on ground that *wasn't* actually a dangerous fall (a
+  normal step-down or a gentle slope), please report it with your `openmw.log` —
+  there's now an always-on `fall-arrest` line in the log that records each catch.
+
+- **Reversed earlier advice: collision-box-shrinking mods ("Jammings off") are now
+  fine to keep.** An earlier note had advised removing these mods because they
+  could get you killed during auto-walk. With the fall-catch above, that danger is
+  gone, and a slimmer body genuinely helps — it fits through tight tomb chokepoints
+  a normal body wedges on. The remaining limitation is that in complex multi-level Dwemer
+  ruins, auto-walk sometimes can't get a shrunk body up a crest and will stop short
+  of the target rather than reach it. The advice now: **keep the mod if you like
+  it, but carry a levitation option (spell, potion, or scroll) when exploring
+  Dwemer ruins** — if auto-walk says it can't reach somewhere safely, a short
+  levitate gets you over, then walk on. See the "Mods that shrink the player's
+  collision box" section in the README.
+
+## 2026-06-27
 
 - **Added: the enchanting window is now fully usable with a screen reader.**
   Whether you're enchanting an item yourself or paying an enchanter, you can now

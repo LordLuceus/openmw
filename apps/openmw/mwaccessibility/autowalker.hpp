@@ -1,7 +1,9 @@
 #ifndef GAME_MWACCESSIBILITY_AUTOWALKER_H
 #define GAME_MWACCESSIBILITY_AUTOWALKER_H
 
+#include <deque>
 #include <limits>
+#include <utility>
 
 #include <osg/Vec3f>
 
@@ -195,6 +197,21 @@ namespace MWAccessibility
         float mBestDistToGoal = std::numeric_limits<float>::max();
         float mBestPathRemaining = std::numeric_limits<float>::max();
         float mTimeSinceProgress = 0.0f;
+
+        // FALL-ARREST state. We keep a short TRAIL of recent grounded positions
+        // (each tagged with a walk-clock time) rather than just the last one,
+        // because walking DOWN a steep slope toward a pit reads as "on ground"
+        // every frame -- so the most recent grounded point is ON the killer slope
+        // and snapping to it just drops the player back onto the cliff. On a catch
+        // we instead snap to the HIGHEST point in the trail within the last
+        // kSafeTrailWindow seconds -- the crest the player crossed safely before the
+        // descent. mWalkClock accumulates dt; mPrevZ/mHasPrevZ derive vertical
+        // velocity (the engine doesn't hand us fall speed here). All reset in
+        // resetProgress.
+        std::deque<std::pair<float, osg::Vec3f>> mSafeTrail;
+        float mWalkClock = 0.0f;
+        float mPrevZ = 0.0f;
+        bool mHasPrevZ = false;
 
         // Oscillation detection. The physical-wedge check (mTimeSinceMove) only
         // catches us when the BODY stops moving; it misses a "limit cycle" where

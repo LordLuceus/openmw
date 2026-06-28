@@ -256,41 +256,54 @@ facing itself), and it isn't tied to a specific save being broken.
   digital audio workstation, lots of browser tabs, etc. The mesh is built on
   spare CPU, so heavy background load makes it lag. Closing some of that, or
   pausing a moment before auto-walking, helps.
-- You're running a **mod that changes the player's collision size** (see the next
-  section) — this can route you off ledges.
+- You're running a **mod that shrinks the player's collision size** (see the next
+  section) — these help in tight spaces but can struggle in complex multi-level
+  Dwemer ruins.
 
-### Mods that shrink the player's collision box (can cause falls)
+### Mods that shrink the player's collision box ("Jammings off")
 
-**Short version: do not use mods that change the player's collision/bounding box.
-The known offender is "Jammings off" — remove it.**
+**Short version: these mods are fine to use and genuinely help in tight spaces.
+Auto-walk will no longer let them kill you — but in complex multi-level Dwemer
+ruins they can fail to *reach* a target, so go in with levitation available.**
 
-A few older mods shrink the player's physical collision box, usually to stop you
+A few mods shrink the player's physical collision box, usually to stop you
 snagging on doorways and narrow gaps. The best-known is **"Jammings off"**
 (it replaces the base animation/skeleton meshes with smaller collision boxes).
-These mods are **not compatible with accessible auto-walk** and can get you
-**killed**.
+A slimmer body really does help: it fits through tight tomb chokepoints that a
+normal body wedges on, so auto-walk reaches some targets it otherwise couldn't.
 
-Here's why. Auto-walk follows the engine's navigation mesh, which is computed for
-your character's exact body size. With a normal (unmodded) body, the route over
-tricky spots — Dwemer ruins are the worst — is one your character can physically
-walk. Shrink the body and the engine plans a *tighter* route that hugs ledges and
-crests; at a few specific spots a smaller body **can't make the step up and slides
-off the edge instead**, taking a fatal fall. The classic case is the climb out of
-**Arkngthand** (the first Dwemer ruin the main quest sends you to): an unmodded
-character walks out fine, a shrunk one walks off a cliff inside.
+The trade-off is in **complex multi-level interiors, especially Dwemer ruins**.
+Auto-walk normally follows the engine's navigation mesh, which is computed for
+your exact body size. Where the mesh doesn't fully connect a tricky multi-level
+route (steep Dwemer stairs and crests are the worst), auto-walk falls back to the
+cell's hand-authored waypoint path — and that path is the **same for every body
+size**. A normal-width body can ride those crests; a shrunk one sometimes can't
+make the step up and **slides off the edge instead**. The classic case is the
+climb out of **Arkngthand**: an unmodded character walks it, a shrunk one slides
+off a ledge inside.
 
-This is **not something the mod can safely work around** — by the time you're
-sliding off the lip, the fall is already happening, and a warning you can't act on
-is useless. The only real fix is to **not change the player's collision box**:
+**What auto-walk now does about it.** When the shrunk body pitches into a fall
+during auto-walk, the game **catches you** — it snaps you back to the last safe
+ground you crossed, stops, and says *"Path drops off. Cannot reach … safely."*
+You stay alive and standing instead of dying. So these mods are **no longer
+dangerous** to use.
 
-- **Remove "Jammings off"** (and any similar "smaller bounding box" / "no jamming"
-  body or skeleton replacer) from your load order. A clean, unmodded body routes
-  safely.
-- If you've already got such a mod installed and a save where auto-walk keeps
-  killing you in a ruin, removing the mod and reloading fixes it.
-- The doorway-snagging these mods were made to fix is already handled by
-  auto-walk's own stuck-recovery (it wiggles and squeezes through tight spots), so
-  you lose nothing by removing them.
+What the catch *can't* do is get you up a crest your body physically can't climb.
+So in those spots auto-walk will stop short rather than reach the target. Practical
+advice:
+
+- **Keep the mod if you like it** — the tight-space benefit is real, and falls are
+  now caught rather than fatal.
+- **Carry a levitation option** (spell, potion, or scroll) when exploring Dwemer
+  ruins and other complex multi-level interiors. If auto-walk reports it can't
+  reach somewhere safely, a short levitate gets you over the crest, then walk on.
+- **"Jammings off" is a data-files-only mod** (no plugin/ESP/ESM, just replacement
+  meshes), so it's safe to toggle on and off whenever you like — you can leave it
+  on for general play and switch it off before a Dwemer ruin if you'd rather have
+  stock routing there, with no effect on your save.
+- If you'd rather auto-walk just route everything the normal way, **removing the
+  collision-box mod** restores stock routing (you lose the tight-space benefit but
+  every navmesh route is one your body can walk).
 
 ### A target says "Arrived" but you can't interact with it
 

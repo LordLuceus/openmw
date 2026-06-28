@@ -22,6 +22,7 @@
 #include "../mwbase/luamanager.hpp"
 #include "../mwbase/world.hpp"
 
+#include "../mwmechanics/creaturestats.hpp"
 #include "../mwmechanics/movement.hpp"
 #include "../mwmechanics/pathfinding.hpp"
 #include "../mwmechanics/pathgrid.hpp"
@@ -109,6 +110,28 @@ namespace
     // reducing goal distance, are never mistaken for being stuck.
     constexpr float kStuckTimeout = 1.0f; // seconds wedged in place
     constexpr float kNoProgressTimeout = 10.0f; // seconds without nearing goal
+
+    // FALL-ARREST. Some routes (notably with collision-box-shrinking mods like
+    // "Jammings off", which give the player a slimmer navmesh agent) send the
+    // auto-walker over a lip the navmesh wrongly treats as walkable -- e.g. the
+    // Arkngthand Dwemer crest, where a 22-wide agent's mesh leaves a fatal drop a
+    // 29-wide agent's doesn't. We can't reliably PREDICT such a drop (interior
+    // walkways curve around pits, so probing the straight line to the next
+    // waypoint false-positives constantly). So we REACT instead: every grounded
+    // frame we remember recent firmly-standing positions; the instant the player
+    // pitches into a plunge while auto-walking (steep downward velocity, not on
+    // ground, not levitating, and we didn't make them jump), we TELEPORT them back
+    // to safe ground, kill the fall, stop, and announce honestly. Because the catch
+    // undoes the fall, the message is actionable (the player is alive and standing)
+    // rather than a useless call-out at the moment of death. kPlungeVel is the
+    // downward speed (units/s) that counts as a real plunge, not a slope/step.
+    constexpr float kPlungeVel = 250.0f; // downward units/sec => falling, not stepping
+    // We keep grounded positions from the last kSafeTrailWindow seconds and snap
+    // back to the HIGHEST one (the crest the player crossed before the descent),
+    // not the most recent (which is partway down the killer slope). ~2.5s at run
+    // speed is ~12-15m of trail -- enough to clear a crest-and-descent like the
+    // Arkngthand one (~1.5s of downhill) but short enough to stay in the same area.
+    constexpr float kSafeTrailWindow = 2.5f; // seconds of grounded history to keep
 
     // Oscillation ("limit cycle") detection. Distinct from the physical-wedge
     // check: here the body IS moving (full running speed) but in a loop, so we
@@ -593,6 +616,9 @@ namespace MWAccessibility
         mPathHadDrop = false;
         mTargetMoving = false;
         mAnnouncedTargetMoving = false;
+        mSafeTrail.clear();
+        mWalkClock = 0.0f;
+        mHasPrevZ = false;
     }
 
     void AutoWalker::cancel()
@@ -1177,6 +1203,78 @@ namespace MWAccessibility
                     speakQueued(buf);
                     mLastCalloutDist = horizDist;
                 }
+            }
+        }
+
+        // --- Fall-arrest -----------------------------------------------------
+        // React to (don't predict) walking off a fatal drop. Track recent firmly
+        // grounded positions; if we pitch into a real plunge, teleport back to the
+        // safe crest, kill the fall, and stop honestly. Skipped while levitating/
+        // flying (a controlled descent is fine) and during a recovery wiggle (its
+        // hop briefly leaves the ground by design -- a hop is not a plunge, and its
+        // small drop never reaches kPlungeVel anyway). Derives vertical velocity
+        // from the height delta since last frame because the actor's fall speed
+        // isn't handed to us here.
+        {
+            const bool onGround = world->isOnGround(player);
+            const bool flying = world->isFlying(player);
+            float vertVel = 0.0f;
+            if (mHasPrevZ && dt > 0.0f)
+                vertVel = (playerPos.z() - mPrevZ) / dt;
+            mPrevZ = playerPos.z();
+            mHasPrevZ = true;
+            mWalkClock += dt;
+
+            if (onGround && !flying)
+            {
+                // Record this grounded position in the trail and drop entries older
+                // than the window. We snap to the HIGHEST trail point on a catch, so
+                // walking down the killer slope (every frame "grounded", but lower
+                // each time) can't poison the snap target -- the crest stays the max.
+                mSafeTrail.emplace_back(mWalkClock, playerPos);
+                while (!mSafeTrail.empty() && mWalkClock - mSafeTrail.front().first > kSafeTrailWindow)
+                    mSafeTrail.pop_front();
+            }
+            else if (!flying && !mSafeTrail.empty() && mRecoveryTimer <= 0.0f && vertVel <= -kPlungeVel)
+            {
+                // Pitched into a plunge while auto-walking. Snap back to the HIGHEST
+                // recent grounded point (the safe crest before the descent), zero the
+                // fall, stop, and report honestly.
+                osg::Vec3f snap = mSafeTrail.front().second;
+                for (const auto& entry : mSafeTrail)
+                    if (entry.second.z() > snap.z())
+                        snap = entry.second;
+                // Always-on (not diag-gated): a fall-arrest catch is rare and
+                // user-visible, and false positives -- catching a step-down or a
+                // gentle slope that wasn't actually fatal -- are the main risk. Log
+                // enough to tell a real plunge from a false catch without a special
+                // build: the trip velocity, where we caught it, where we snapped to,
+                // how far back/up that snap reached, and the trail depth.
+                const float snapBackHoriz = std::sqrt((snap.x() - playerPos.x()) * (snap.x() - playerPos.x())
+                    + (snap.y() - playerPos.y()) * (snap.y() - playerPos.y()));
+                Log(Debug::Warning) << "[a11y] autowalk fall-arrest: caught plunge vertVel=" << vertVel
+                                    << " (kPlungeVel=" << kPlungeVel << ") at pos=(" << playerPos.x() << ","
+                                    << playerPos.y() << "," << playerPos.z() << ") snapped to (" << snap.x() << ","
+                                    << snap.y() << "," << snap.z() << ") snapBackHoriz=" << snapBackHoriz
+                                    << " snapUpZ=" << (snap.z() - playerPos.z()) << " trail=" << mSafeTrail.size();
+                world->moveObject(player, snap, /*movePhysics=*/true);
+                if (auto* controls = MWBase::Environment::get().getLuaManager()->getActorControls(player))
+                {
+                    controls->mMovement = 0.0f;
+                    controls->mSideMovement = 0.0f;
+                    controls->mYawChange = 0.0f;
+                    controls->mPitchChange = 0.0f;
+                    controls->mJump = false;
+                    controls->mRun = false;
+                    controls->mChanged = true;
+                }
+                world->queueMovement(player, osg::Vec3f(0.0f, 0.0f, 0.0f)); // kill fall velocity
+                // Clear any accumulated fall height so the snap-back can't trigger
+                // fall damage on the next grounded frame (land() resets it).
+                player.getClass().getCreatureStats(player).land(/*isPlayer=*/true);
+                speakQueued("Path drops off. Cannot reach " + mTargetName + " safely.");
+                cancel();
+                return;
             }
         }
 
