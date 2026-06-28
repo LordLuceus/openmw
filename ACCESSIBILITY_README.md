@@ -256,6 +256,41 @@ facing itself), and it isn't tied to a specific save being broken.
   digital audio workstation, lots of browser tabs, etc. The mesh is built on
   spare CPU, so heavy background load makes it lag. Closing some of that, or
   pausing a moment before auto-walking, helps.
+- You're running a **mod that changes the player's collision size** (see the next
+  section) — this can route you off ledges.
+
+### Mods that shrink the player's collision box (can cause falls)
+
+**Short version: do not use mods that change the player's collision/bounding box.
+The known offender is "Jammings off" — remove it.**
+
+A few older mods shrink the player's physical collision box, usually to stop you
+snagging on doorways and narrow gaps. The best-known is **"Jammings off"**
+(it replaces the base animation/skeleton meshes with smaller collision boxes).
+These mods are **not compatible with accessible auto-walk** and can get you
+**killed**.
+
+Here's why. Auto-walk follows the engine's navigation mesh, which is computed for
+your character's exact body size. With a normal (unmodded) body, the route over
+tricky spots — Dwemer ruins are the worst — is one your character can physically
+walk. Shrink the body and the engine plans a *tighter* route that hugs ledges and
+crests; at a few specific spots a smaller body **can't make the step up and slides
+off the edge instead**, taking a fatal fall. The classic case is the climb out of
+**Arkngthand** (the first Dwemer ruin the main quest sends you to): an unmodded
+character walks out fine, a shrunk one walks off a cliff inside.
+
+This is **not something the mod can safely work around** — by the time you're
+sliding off the lip, the fall is already happening, and a warning you can't act on
+is useless. The only real fix is to **not change the player's collision box**:
+
+- **Remove "Jammings off"** (and any similar "smaller bounding box" / "no jamming"
+  body or skeleton replacer) from your load order. A clean, unmodded body routes
+  safely.
+- If you've already got such a mod installed and a save where auto-walk keeps
+  killing you in a ruin, removing the mod and reloading fixes it.
+- The doorway-snagging these mods were made to fix is already handled by
+  auto-walk's own stuck-recovery (it wiggles and squeezes through tight spots), so
+  you lose nothing by removing them.
 
 ### A target says "Arrived" but you can't interact with it
 

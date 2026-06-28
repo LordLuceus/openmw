@@ -6,6 +6,21 @@ Newest changes are listed first. (OpenMW's own engine changelog lives in
 
 ## 2026-06-27
 
+- **Documented: mods that shrink the player's collision box can get you killed
+  during auto-walk — remove them.** Some older mods (the known one is "Jammings
+  off") shrink your character's physical size so you don't snag on doorways. The
+  trouble is that auto-walk follows routes planned for your exact body size, and a
+  shrunk body gets routed along tighter, ledge-hugging paths it sometimes can't
+  physically climb — so at a few spots (notoriously the climb out of Arkngthand,
+  the first Dwemer ruin) it slides off an edge and takes a fatal fall, where an
+  unmodded character walks out fine. This can't be safely worked around in the
+  game (by the time you're falling it's too late, and a warning you can't act on
+  is just noise), so the fix is to not change the player's collision box: remove
+  "Jammings off" or any similar "smaller bounding box" body/skeleton replacer.
+  Auto-walk's own stuck-recovery already squeezes you through tight doorways, so
+  you lose nothing by removing them. See the "Mods that shrink the player's
+  collision box" section in the README for the full explanation.
+
 - **Added: the enchanting window is now fully usable with a screen reader.**
   Whether you're enchanting an item yourself or paying an enchanter, you can now
   arrow through every part of the window: the name field, the item slot and the
