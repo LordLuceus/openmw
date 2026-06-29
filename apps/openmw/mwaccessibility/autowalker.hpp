@@ -212,6 +212,11 @@ namespace MWAccessibility
         float mWalkClock = 0.0f;
         float mPrevZ = 0.0f;
         bool mHasPrevZ = false;
+        // Seconds the body has been continuously airborne AND descending. Reset to
+        // 0 whenever grounded or rising. A real fall sustains this; a single-frame
+        // step/ledge jitter (which can spike the per-frame velocity to plunge levels
+        // at high framerates) never accumulates enough to arm the catch.
+        float mFallTime = 0.0f;
 
         // Oscillation detection. The physical-wedge check (mTimeSinceMove) only
         // catches us when the BODY stops moving; it misses a "limit cycle" where

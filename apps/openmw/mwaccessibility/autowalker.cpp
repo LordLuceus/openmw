@@ -132,6 +132,19 @@ namespace
     // speed is ~12-15m of trail -- enough to clear a crest-and-descent like the
     // Arkngthand one (~1.5s of downhill) but short enough to stay in the same area.
     constexpr float kSafeTrailWindow = 2.5f; // seconds of grounded history to keep
+    // A single-frame vertical-velocity spike is NOT a fall. vertVel is derived as
+    // (z - prevZ)/dt, so at 64fps a harmless 4-unit step-down reads as ~-255 u/s --
+    // right at kPlungeVel -- and the faster the framerate the smaller the step that
+    // trips it (the noise floor scales with 1/dt). A real plunge, by contrast, is
+    // airborne and descending for many consecutive frames. So we additionally
+    // require the body to have been continuously airborne-and-descending for at
+    // least kMinFallTime seconds before arresting. This is frame-rate independent
+    // (time-based, not frame-count) and easily satisfied by a genuine fall: under
+    // gravity it takes ~0.4s to even reach kPlungeVel, by which point the timer is
+    // well past this threshold -- while a one-frame step/ledge jitter never comes
+    // close. This is the primary defence against false positives where the player
+    // is merely walking along a ledge above a drop.
+    constexpr float kMinFallTime = 0.2f; // seconds of sustained airborne descent
 
     // Oscillation ("limit cycle") detection. Distinct from the physical-wedge
     // check: here the body IS moving (full running speed) but in a loop, so we
@@ -619,6 +632,7 @@ namespace MWAccessibility
         mSafeTrail.clear();
         mWalkClock = 0.0f;
         mHasPrevZ = false;
+        mFallTime = 0.0f;
     }
 
     void AutoWalker::cancel()
@@ -1225,6 +1239,15 @@ namespace MWAccessibility
             mHasPrevZ = true;
             mWalkClock += dt;
 
+            // Accumulate continuous airborne-descent time; reset the moment we're
+            // grounded, rising, or not actually descending. This is the frame-rate
+            // independent "is this a sustained fall?" signal that distinguishes a
+            // real plunge from a one-frame step/ledge velocity spike.
+            if (!onGround && !flying && vertVel < 0.0f)
+                mFallTime += dt;
+            else
+                mFallTime = 0.0f;
+
             if (onGround && !flying)
             {
                 // Record this grounded position in the trail and drop entries older
@@ -1235,11 +1258,47 @@ namespace MWAccessibility
                 while (!mSafeTrail.empty() && mWalkClock - mSafeTrail.front().first > kSafeTrailWindow)
                     mSafeTrail.pop_front();
             }
-            else if (!flying && !mSafeTrail.empty() && mRecoveryTimer <= 0.0f && vertVel <= -kPlungeVel)
+            else if (!flying && !mSafeTrail.empty() && mRecoveryTimer <= 0.0f && vertVel <= -kPlungeVel
+                && mFallTime >= kMinFallTime)
             {
-                // Pitched into a plunge while auto-walking. Snap back to the HIGHEST
-                // recent grounded point (the safe crest before the descent), zero the
-                // fall, stop, and report honestly.
+                // A steep downward velocity is NECESSARY but not SUFFICIENT: running
+                // down a steep hillside (or skipping airborne off a lip while still
+                // safely descending toward ground) briefly exceeds kPlungeVel even
+                // though solid ground is right beneath us. Velocity alone can't tell
+                // that apart from a real plunge -- both sit around -250..-280 (observed:
+                // a genuine Arkngthand pit plunge AND a harmless hill-run skip both in
+                // that band). The reliable discriminator is GROUND CLEARANCE: how far
+                // solid ground actually is below us right now. Cast a ray straight down;
+                // if ground is within the engine's no-fall-damage distance
+                // (fFallDamageDistanceMin, ~400u), this "plunge" cannot hurt us, so it's
+                // a slope skip, not a fall -- do NOT arrest. Only catch a drop that is
+                // genuinely far enough to be dangerous.
+                const float fallDamageMin = world->getStore().get<ESM::GameSetting>()
+                    .find("fFallDamageDistanceMin")->mValue.getFloat();
+                // Probe from just under the actor's feet so we measure clearance BELOW
+                // the body, not from the eye. getHalfExtents().z() is half the body
+                // height; start the ray a touch below the feet to ignore the body
+                // itself, and search a bit past the damage threshold so we can tell
+                // "ground close" from "long drop".
+                const float feetOffset = world->getHalfExtents(player).z() + 1.0f;
+                const osg::Vec3f probeFrom(playerPos.x(), playerPos.y(), playerPos.z() - feetOffset);
+                const float groundClearance = world->getDistToNearestRayHit(
+                    probeFrom, -osg::Z_AXIS, fallDamageMin + 64.0f, /*includeWater=*/true);
+                if (groundClearance < fallDamageMin)
+                {
+                    // Ground is close enough that the fall is non-fatal -- a slope
+                    // skip, not a plunge. Let it ride; do not arrest or stop.
+                    if (kLogStairDiag)
+                        Log(Debug::Warning) << "[a11y] autowalk fall-arrest: IGNORED non-fatal drop vertVel="
+                                            << vertVel << " groundClearance=" << groundClearance
+                                            << " (fallDamageMin=" << fallDamageMin << ") at pos=("
+                                            << playerPos.x() << "," << playerPos.y() << "," << playerPos.z() << ")";
+                }
+                else
+                {
+                // Pitched into a real plunge while auto-walking. Snap back to the
+                // HIGHEST recent grounded point (the safe crest before the descent),
+                // zero the fall, stop, and report honestly.
                 osg::Vec3f snap = mSafeTrail.front().second;
                 for (const auto& entry : mSafeTrail)
                     if (entry.second.z() > snap.z())
@@ -1253,7 +1312,9 @@ namespace MWAccessibility
                 const float snapBackHoriz = std::sqrt((snap.x() - playerPos.x()) * (snap.x() - playerPos.x())
                     + (snap.y() - playerPos.y()) * (snap.y() - playerPos.y()));
                 Log(Debug::Warning) << "[a11y] autowalk fall-arrest: caught plunge vertVel=" << vertVel
-                                    << " (kPlungeVel=" << kPlungeVel << ") at pos=(" << playerPos.x() << ","
+                                    << " (kPlungeVel=" << kPlungeVel << ") fallTime=" << mFallTime
+                                    << " groundClearance=" << groundClearance
+                                    << " (fallDamageMin=" << fallDamageMin << ") at pos=(" << playerPos.x() << ","
                                     << playerPos.y() << "," << playerPos.z() << ") snapped to (" << snap.x() << ","
                                     << snap.y() << "," << snap.z() << ") snapBackHoriz=" << snapBackHoriz
                                     << " snapUpZ=" << (snap.z() - playerPos.z()) << " trail=" << mSafeTrail.size();
@@ -1275,6 +1336,7 @@ namespace MWAccessibility
                 speakQueued("Path drops off. Cannot reach " + mTargetName + " safely.");
                 cancel();
                 return;
+                }
             }
         }
 
