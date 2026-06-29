@@ -6,6 +6,17 @@ Newest changes are listed first. (OpenMW's own engine changelog lives in
 
 ## 2026-06-29
 
+- **Auto-walk now stops you before it walks you into lava (or any damage).**
+  Some places hide treasure behind a hazard you're meant to fly over -- e.g.
+  Shushishi has a lava pit below a levitation-only room. Pointing auto-walk at
+  something past it used to march you straight into the lava and kill you, with
+  no way to stop in time. Now, if auto-walk ever leads you onto a surface that
+  starts hurting you (lava, a fire field, damaging water) and you aren't in a
+  fight, the game pulls you back to the last safe ground you crossed, stops, and
+  says the path crosses a hazard. As with the fall-catch, you end up alive and
+  standing instead of dead, and you know that spot needs levitation or another
+  way around.
+
 - **Dialogue topics now say "disabled" when you can't talk right now.**
   Sometimes an NPC cuts the conversation short -- often a quest-gated brush-off
   like "Now isn't the time, let's clear the ship of undead and then we'll talk"

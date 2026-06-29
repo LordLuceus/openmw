@@ -20,6 +20,7 @@
 
 #include "../mwbase/environment.hpp"
 #include "../mwbase/luamanager.hpp"
+#include "../mwbase/mechanicsmanager.hpp"
 #include "../mwbase/world.hpp"
 
 #include "../mwmechanics/creaturestats.hpp"
@@ -145,6 +146,28 @@ namespace
     // close. This is the primary defence against false positives where the player
     // is merely walking along a ledge above a drop.
     constexpr float kMinFallTime = 0.2f; // seconds of sustained airborne descent
+
+    // HAZARD-ARREST tuning. Auto-walk can route the player across a damaging
+    // surface they can't survive -- most notably LAVA (e.g. Shushishi has a
+    // walk-in lava pit guarding a levitation-only treasure room; auto-walk
+    // toward a target in that room marches you straight into it). OpenMW has no
+    // "lava" concept at all -- lava is just a magma-textured water surface and
+    // the damage is applied by data-file scripts -- so we cannot detect the
+    // hazard by type. Instead we watch the player's HEALTH: sustained damage
+    // taken while NOT in combat means we walked into an environmental hazard, so
+    // we snap back to safe ground and stop (the fall-arrest idea, generalised
+    // from "don't fall to your death" to "don't walk into a damage field").
+    //
+    // We accumulate non-combat damage across a burst and reset the accumulator
+    // once kHazardGraceTime passes with no further damage. This is what tells a
+    // real hazard (lava ticks continuously, many HP/sec -- the accumulator
+    // climbs fast and never resets) from a slow incidental tick (a weak poison/
+    // disease at a point or two every few seconds -- grace expires between ticks
+    // and the accumulator keeps resetting, so it never arms). kHazardDmgArm is
+    // the accumulated non-combat damage that arms the catch: high enough to
+    // ignore a trivial one-off tick, low enough that lava trips it within ~1s.
+    constexpr float kHazardGraceTime = 0.5f; // seconds without damage that ends a burst
+    constexpr float kHazardDmgArm = 10.0f; // accumulated non-combat HP loss that arms the catch
 
     // Oscillation ("limit cycle") detection. Distinct from the physical-wedge
     // check: here the body IS moving (full running speed) but in a loop, so we
@@ -633,6 +656,9 @@ namespace MWAccessibility
         mWalkClock = 0.0f;
         mHasPrevZ = false;
         mFallTime = 0.0f;
+        mHasPrevHealth = false;
+        mHazardDamage = 0.0f;
+        mHazardGrace = 0.0f;
     }
 
     void AutoWalker::cancel()
@@ -1337,6 +1363,70 @@ namespace MWAccessibility
                 cancel();
                 return;
                 }
+            }
+        }
+
+        // --- Hazard-arrest: don't auto-walk the player into a damage field ---
+        //
+        // Fall-arrest stops us walking off a fatal drop; this stops us walking
+        // INTO a damaging surface -- lava above all (e.g. Shushishi's walk-in
+        // lava pit guarding a levitation-only treasure room). OpenMW has no lava
+        // type to test, so we watch HEALTH: sustained damage taken while NOT in
+        // combat is an environmental hazard. On a catch we snap back to the same
+        // safe crest fall-arrest uses (highest recent grounded point -- the edge
+        // we stepped from, not the spot inside the hazard) and stop honestly.
+        {
+            const float health = player.getClass().getCreatureStats(player).getHealth().getCurrent();
+            const bool inCombat
+                = !MWBase::Environment::get().getMechanicsManager()->getActorsFighting(player).empty();
+
+            if (mHasPrevHealth && !inCombat && health < mPrevHealth)
+            {
+                // Lost health this frame and nobody is fighting us -> environmental.
+                mHazardDamage += (mPrevHealth - health);
+                mHazardGrace = kHazardGraceTime;
+            }
+            else if (mHazardGrace > 0.0f)
+            {
+                // Count down the grace window; if it lapses with no further
+                // damage, the burst is over -- forget it (isolated ticks never arm).
+                mHazardGrace -= dt;
+                if (mHazardGrace <= 0.0f)
+                    mHazardDamage = 0.0f;
+            }
+            mPrevHealth = health;
+            mHasPrevHealth = true;
+
+            if (mHazardDamage >= kHazardDmgArm && !mSafeTrail.empty() && mRecoveryTimer <= 0.0f)
+            {
+                osg::Vec3f snap = mSafeTrail.front().second;
+                for (const auto& entry : mSafeTrail)
+                    if (entry.second.z() > snap.z())
+                        snap = entry.second;
+                const float snapBackHoriz = std::sqrt((snap.x() - playerPos.x()) * (snap.x() - playerPos.x())
+                    + (snap.y() - playerPos.y()) * (snap.y() - playerPos.y()));
+                // Always-on (like fall-arrest): rare and user-visible. Log the
+                // accumulated damage, where we caught it, and the snap target so a
+                // false catch (e.g. a hazard we should have tolerated) is diagnosable.
+                Log(Debug::Warning) << "[a11y] autowalk hazard-arrest: caught damage field hazardDamage="
+                                    << mHazardDamage << " (arm=" << kHazardDmgArm << ") at pos=(" << playerPos.x()
+                                    << "," << playerPos.y() << "," << playerPos.z() << ") snapped to (" << snap.x()
+                                    << "," << snap.y() << "," << snap.z() << ") snapBackHoriz=" << snapBackHoriz
+                                    << " trail=" << mSafeTrail.size();
+                world->moveObject(player, snap, /*movePhysics=*/true);
+                if (auto* controls = MWBase::Environment::get().getLuaManager()->getActorControls(player))
+                {
+                    controls->mMovement = 0.0f;
+                    controls->mSideMovement = 0.0f;
+                    controls->mYawChange = 0.0f;
+                    controls->mPitchChange = 0.0f;
+                    controls->mJump = false;
+                    controls->mRun = false;
+                    controls->mChanged = true;
+                }
+                speakQueued("Path crosses a hazard. Cannot reach " + mTargetName + " safely.");
+                cancel();
+                return;
             }
         }
 

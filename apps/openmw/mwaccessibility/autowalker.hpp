@@ -218,6 +218,19 @@ namespace MWAccessibility
         // at high framerates) never accumulates enough to arm the catch.
         float mFallTime = 0.0f;
 
+        // HAZARD-ARREST state. Auto-walk can march the player into a damaging
+        // surface (lava, a fire field, damaging water). We can't detect the
+        // hazard by type -- OpenMW has no lava concept; it's script-applied
+        // damage on a water surface -- so we watch health instead. mPrevHealth
+        // is last frame's current health; mHazardDamage accumulates health lost
+        // while NOT in combat; mHazardGrace counts down since the last such loss
+        // and resets the accumulator when it expires (so isolated ticks never
+        // arm, but continuous lava damage does). All reset in resetProgress.
+        float mPrevHealth = 0.0f;
+        bool mHasPrevHealth = false;
+        float mHazardDamage = 0.0f;
+        float mHazardGrace = 0.0f;
+
         // Oscillation detection. The physical-wedge check (mTimeSinceMove) only
         // catches us when the BODY stops moving; it misses a "limit cycle" where
         // we move at full speed but in a loop -- e.g. a coarse stair route whose
