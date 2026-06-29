@@ -1033,25 +1033,35 @@ namespace MWGui
                 if (name.empty())
                     continue; // separator between services and topics
 
-                // For learned dialogue keywords, append the native new/exhausted
-                // state (the UI shows this via topic text colour). Services
-                // aren't keywords, so getTopicFlag returns nothing useful for
-                // them -- only annotate genuine keywords.
-                std::function<std::string()> value;
+                // Annotate each topic's spoken value. Two cases, checked at
+                // focus time so they always reflect live state:
+                //  - The whole topics list can be DISABLED (the NPC forced a
+                //    goodbye, e.g. a quest-gated "not now" brush-off). The UI
+                //    shows this by greying the list out; sighted players get a
+                //    weak visual cue but a clicked topic silently does nothing.
+                //    Speak "disabled" so a screen-reader user isn't left
+                //    clicking dead topics with no feedback. This applies to
+                //    every entry (services and keywords alike), so it's checked
+                //    first and takes precedence over new/exhausted.
+                //  - For learned dialogue keywords, append the native new/
+                //    exhausted state (the UI shows this via topic text colour).
+                //    Services aren't keywords, so only annotate genuine keywords.
                 const bool isKeyword
                     = std::find(mKeywords.begin(), mKeywords.end(), name) != mKeywords.end();
-                if (isKeyword)
-                {
-                    value = [name] {
+                std::function<std::string()> value = [this, name, isKeyword] {
+                    if (!mTopicsList->getEnabled())
+                        return std::string("disabled");
+                    if (isKeyword)
+                    {
                         int flag = MWBase::Environment::get().getDialogueManager()->getTopicFlag(
                             ESM::RefId::stringRefId(name));
                         if (flag & MWBase::DialogueManager::TopicType::Specific)
                             return std::string("new");
                         if (flag & MWBase::DialogueManager::TopicType::Exhausted)
                             return std::string("exhausted");
-                        return std::string();
-                    };
-                }
+                    }
+                    return std::string();
+                };
 
                 mA11y.add({ .widget = nullptr,
                     .label = name,

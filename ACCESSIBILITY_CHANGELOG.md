@@ -4,6 +4,18 @@ A running log of screen-reader accessibility features added to this OpenMW fork.
 Newest changes are listed first. (OpenMW's own engine changelog lives in
 `CHANGELOG.md`.)
 
+## 2026-06-29
+
+- **Dialogue topics now say "disabled" when you can't talk right now.**
+  Sometimes an NPC cuts the conversation short -- often a quest-gated brush-off
+  like "Now isn't the time, let's clear the ship of undead and then we'll talk"
+  -- after which every topic in the list stops working and only Goodbye does
+  anything. Sighted players see the topic list greyed out, but with a screen
+  reader there was no hint: topics still read normally and selecting one just did
+  nothing. Now each topic is announced with "disabled" while the list is locked,
+  so you know straight away that you have to say Goodbye and come back later
+  rather than clicking topics that won't respond.
+
 ## 2026-06-28
 
 - **Auto-walk now catches you instead of letting you fall to your death.** If
