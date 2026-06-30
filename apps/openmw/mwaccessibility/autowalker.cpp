@@ -17,6 +17,8 @@
 #include <components/esm/util.hpp>
 #include <components/esm3/loadcell.hpp>
 #include <components/esm3/loaddoor.hpp>
+#include <components/esm3/loadmgef.hpp>
+#include <components/esm3/loadskil.hpp>
 
 #include "../mwbase/environment.hpp"
 #include "../mwbase/luamanager.hpp"
@@ -146,6 +148,25 @@ namespace
     // close. This is the primary defence against false positives where the player
     // is merely walking along a ledge above a drop.
     constexpr float kMinFallTime = 0.2f; // seconds of sustained airborne descent
+
+    // How far below the feet to probe for ground when deciding whether a plunge
+    // is dangerous. The OLD code probed only ~fFallDamageDistanceMin+64 (~464u)
+    // and arrested ANY drop past the damage-onset distance (~400u) -- but a 400u
+    // drop deals only a few HP (the onset is where damage STARTS, not where it
+    // hurts), so it false-caught harmless 6-7m hops on ordinary exterior terrain
+    // (the Caldera pathgrid case). We now probe much deeper so we can measure the
+    // ACTUAL drop, then predict the ACTUAL fall damage (predictFallDamage, using
+    // the engine's acrobatics-aware formula) and arrest only when that damage is
+    // a dangerous fraction of THIS character's current health. 4096u (~58m) is
+    // far past any survivable fall, so it cleanly separates a real plunge from a
+    // terrain hop without a magic distance threshold.
+    constexpr float kFallProbeDepth = 4096.0f; // units to cast down looking for ground
+    // Arrest only if the predicted fall would cost at least this fraction of the
+    // player's CURRENT health. Self-tuning: a sturdy warrior shrugs off a fall a
+    // frail mage wouldn't, and we respect that rather than using a fixed
+    // distance. 0.5 = "would take at least half your current health" -- a
+    // genuinely dangerous fall worth stopping for, not a survivable scrape.
+    constexpr float kFallDangerHealthFraction = 0.5f;
 
     // HAZARD-ARREST tuning. Auto-walk can route the player across a damaging
     // surface they can't survive -- most notably LAVA (e.g. Shushishi has a
@@ -304,6 +325,43 @@ namespace
     {
         Accessibility::AccessibilityManager::instance().speak(
             text, /*interrupt=*/false);
+    }
+
+    // Predict the fall damage \p player would take from a fall of \p fallHeight
+    // units, mirroring the engine's getFallDamage (mwmechanics/character.cpp):
+    // acrobatics and any active Jump effect reduce the effective height, then
+    // the GMST curve converts it to HP. Kept in lock-step with the engine so the
+    // fall-arrest danger test reflects the damage the player would ACTUALLY take
+    // -- a strong character survives a fall a weak one wouldn't, and we respect
+    // that instead of arresting on a fixed distance. Returns 0 below the
+    // damage-onset distance.
+    float predictFallDamage(const MWWorld::Ptr& player, float fallHeight)
+    {
+        const MWWorld::Store<ESM::GameSetting>& store
+            = MWBase::Environment::get().getWorld()->getStore().get<ESM::GameSetting>();
+        const float fallDistanceMin = store.find("fFallDamageDistanceMin")->mValue.getFloat();
+        if (fallHeight < fallDistanceMin)
+            return 0.0f;
+
+        const float acrobaticsSkill = player.getClass().getSkill(player, ESM::Skill::Acrobatics);
+        const float jumpSpellBonus = player.getClass()
+                                         .getCreatureStats(player)
+                                         .getMagicEffects()
+                                         .getOrDefault(ESM::MagicEffect::Jump)
+                                         .getMagnitude();
+        const float fallAcroBase = store.find("fFallAcroBase")->mValue.getFloat();
+        const float fallAcroMult = store.find("fFallAcroMult")->mValue.getFloat();
+        const float fallDistanceBase = store.find("fFallDistanceBase")->mValue.getFloat();
+        const float fallDistanceMult = store.find("fFallDistanceMult")->mValue.getFloat();
+
+        float x = fallHeight - fallDistanceMin;
+        x -= (1.5f * acrobaticsSkill) + jumpSpellBonus;
+        x = std::max(0.0f, x);
+
+        const float a = fallAcroBase + fallAcroMult * (100.0f - acrobaticsSkill);
+        x = fallDistanceBase + fallDistanceMult * x;
+        x *= a;
+        return x;
     }
 }
 
@@ -1343,32 +1401,39 @@ namespace MWAccessibility
                 // though solid ground is right beneath us. Velocity alone can't tell
                 // that apart from a real plunge -- both sit around -250..-280 (observed:
                 // a genuine Arkngthand pit plunge AND a harmless hill-run skip both in
-                // that band). The reliable discriminator is GROUND CLEARANCE: how far
-                // solid ground actually is below us right now. Cast a ray straight down;
-                // if ground is within the engine's no-fall-damage distance
-                // (fFallDamageDistanceMin, ~400u), this "plunge" cannot hurt us, so it's
-                // a slope skip, not a fall -- do NOT arrest. Only catch a drop that is
-                // genuinely far enough to be dangerous.
-                const float fallDamageMin = world->getStore().get<ESM::GameSetting>()
-                    .find("fFallDamageDistanceMin")->mValue.getFloat();
+                // that band). The reliable discriminator is HOW MUCH THE FALL WOULD
+                // HURT: cast a ray straight down to measure the real drop, predict the
+                // fall damage with the engine's own acrobatics-aware formula, and arrest
+                // only if it would cost a dangerous fraction of THIS character's current
+                // health. The old code instead arrested any drop past the damage-ONSET
+                // distance (~400u), which on ordinary exterior terrain (the Caldera
+                // pathgrid case) false-caught harmless 6-7m hops dealing only ~4-6 HP.
                 // Probe from just under the actor's feet so we measure clearance BELOW
-                // the body, not from the eye. getHalfExtents().z() is half the body
-                // height; start the ray a touch below the feet to ignore the body
-                // itself, and search a bit past the damage threshold so we can tell
-                // "ground close" from "long drop".
+                // the body, not from the eye, and probe DEEP (kFallProbeDepth) so we can
+                // size a real plunge instead of saturating at a shallow cap.
                 const float feetOffset = world->getHalfExtents(player).z() + 1.0f;
                 const osg::Vec3f probeFrom(playerPos.x(), playerPos.y(), playerPos.z() - feetOffset);
                 const float groundClearance = world->getDistToNearestRayHit(
-                    probeFrom, -osg::Z_AXIS, fallDamageMin + 64.0f, /*includeWater=*/true);
-                if (groundClearance < fallDamageMin)
+                    probeFrom, -osg::Z_AXIS, kFallProbeDepth, /*includeWater=*/true);
+                // The probe starts ~1u below the feet, so groundClearance already IS
+                // the drop measured from the feet down to the ground -- that's the fall
+                // height the engine's damage formula cares about (don't add the body
+                // half-height back, or we'd overstate the fall by a whole body length).
+                const float fallHeight = groundClearance;
+                const float predictedDamage = predictFallDamage(player, fallHeight);
+                const float currentHealth
+                    = player.getClass().getCreatureStats(player).getHealth().getCurrent();
+                const float dangerThreshold = kFallDangerHealthFraction * std::max(1.0f, currentHealth);
+                if (predictedDamage < dangerThreshold)
                 {
-                    // Ground is close enough that the fall is non-fatal -- a slope
-                    // skip, not a plunge. Let it ride; do not arrest or stop.
+                    // The fall wouldn't meaningfully hurt this character -- a slope
+                    // skip or a survivable hop, not a deadly plunge. Let it ride.
                     if (kLogStairDiag)
-                        Log(Debug::Warning) << "[a11y] autowalk fall-arrest: IGNORED non-fatal drop vertVel="
-                                            << vertVel << " groundClearance=" << groundClearance
-                                            << " (fallDamageMin=" << fallDamageMin << ") at pos=("
-                                            << playerPos.x() << "," << playerPos.y() << "," << playerPos.z() << ")";
+                        Log(Debug::Warning) << "[a11y] autowalk fall-arrest: IGNORED survivable drop vertVel="
+                                            << vertVel << " fallHeight=" << fallHeight
+                                            << " predictedDamage=" << predictedDamage << " health=" << currentHealth
+                                            << " (threshold=" << dangerThreshold << ") at pos=(" << playerPos.x()
+                                            << "," << playerPos.y() << "," << playerPos.z() << ")";
                 }
                 else
                 {
@@ -1389,11 +1454,12 @@ namespace MWAccessibility
                     + (snap.y() - playerPos.y()) * (snap.y() - playerPos.y()));
                 Log(Debug::Warning) << "[a11y] autowalk fall-arrest: caught plunge vertVel=" << vertVel
                                     << " (kPlungeVel=" << kPlungeVel << ") fallTime=" << mFallTime
-                                    << " groundClearance=" << groundClearance
-                                    << " (fallDamageMin=" << fallDamageMin << ") at pos=(" << playerPos.x() << ","
-                                    << playerPos.y() << "," << playerPos.z() << ") snapped to (" << snap.x() << ","
-                                    << snap.y() << "," << snap.z() << ") snapBackHoriz=" << snapBackHoriz
-                                    << " snapUpZ=" << (snap.z() - playerPos.z()) << " trail=" << mSafeTrail.size();
+                                    << " fallHeight=" << fallHeight << " predictedDamage=" << predictedDamage
+                                    << " health=" << currentHealth << " (threshold=" << dangerThreshold
+                                    << ") at pos=(" << playerPos.x() << "," << playerPos.y() << "," << playerPos.z()
+                                    << ") snapped to (" << snap.x() << "," << snap.y() << "," << snap.z()
+                                    << ") snapBackHoriz=" << snapBackHoriz << " snapUpZ=" << (snap.z() - playerPos.z())
+                                    << " trail=" << mSafeTrail.size();
                 world->moveObject(player, snap, /*movePhysics=*/true);
                 if (auto* controls = MWBase::Environment::get().getLuaManager()->getActorControls(player))
                 {

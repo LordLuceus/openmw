@@ -6,6 +6,19 @@ Newest changes are listed first. (OpenMW's own engine changelog lives in
 
 ## 2026-06-30
 
+- **Auto-walk's fall-catch now judges a drop by how badly it would hurt YOU, not
+  by a fixed distance -- so harmless little drops on ordinary terrain no longer
+  stop you.** The safety net was still firing on everyday exterior walks (e.g.
+  Caldera) at small 6-7 metre drops that would have cost only a few points of
+  health. It was treating "far enough to take any fall damage at all" as "far
+  enough to be deadly", and it couldn't even measure a real cliff because it only
+  looked a few metres down. It now looks all the way down, works out the actual
+  damage the fall would deal to your character (taking your Acrobatics and any
+  Jump effect into account, exactly as the game does), and only catches you when
+  that fall would cost at least half your current health. A tough character who
+  can shrug a fall off is left alone; a real, dangerous plunge is still caught
+  and undone just as before.
+
 - **Auto-walk's fall-catch no longer interrupts normal walking with false
   alarms.** The safety net that catches you before a fatal drop was sometimes
   triggering on ordinary routes -- snapping you back and stopping the walk when
