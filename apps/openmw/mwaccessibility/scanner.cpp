@@ -88,6 +88,7 @@
 #include "../mwworld/cellref.hpp"
 #include "../mwworld/cellstore.hpp"
 #include "../mwworld/class.hpp"
+#include "../mwworld/actionteleport.hpp"
 #include "../mwworld/doorstate.hpp"
 #include "../mwworld/esmstore.hpp"
 #include "../mwworld/inventorystore.hpp"
@@ -98,6 +99,13 @@
 
 namespace
 {
+    // Teleport escape-hatch distance cap (~4096u, ~58m). The teleport only fires
+    // after auto-walk has actually FAILED to reach an obviously-present target
+    // (e.g. a ledge you flew up to that has no walkable path back), and only over
+    // a gap no larger than this -- enough for a room/cave that pathfinding can't
+    // route, but far short of letting it be abused as in-cell fast travel.
+    constexpr float kTeleportMaxDist = 4096.0f;
+
     // True if \p scancode is the player's currently-bound forward / back / left
     // / right movement key. Reads the live key bindings (not hardcoded WASD) so
     // remapped and non-QWERTY layouts work, and an unbound action (UNKNOWN)
@@ -1079,9 +1087,13 @@ namespace MWAccessibility
             case SDL_SCANCODE_RETURN:
             case SDL_SCANCODE_KP_ENTER:
                 // Enter faces the target, Shift+Enter walks to it, Ctrl+Enter
-                // toggles the audio beacon. (Ctrl takes precedence so it works
-                // regardless of whether Shift is also held.)
-                if (ctrl)
+                // toggles the audio beacon, Ctrl+Shift+Enter teleports to it
+                // (the escape hatch, only after a walk has failed -- see
+                // teleportToTarget). Check the two-modifier combo FIRST so it
+                // isn't shadowed by the single-modifier cases.
+                if (ctrl && shift)
+                    teleportToTarget();
+                else if (ctrl)
                     toggleBeacon();
                 else if (shift)
                     walkToTarget();
@@ -2186,6 +2198,64 @@ namespace MWAccessibility
         {
             speak("Cannot reach " + objectDisplayName(target) + ".");
         }
+    }
+
+    void Scanner::teleportToTarget()
+    {
+        // The escape hatch for when auto-walk physically can't route to a target
+        // that is obviously there (you levitated up to a ledge; no walkable path
+        // leads back). Guardrails: (1) only fires if auto-walk previously FAILED
+        // to reach a target -- it arms a one-shot teleport on give-up/stop-short/
+        // fall-/hazard-arrest -- so you can't teleport somewhere you never tried
+        // to walk; (2) capped at kTeleportMaxDist, so it can't skip across the
+        // map. Followers within range come along (ActionTeleport handles them).
+        osg::Vec3f dest;
+        std::string name;
+        if (!mAutoWalker.consumeTeleportTarget(dest, name))
+        {
+            // Nothing armed: the player hasn't tried (and failed) to walk
+            // somewhere, so there's nothing to escape from. Say so plainly.
+            speak("Nothing to teleport to. Try walking there first.");
+            return;
+        }
+
+        MWBase::World* world = MWBase::Environment::get().getWorld();
+        MWWorld::Ptr player = world->getPlayerPtr();
+        const osg::Vec3f playerPos = player.getRefData().getPosition().asVec3();
+
+        // 3D straight-line gap: the headline use case is vertical (a ledge above
+        // us), so a horizontal-only distance would understate it and let through
+        // teleports the cap is meant to block.
+        const osg::Vec3f d = dest - playerPos;
+        const float dist = d.length();
+        if (dist > kTeleportMaxDist)
+        {
+            // Too far to be a "pathfinding couldn't manage a short gap" case.
+            // Refuse rather than become fast travel. (Re-running auto-walk will
+            // re-arm it, but the distance won't change -- this is a hard stop.)
+            speak(name + " is too far to teleport to.");
+            return;
+        }
+
+        // Keep the player's current facing/pitch; only the position changes.
+        const ESM::Position curPos = player.getRefData().getPosition();
+        ESM::Position destPos;
+        destPos.pos[0] = dest.x();
+        destPos.pos[1] = dest.y();
+        destPos.pos[2] = dest.z();
+        destPos.rot[0] = curPos.rot[0];
+        destPos.rot[1] = curPos.rot[1];
+        destPos.rot[2] = curPos.rot[2];
+
+        // Same cell as the player (auto-walk is single-worldspace, so an armed
+        // target is always in the current cell). Reuse the player's cell id and
+        // teleport via the engine's own ActionTeleport, which also brings nearby
+        // followers and handles water-walking / Lua notification correctly.
+        const ESM::RefId cellId = player.getCell()->getCell()->getId();
+        MWWorld::ActionTeleport action(cellId, destPos, /*teleportFollowers=*/true);
+        action.execute(world->getPlayerPtr());
+
+        speak("Teleported to " + name + ".");
     }
 
     void Scanner::openSearch()

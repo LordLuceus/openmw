@@ -48,6 +48,18 @@ namespace MWAccessibility
         /// messages.
         const std::string& targetName() const { return mTargetName; }
 
+        /// Teleport escape hatch. Auto-walk can fail to REACH a target that is
+        /// obviously there (you flew up to a ledge and now no walkable path
+        /// leads back; pathfinding gets within metres but can't traverse the
+        /// drop). When a walk gives up or stops short, we ARM a one-shot
+        /// teleport to that target's last position. The scanner exposes this on
+        /// a deliberately awkward key (Ctrl+Shift+Enter) so the player can blink
+        /// the short gap. Guardrails live in the scanner (distance cap; only
+        /// armed after a real failed attempt). Returns true and fills \p outPos
+        /// / \p outName if a teleport is armed; consuming it disarms it.
+        bool consumeTeleportTarget(osg::Vec3f& outPos, std::string& outName);
+        bool teleportArmed() const { return mTeleportArmed; }
+
     private:
         // Outcome of probing for a closed door across the path (tryOpenBlockingDoor).
         enum class DoorProbe
@@ -74,6 +86,10 @@ namespace MWAccessibility
         // Face the target and announce that we stopped short of it (with the
         // remaining distance), suggesting the audio beacon to find the route.
         void announceStoppedShort(const MWWorld::Ptr& player, const osg::Vec3f& targetPos, float trueDist);
+        // Arm the teleport escape hatch at the current target's position, so the
+        // player can blink the gap if the walk failed to reach an obviously
+        // present target. Called from the give-up / stop-short failure paths.
+        void armTeleport();
         // Pick which way to sidestep during a recovery wiggle by probing both
         // sides with a short raycast and choosing the more open one. This is how
         // we squeeze around an NPC standing in a narrow doorway/aisle (actors
@@ -138,6 +154,14 @@ namespace MWAccessibility
         // a door embedded in a wall.
         osg::Vec3f mEffectiveTarget;
         std::string mTargetName;
+        // Teleport escape-hatch arm state. Set in the give-up / stop-short
+        // failure paths to the target's last position and name; consumed (and
+        // disarmed) by consumeTeleportTarget(). Deliberately NOT cleared by
+        // cancel()/resetProgress() (the failure paths call cancel() right after
+        // arming) -- cleared instead at the start of a new walk and on arrival.
+        bool mTeleportArmed = false;
+        osg::Vec3f mTeleportPos;
+        std::string mTeleportName;
         MWMechanics::PathFinder mPathFinder;
         float mTimeSinceRepath = 0.0f;
 

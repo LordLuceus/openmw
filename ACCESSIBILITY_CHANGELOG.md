@@ -6,6 +6,19 @@ Newest changes are listed first. (OpenMW's own engine changelog lives in
 
 ## 2026-06-29
 
+- **New: teleport to an auto-walk target it couldn't reach (Ctrl+Shift+Enter).**
+  Sometimes a place is obviously reachable but the game's pathfinding just can't
+  work out a route -- classically after you levitate up to a ledge and there's
+  no walkable path back down, so auto-walk gets within a few metres and gives up.
+  When that happens, auto-walk now quietly arms an escape hatch: press
+  Ctrl+Shift+Enter on that same target to blink straight to it. Any followers
+  standing near you come along, so you won't strand your companions. There are
+  deliberate guardrails so this can't become fast travel: it only works right
+  after auto-walk has actually tried and failed to reach the target, and only
+  over a short hop (roughly 58 metres) -- you can't select somewhere across the
+  map and warp there. If nothing is armed it says so; if the target is too far
+  it refuses.
+
 - **Auto-walk now stops you before it walks you into lava (or any damage).**
   Some places hide treasure behind a hazard you're meant to fly over -- e.g.
   Shushishi has a lava pit below a levitation-only room. Pointing auto-walk at

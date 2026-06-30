@@ -256,6 +256,11 @@ namespace MWAccessibility
         bool activateTarget();
         void focusCamera();
         void walkToTarget();
+        // Teleport escape hatch: blink the player (and nearby followers) to the
+        // auto-walk target. Only fires when auto-walk previously failed to reach
+        // it (mAutoWalker armed the teleport) and the gap is within a sane cap,
+        // so it can't be abused as in-cell fast travel. Bound to Ctrl+Shift+Enter.
+        void teleportToTarget();
 
         // --- Combat / interaction lock-on --------------------------------
         // Toggle a persistent "lock-on" to the currently-selected target. While

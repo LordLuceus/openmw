@@ -320,6 +320,7 @@ namespace MWAccessibility
         mHasPtrTarget = true;
         mTargetName = std::string(target.getClass().getName(target));
         mActive = true;
+        mTeleportArmed = false; // fresh intent: disarm any stale escape hatch
         resetProgress();
         // Capture where the target stood at walk start, so onFrame can tell if
         // it's a wandering actor that has since moved (see mTargetMoving).
@@ -339,6 +340,7 @@ namespace MWAccessibility
         mHasPtrTarget = false;
         mTargetName = name;
         mActive = true;
+        mTeleportArmed = false; // fresh intent: disarm any stale escape hatch
         resetProgress();
         // A fixed waypoint never moves; record it anyway for symmetry.
         mTargetStartPos = target;
@@ -593,6 +595,10 @@ namespace MWAccessibility
         {
             speakQueued("Stuck. Cannot reach " + mTargetName + ".");
         }
+        // The walk failed to reach a target that is presumably right there. Arm
+        // the teleport escape hatch so the player can blink the gap (the scanner
+        // enforces the distance cap and only acts on an armed walk).
+        armTeleport();
         return true; // cancel the walk
     }
 
@@ -692,6 +698,31 @@ namespace MWAccessibility
         mTargetName.clear();
         mPathFinder.clearPath();
         resetProgress();
+    }
+
+    void AutoWalker::armTeleport()
+    {
+        // A Ptr target that has vanished (count 0 / cell unloaded) has no valid
+        // position -- don't arm a teleport to garbage. Position waypoints are
+        // always fine.
+        if (mHasPtrTarget && mTarget.isEmpty())
+            return;
+        // Snapshot the target's CURRENT position and name (the walk is about to
+        // be cancelled, which clears mTarget/mTargetName). For a wandering NPC
+        // this captures where it is right now -- the honest "go to it" spot.
+        mTeleportPos = targetPosition();
+        mTeleportName = mTargetName;
+        mTeleportArmed = true;
+    }
+
+    bool AutoWalker::consumeTeleportTarget(osg::Vec3f& outPos, std::string& outName)
+    {
+        if (!mTeleportArmed)
+            return false;
+        outPos = mTeleportPos;
+        outName = mTeleportName;
+        mTeleportArmed = false; // one-shot: a fresh failed walk must re-arm it
+        return true;
     }
 
     bool AutoWalker::rebuildPath()
@@ -1360,6 +1391,7 @@ namespace MWAccessibility
                 // fall damage on the next grounded frame (land() resets it).
                 player.getClass().getCreatureStats(player).land(/*isPlayer=*/true);
                 speakQueued("Path drops off. Cannot reach " + mTargetName + " safely.");
+                armTeleport(); // unreachable on foot -> offer the escape hatch
                 cancel();
                 return;
                 }
@@ -1425,6 +1457,7 @@ namespace MWAccessibility
                     controls->mChanged = true;
                 }
                 speakQueued("Path crosses a hazard. Cannot reach " + mTargetName + " safely.");
+                armTeleport(); // unreachable on foot -> offer the escape hatch
                 cancel();
                 return;
             }
