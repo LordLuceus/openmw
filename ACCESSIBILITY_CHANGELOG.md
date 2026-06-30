@@ -4,6 +4,21 @@ A running log of screen-reader accessibility features added to this OpenMW fork.
 Newest changes are listed first. (OpenMW's own engine changelog lives in
 `CHANGELOG.md`.)
 
+## 2026-06-30
+
+- **Auto-walk's fall-catch no longer interrupts normal walking with false
+  alarms.** The safety net that catches you before a fatal drop was sometimes
+  triggering on ordinary routes -- snapping you back and stopping the walk when
+  you weren't actually going to fall. It turns out a normal route (the game's
+  proper walkable map) is built so it never runs along a deadly drop in the
+  first place, so the catch had nothing real to do there and only misfired. The
+  fall-catch now stays armed only on the rougher kinds of route where a real
+  plunge is actually possible: long cross-country walks, the older hand-drawn
+  node paths used inside some multi-level ruins, and last-resort straight-line
+  beelines. On everyday routes it simply stays out of your way. If you do get
+  steered onto one of the riskier route types and head for a real drop, it still
+  catches you exactly as before.
+
 ## 2026-06-29
 
 - **New: teleport to an auto-walk target it couldn't reach (Ctrl+Shift+Enter).**

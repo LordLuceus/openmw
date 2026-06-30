@@ -176,6 +176,19 @@ namespace MWAccessibility
         // moving target). Recomputed on every rebuildPath.
         bool mStablePath = false;
 
+        // Whether FALL-ARREST should be active for the CURRENT route. A clean
+        // navmesh route can't contain a lethal drop: Recast bakes slope and
+        // ledge constraints into the mesh, so its polygons never span a fatal
+        // fall, and following one can't walk us off a cliff. Fall-arrest only
+        // earns its keep -- and only risks false positives -- on the COARSE
+        // route types that ignore those constraints: the hand-authored pathgrid
+        // fallback (nodes can bridge gaps), the progressive cross-cell carrot/
+        // bee-line across not-yet-loaded terrain, and the last-resort straight
+        // line. So we arm fall-arrest only for those and leave it OFF for a
+        // normal navmesh route, where it was the sole source of false catches.
+        // Recomputed every rebuildPath.
+        bool mFallArrestEnabled = false;
+
         // [a11y] TEMPORARY: throttle for the per-frame stair-follow diagnostic so
         // we log ~5x/sec instead of every frame. Remove with the diagnostic.
         float mStairDiagTimer = 0.0f;

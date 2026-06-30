@@ -740,6 +740,13 @@ namespace MWAccessibility
         // the periodic re-path (see mStablePath in the header / onFrame).
         mStablePath = false;
 
+        // Fall-arrest defaults OFF and is armed only for coarse route types that
+        // can cross a lethal drop (progressive carrot/bee-line, pathgrid
+        // fallback, straight-line last resort). A clean navmesh route leaves it
+        // off -- Recast's slope/ledge constraints already guarantee no fatal
+        // drop, and that route was the only source of fall-arrest false catches.
+        mFallArrestEnabled = false;
+
         DetourNavigator::AgentBounds bounds = world->getPathfindingAgentBounds(player);
         DetourNavigator::Flags flags = playerNavigatorFlags();
         DetourNavigator::AreaCosts costs = defaultAreaCosts();
@@ -772,6 +779,10 @@ namespace MWAccessibility
                 if (carrotHoriz > kArrivalDistance * 2.0f)
                 {
                     mProgressive = true;
+                    // Progressive routing bee-lines toward a carrot along the
+                    // straight line and can cross unmapped terrain / drops, so
+                    // arm fall-arrest for this route.
+                    mFallArrestEnabled = true;
                     mEffectiveTarget = *carrot;
                     mPathFinder.clearPath();
                     mPathFinder.buildPath(player, start, *carrot, MWMechanics::PathgridGraph::sEmpty, bounds, flags,
@@ -864,6 +875,9 @@ namespace MWAccessibility
                     {
                         mPathFinder = std::move(pg);
                         usedPathgrid = true;
+                        // Coarse hand-authored nodes can bridge gaps the navmesh
+                        // would refuse, so arm fall-arrest for a pathgrid route.
+                        mFallArrestEnabled = true;
                         // Coarse hand-authored route: follow it as-is. Rebuilding
                         // it every second re-inserts nodes we just passed and, on
                         // steep stairs, flips the "next" waypoint back across us
@@ -879,7 +893,12 @@ namespace MWAccessibility
         // gives the user *something* to aim at -- they'll hear "Cannot
         // reach" only when even straight-line fails.
         if (!mPathFinder.isPathConstructed())
+        {
             mPathFinder.buildStraightPath(end);
+            // A blind bee-line ignores all geometry and can run straight off a
+            // ledge, so arm fall-arrest for this route.
+            mFallArrestEnabled = true;
+        }
 
         // NO-BACKSTEP PRUNE. A freshly built route can begin with one or more
         // waypoints we have ALREADY walked past -- most visibly with the coarse
@@ -1315,8 +1334,8 @@ namespace MWAccessibility
                 while (!mSafeTrail.empty() && mWalkClock - mSafeTrail.front().first > kSafeTrailWindow)
                     mSafeTrail.pop_front();
             }
-            else if (!flying && !mSafeTrail.empty() && mRecoveryTimer <= 0.0f && vertVel <= -kPlungeVel
-                && mFallTime >= kMinFallTime)
+            else if (mFallArrestEnabled && !flying && !mSafeTrail.empty() && mRecoveryTimer <= 0.0f
+                && vertVel <= -kPlungeVel && mFallTime >= kMinFallTime)
             {
                 // A steep downward velocity is NECESSARY but not SUFFICIENT: running
                 // down a steep hillside (or skipping airborne off a lip while still
