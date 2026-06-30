@@ -149,18 +149,6 @@ namespace
     // is merely walking along a ledge above a drop.
     constexpr float kMinFallTime = 0.2f; // seconds of sustained airborne descent
 
-    // How far below the feet to probe for ground when deciding whether a plunge
-    // is dangerous. The OLD code probed only ~fFallDamageDistanceMin+64 (~464u)
-    // and arrested ANY drop past the damage-onset distance (~400u) -- but a 400u
-    // drop deals only a few HP (the onset is where damage STARTS, not where it
-    // hurts), so it false-caught harmless 6-7m hops on ordinary exterior terrain
-    // (the Caldera pathgrid case). We now probe much deeper so we can measure the
-    // ACTUAL drop, then predict the ACTUAL fall damage (predictFallDamage, using
-    // the engine's acrobatics-aware formula) and arrest only when that damage is
-    // a dangerous fraction of THIS character's current health. 4096u (~58m) is
-    // far past any survivable fall, so it cleanly separates a real plunge from a
-    // terrain hop without a magic distance threshold.
-    constexpr float kFallProbeDepth = 4096.0f; // units to cast down looking for ground
     // Arrest only if the predicted fall would cost at least this fraction of the
     // player's CURRENT health. Self-tuning: a sturdy warrior shrugs off a fall a
     // frail mage wouldn't, and we respect that rather than using a fixed
@@ -1396,41 +1384,38 @@ namespace MWAccessibility
                 && vertVel <= -kPlungeVel && mFallTime >= kMinFallTime)
             {
                 // A steep downward velocity is NECESSARY but not SUFFICIENT: running
-                // down a steep hillside (or skipping airborne off a lip while still
-                // safely descending toward ground) briefly exceeds kPlungeVel even
-                // though solid ground is right beneath us. Velocity alone can't tell
-                // that apart from a real plunge -- both sit around -250..-280 (observed:
-                // a genuine Arkngthand pit plunge AND a harmless hill-run skip both in
-                // that band). The reliable discriminator is HOW MUCH THE FALL WOULD
-                // HURT: cast a ray straight down to measure the real drop, predict the
-                // fall damage with the engine's own acrobatics-aware formula, and arrest
-                // only if it would cost a dangerous fraction of THIS character's current
-                // health. The old code instead arrested any drop past the damage-ONSET
-                // distance (~400u), which on ordinary exterior terrain (the Caldera
-                // pathgrid case) false-caught harmless 6-7m hops dealing only ~4-6 HP.
-                // Probe from just under the actor's feet so we measure clearance BELOW
-                // the body, not from the eye, and probe DEEP (kFallProbeDepth) so we can
-                // size a real plunge instead of saturating at a shallow cap.
-                const float feetOffset = world->getHalfExtents(player).z() + 1.0f;
-                const osg::Vec3f probeFrom(playerPos.x(), playerPos.y(), playerPos.z() - feetOffset);
-                const float groundClearance = world->getDistToNearestRayHit(
-                    probeFrom, -osg::Z_AXIS, kFallProbeDepth, /*includeWater=*/true);
-                // The probe starts ~1u below the feet, so groundClearance already IS
-                // the drop measured from the feet down to the ground -- that's the fall
-                // height the engine's damage formula cares about (don't add the body
-                // half-height back, or we'd overstate the fall by a whole body length).
-                const float fallHeight = groundClearance;
+                // DOWN A WALKABLE SLOPE descends just as fast as a free-fall (observed:
+                // -1100+ u/s sustained for over a second on a Caldera hillside) yet
+                // does NO damage, because the engine keeps re-grounding you the whole
+                // way. A straight-down raycast can't tell the two apart -- a slope has
+                // just as much "ground far below" as a cliff -- which is exactly what
+                // made the old distance-based test false-catch survivable hillsides.
+                //
+                // The authoritative discriminator is the engine's OWN accumulated fall
+                // height (CreatureStats::getFallHeight): it grows ONLY while genuinely
+                // airborne and descending, and is reset to zero every grounded frame
+                // (see mtphysics addToFallHeight / land). It is precisely the value the
+                // engine will feed to getFallDamage on landing. On a walkable slope it
+                // stays ~0 (no damage); in a real plunge it climbs to the true drop. We
+                // feed it through the same acrobatics-aware formula and arrest only when
+                // the fall SO FAR would already cost a dangerous fraction of THIS
+                // character's current health -- which, for a tall cliff, crosses the
+                // threshold mid-air (before impact) so the snap-back still saves us,
+                // while a slope never crosses it at all.
+                const float fallHeight = player.getClass().getCreatureStats(player).getFallHeight();
                 const float predictedDamage = predictFallDamage(player, fallHeight);
                 const float currentHealth
                     = player.getClass().getCreatureStats(player).getHealth().getCurrent();
                 const float dangerThreshold = kFallDangerHealthFraction * std::max(1.0f, currentHealth);
                 if (predictedDamage < dangerThreshold)
                 {
-                    // The fall wouldn't meaningfully hurt this character -- a slope
-                    // skip or a survivable hop, not a deadly plunge. Let it ride.
+                    // Either we're on a walkable slope (engine fall height stays ~0) or
+                    // the fall accumulated so far isn't dangerous yet -- let it ride. If
+                    // it IS a real plunge, fall height keeps climbing and a later frame
+                    // will cross the threshold and arrest while still airborne.
                     if (kLogStairDiag)
                         Log(Debug::Warning) << "[a11y] autowalk fall-arrest: IGNORED survivable drop vertVel="
-                                            << vertVel << " fallHeight=" << fallHeight
+                                            << vertVel << " engineFallHeight=" << fallHeight
                                             << " predictedDamage=" << predictedDamage << " health=" << currentHealth
                                             << " (threshold=" << dangerThreshold << ") at pos=(" << playerPos.x()
                                             << "," << playerPos.y() << "," << playerPos.z() << ")";

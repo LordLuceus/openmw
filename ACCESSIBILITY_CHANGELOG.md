@@ -6,18 +6,22 @@ Newest changes are listed first. (OpenMW's own engine changelog lives in
 
 ## 2026-06-30
 
-- **Auto-walk's fall-catch now judges a drop by how badly it would hurt YOU, not
-  by a fixed distance -- so harmless little drops on ordinary terrain no longer
-  stop you.** The safety net was still firing on everyday exterior walks (e.g.
-  Caldera) at small 6-7 metre drops that would have cost only a few points of
-  health. It was treating "far enough to take any fall damage at all" as "far
-  enough to be deadly", and it couldn't even measure a real cliff because it only
-  looked a few metres down. It now looks all the way down, works out the actual
-  damage the fall would deal to your character (taking your Acrobatics and any
-  Jump effect into account, exactly as the game does), and only catches you when
-  that fall would cost at least half your current health. A tough character who
-  can shrug a fall off is left alone; a real, dangerous plunge is still caught
-  and undone just as before.
+- **Auto-walk's fall-catch no longer mistakes a steep walkable slope for a deadly
+  fall.** It was still stopping you on ordinary hillsides (e.g. around Caldera)
+  where you can simply walk down and take no damage at all. The check had been
+  looking straight down for distant ground, but a slope has just as much "ground
+  far below" as a cliff does, so it couldn't tell them apart. It now reads the
+  game's own falling measurement -- the height you've actually dropped through the
+  air, which the game itself uses to decide fall damage. On a slope that stays at
+  zero (you're never really airborne), so the catch leaves you alone; on a true
+  plunge it climbs fast and the catch still saves you before you hit. As before,
+  it weighs the predicted damage against your character's health and only steps in
+  for a genuinely dangerous fall.
+
+- **(Superseded, same day) Earlier attempt: judge a drop by predicted damage
+  instead of a fixed distance.** This was the right idea but used a straight-down
+  ground probe to estimate the fall, which still misread steep slopes as cliffs.
+  The fix above replaces the probe with the game's real airborne-fall measurement.
 
 - **Auto-walk's fall-catch no longer interrupts normal walking with false
   alarms.** The safety net that catches you before a fatal drop was sometimes
