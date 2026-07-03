@@ -4,6 +4,19 @@ A running log of screen-reader accessibility features added to this OpenMW fork.
 Newest changes are listed first. (OpenMW's own engine changelog lives in
 `CHANGELOG.md`.)
 
+## 2026-07-03
+
+- **The teleport escape hatch now works when auto-walk stops right above or below
+  a target it can't reach on foot.** If you tried to walk to something that sits
+  in a vertical gap the pathfinding can't cross -- for example a hidden lever or
+  hatch a few metres below the floor you're standing on (as with some modded
+  dungeon entrances) -- auto-walk would say "X is N metres below" and then leave
+  you with no way to get there: Ctrl+Shift+Enter did nothing. The teleport is
+  only meant to arm after a walk has genuinely failed, and this particular
+  "stopped short" case was mistakenly not arming it. Now it does, so you can blink
+  the short gap and reach the lever (still capped to short hops, so it never
+  becomes fast travel).
+
 ## 2026-07-01
 
 - **New: mark scanner objects you've already dealt with (K), and hide them

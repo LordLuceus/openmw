@@ -1931,6 +1931,11 @@ namespace MWAccessibility
                 if (!rebuildPath())
                 {
                     announceStoppedShort(player, targetPos, horizDistTo(targetPos));
+                    // Arm the teleport escape hatch: a progressive walk that can
+                    // no longer build a path has failed to reach a target that's
+                    // presumably right there, same as handleGiveUp -- so offer
+                    // the blink-the-gap fallback rather than a dead end.
+                    armTeleport();
                     cancel();
                     return;
                 }
@@ -1996,6 +2001,15 @@ namespace MWAccessibility
             else
             {
                 announceStoppedShort(player, targetPos, trueDist);
+                // The navmesh route completed but the target is out of reach --
+                // classically because it sits in a vertical gap the mesh can't
+                // model (a lever/hatch several metres above or below the walkable
+                // floor, e.g. a modded hidden dungeon entrance). This is exactly
+                // the case the teleport escape hatch exists for, yet this branch
+                // used to cancel WITHOUT arming it -- so the player heard
+                // "5 metres below" and had no way across. Arm it here too, at
+                // parity with handleGiveUp and the fall-/hazard-arrest paths.
+                armTeleport();
                 cancel();
                 return;
             }
