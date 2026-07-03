@@ -4,6 +4,21 @@ A running log of screen-reader accessibility features added to this OpenMW fork.
 Newest changes are listed first. (OpenMW's own engine changelog lives in
 `CHANGELOG.md`.)
 
+## 2026-07-01
+
+- **New: mark scanner objects you've already dealt with (K), and hide them
+  (Shift+K).** Looting a room full of identical "Crate" or "Urn" containers used
+  to be a memory test -- cycle in order and you're fine, but the moment you switch
+  to another category and come back, the list re-sorts and you've lost track of
+  which ones you already emptied. Now press **K** on the selected object to mark
+  it as already-looked-at; it then reads back with a "marked" tag so you can tell
+  at a glance. Press **Shift+K** to hide every marked object from the scanner
+  entirely, so you cycle only through the ones you still need to check -- press it
+  again to bring them back. Marks last until you leave the area (they clear when
+  you change cells, just like the A/B/C letters that tell identical objects
+  apart). Works in every object category (containers, items, doors, people, and
+  so on), but not on map-note waypoints or map locations.
+
 ## 2026-06-30
 
 - **Auto-walk's fall-catch no longer mistakes a steep walkable slope for a deadly

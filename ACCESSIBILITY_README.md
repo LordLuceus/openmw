@@ -119,6 +119,8 @@ combat.
 | **Space** | Activate the target (open, take, talk, etc.) — falls back to normal Activate if nothing is selected |
 | **X** | Toggle combat / interaction lock-on to the target (keeps you aimed at it) |
 | **Shift + X** | Engage: jump to the nearest hostile and lock onto it in one press |
+| **K** | Mark / unmark the target as "already looked at" (it reads back as "marked"). Handy for keeping track when looting a room full of identical crates. Marks clear when you leave the area |
+| **Shift + K** | Hide all marked objects from the scanner, so you cycle only what's left to check; press again to show them |
 
 ### Information and orientation
 

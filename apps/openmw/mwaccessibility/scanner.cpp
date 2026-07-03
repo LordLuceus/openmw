@@ -673,8 +673,12 @@ namespace MWAccessibility
             s.mWaypoints.clear();
             s.mIndex = -1;
             s.mSelectedRef = ESM::RefNum{};
+            s.mMarked.clear();
             s.mDirty = true;
         }
+        // The hide-marked view, like the direction filter, is a transient global
+        // mode -- not a saved preference -- so drop it on world teardown.
+        mHideMarked = false;
         // The auto-walker and proximity cue each cache a Ptr to the object they
         // are chasing / homing on and dereference it every frame (getCellRef,
         // getRefData). On world teardown that backing object is freed, so -- as
@@ -871,6 +875,14 @@ namespace MWAccessibility
                 s.mObjects.clear();
                 s.mIndex = -1;
                 s.mDirty = true;
+
+                // Marks describe the room the player is standing in ("I've
+                // emptied these crates"), not a persistent property of the
+                // object, so they clear on any cell change -- exactly like the
+                // disambiguation letters (mLabels), which rebuildCurrentList
+                // reassigns per cell. Keeps the "already looked at" set scoped
+                // to the current area.
+                s.mMarked.clear();
 
                 if (crossedInOut)
                 {
@@ -1152,6 +1164,17 @@ namespace MWAccessibility
                 else
                     toggleLockOn();
                 return true;
+            case SDL_SCANCODE_K:
+                // Mark tracking: K toggles the selected object's "already looked
+                // at" mark (solves losing your place among many identical
+                // crates/urns); Shift+K toggles hiding all marked objects so the
+                // scanner cycles only what you haven't checked yet. Marks are
+                // scoped to the current cell and clear when you leave it.
+                if (shift && !ctrl && !alt)
+                    toggleHideMarked();
+                else if (!ctrl && !alt)
+                    toggleMarkedCurrent();
+                return true;
             case SDL_SCANCODE_H:
                 // Toggle the accessible HUD (pauses the world; scanner +
                 // quick-info keys keep working). Plain H only -- Alt+H is the
@@ -1416,6 +1439,100 @@ namespace MWAccessibility
             return;
         }
         lockOnCurrentTarget();
+    }
+
+    void Scanner::toggleMarkedCurrent()
+    {
+        // Marking is for the RefNum-identified world objects, not the position-
+        // based Waypoints/Locations categories (which have no CellRef identity
+        // and whose "marks" would be meaningless).
+        if (isWaypointCategory())
+        {
+            speak("Cannot mark a waypoint.");
+            return;
+        }
+
+        MWWorld::Ptr target = currentTarget();
+        if (target.isEmpty())
+        {
+            speak("No target selected.");
+            return;
+        }
+
+        auto& state = mLists[static_cast<size_t>(mCategory)];
+        const ESM::RefNum ref = target.getCellRef().getRefNum();
+        const std::string name = objectDisplayName(target);
+        if (state.mMarked.count(ref))
+        {
+            state.mMarked.erase(ref);
+            speak(name + " unmarked.");
+            return;
+        }
+
+        state.mMarked.insert(ref);
+
+        // If the hide-marked view is on, this object is about to vanish from the
+        // list. Rebuild so the cursor lands on a still-visible neighbour, and
+        // announce it -- so the player hears what's next rather than silence on
+        // the now-hidden object. Otherwise just confirm the mark in place.
+        if (mHideMarked)
+        {
+            state.mDirty = true;
+            rebuildCurrentList();
+            if (currentListSize() == 0)
+            {
+                speak(name + " marked. No more unmarked in range.");
+                clearSelection();
+                updateProximityCue();
+                return;
+            }
+            // The marked object was at mIndex and is now hidden, so the object
+            // that shifted up into that slot is the next-nearest unmarked one --
+            // exactly where the player wants to continue. rebuildCurrentList
+            // can't re-pin the (now-hidden) selection by RefNum, so mIndex keeps
+            // its old value; just clamp it into range for the last-row case.
+            if (state.mIndex < 0 || state.mIndex >= static_cast<int>(state.mObjects.size()))
+                state.mIndex = static_cast<int>(state.mObjects.size()) - 1;
+            // Refresh the remembered identity to the landed object so a later
+            // rebuild (cell shift, live refresh) re-pins here, not on the removed
+            // object.
+            state.mSelectedRef = state.mObjects[state.mIndex].getCellRef().getRefNum();
+            speak(name + " marked.");
+            announceCurrent();
+            updateProximityCue();
+            return;
+        }
+
+        speak(name + " marked.");
+    }
+
+    void Scanner::toggleHideMarked()
+    {
+        mHideMarked = !mHideMarked;
+        // A view change alters what every category lists, so invalidate them all.
+        for (auto& s : mLists)
+            s.mDirty = true;
+        rebuildCurrentList();
+        // Re-pin selection onto a valid row (the previously selected object may
+        // now be hidden) before speaking, so the follow-up announce is honest.
+        auto& state = mLists[static_cast<size_t>(mCategory)];
+        if (state.mIndex >= static_cast<int>(state.mObjects.size()))
+            state.mIndex = static_cast<int>(state.mObjects.size()) - 1;
+        // Sync the remembered identity to wherever the cursor actually landed.
+        if (state.mIndex >= 0 && state.mIndex < static_cast<int>(state.mObjects.size()))
+            state.mSelectedRef = state.mObjects[state.mIndex].getCellRef().getRefNum();
+        else
+            state.mSelectedRef = ESM::RefNum{};
+
+        if (mHideMarked)
+            speak("Hiding marked objects.");
+        else
+            speak("Showing marked objects.");
+        // Read the current object so the player hears where the cursor landed
+        // in the newly filtered list (or nothing if the list is now empty).
+        if (currentListSize() > 0)
+            announceCurrent();
+        updateProximityCue();
     }
 
     bool Scanner::lockOnCurrentTarget()
@@ -3006,6 +3123,15 @@ namespace MWAccessibility
                 });
             }
 
+            // Hide-marked view (Shift+K): drop objects the player has marked as
+            // already-looked-at so only the unchecked ones remain in the cycle.
+            if (mHideMarked)
+            {
+                std::erase_if(state.mObjects, [&](const MWWorld::Ptr& ptr) {
+                    return state.mMarked.count(ptr.getCellRef().getRefNum()) != 0;
+                });
+            }
+
             osg::Vec3f pp = player.getRefData().getPosition().asVec3();
             // Floor-grouping only indoors (see sortObjectsByLevelThenDistance).
             const bool levelGrouped = player.getCell() && !player.getCell()->isExterior();
@@ -3094,6 +3220,10 @@ namespace MWAccessibility
                 // Global direction filter (Ctrl+Up): drop anything not lying in
                 // the compass sector the player faces. No-op when disengaged.
                 if (!passesDirectionFilter(ptr.getRefData().getPosition().asVec3()))
+                    return true;
+                // Hide-marked view (Shift+K): drop objects the player has marked
+                // as already-looked-at. No-op when the view is off.
+                if (mHideMarked && state.mMarked.count(ptr.getCellRef().getRefNum()))
                     return true;
                 state.mObjects.push_back(ptr);
                 return true;
@@ -3269,6 +3399,13 @@ namespace MWAccessibility
         // fragment already carries its leading ", " and is localised, e.g.
         // "Chest, Lock Level: 50, Trapped".
         name += lockTrapLabel(target);
+
+        // If the player has marked this object as already-looked-at (K key),
+        // say so at the end of its identity. Read live from mMarked so it
+        // reflects the current state (a mark/unmark takes effect immediately),
+        // and keyed by the same stable RefNum as the disambiguation letters.
+        if (state.mMarked.count(target.getCellRef().getRefNum()))
+            name += ", marked";
 
         // Direction is the absolute compass heading -- a fixed frame the
         // player can use to remember where a thing is regardless of which way

@@ -7,6 +7,7 @@
 #include <set>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include <osg/Vec3f>
@@ -470,6 +471,18 @@ namespace MWAccessibility
             // letting the player remember which ones they've already tried.
             // Objects with a unique name have no entry (no suffix spoken).
             std::unordered_map<ESM::RefNum, std::string> mLabels;
+
+            // Objects the player has manually marked as "already looked at"
+            // (the K key), keyed by the same stable RefNum identity as mLabels
+            // so a mark sticks to a given physical object as the list re-sorts.
+            // A marked object speaks a ", marked" suffix, and -- when the global
+            // hide-marked view is on (Shift+K) -- is dropped from the list so the
+            // player can cycle only what they haven't checked yet. This solves
+            // the "twenty identical crates" looting problem: mark each crate as
+            // you empty it and it stops cluttering the cycle. Cleared on a cell
+            // change, exactly like mLabels (the marks describe the room you're
+            // standing in, not a persistent property of the object).
+            std::unordered_set<ESM::RefNum> mMarked;
         };
 
         std::array<CategoryState, static_cast<size_t>(Category::Count)> mLists;
@@ -498,6 +511,20 @@ namespace MWAccessibility
         // name/subcategory filters it clears on an interior<->exterior crossing.
         bool mDirectionFilterActive = false;
         int mDirectionSector = -1; // -1 = unset/off
+
+        // Global "hide marked objects" view (Shift+K). When on, every category's
+        // list build drops objects the player has marked as already-looked-at
+        // (per-category CategoryState::mMarked), so cycling shows only what's
+        // left to check. Global (not per-category) because the intent -- "only
+        // show me what I haven't dealt with" -- spans categories. Marked objects
+        // are still marked when this is off; it only governs whether they're
+        // hidden. Reset when no game is running (transient view, not saved).
+        bool mHideMarked = false;
+        // Toggle the marked state of the currently selected object (K). Speaks
+        // the new state; no-op with feedback when nothing suitable is selected.
+        void toggleMarkedCurrent();
+        // Toggle the global hide-marked view (Shift+K) and re-announce the list.
+        void toggleHideMarked();
 
         // The last cell name we announced on entry. Cities span several cells
         // that all share one name (e.g. every Balmora exterior cell is named
