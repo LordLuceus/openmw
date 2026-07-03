@@ -194,6 +194,12 @@ namespace MWAccessibility
         void announcePlayerFatigue();
         void announceEnemyHealth();
 
+        /// Speak the selected object's live local script variables (the I key).
+        /// Interprets boolean-looking 0/1 vars as "on"/"off" and reads anything
+        /// else as a raw "name: value"; used to expose otherwise-invisible
+        /// mechanism state (e.g. Dwemer lever puzzles) to blind players.
+        void announceObjectState();
+
         /// Called by the WindowManager when the search prompt is confirmed.
         /// \p query is the (possibly empty) name filter; an empty query clears
         /// the filter. Applies to the current category, persists across cell

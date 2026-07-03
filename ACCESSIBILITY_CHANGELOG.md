@@ -6,6 +6,16 @@ Newest changes are listed first. (OpenMW's own engine changelog lives in
 
 ## 2026-07-03
 
+- **New: inspect an object's hidden state with the I key.** Some objects have a
+  state a sighted player reads from how they look -- a lever thrown up or down, a
+  switch on or off -- that was completely invisible before. This is what made the
+  six-lever Dwemer door puzzle in the AFFresh mod's Grinding Hall impossible:
+  pulling a lever gave no feedback, so you had no way to know which were on. Now,
+  with an object selected on the scanner, press **I** to hear its state read out
+  (for the levers, "on" or "off"). It works generally, not just for that puzzle:
+  whatever internal state a scripted object tracks, you can hear it. Objects with
+  nothing to report say so ("has no readable state").
+
 - **The teleport escape hatch now works when auto-walk stops right above or below
   a target it can't reach on foot.** If you tried to walk to something that sits
   in a vertical gap the pathfinding can't cross -- for example a hidden lever or

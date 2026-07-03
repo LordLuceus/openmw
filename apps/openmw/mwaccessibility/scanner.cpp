@@ -76,6 +76,7 @@
 #include "../mwbase/environment.hpp"
 #include "../mwbase/inputmanager.hpp"
 #include "../mwbase/luamanager.hpp"
+#include "../mwbase/scriptmanager.hpp"
 #include "../mwbase/mechanicsmanager.hpp"
 #include "../mwbase/soundmanager.hpp"
 #include "../mwbase/statemanager.hpp"
@@ -96,6 +97,11 @@
 #include "../mwworld/ptr.hpp"
 #include "../mwworld/refdata.hpp"
 #include "../mwworld/worldmodel.hpp"
+
+#include "../mwscript/locals.hpp"
+
+#include <components/compiler/locals.hpp>
+#include <components/esm3/loadscpt.hpp>
 
 namespace
 {
@@ -1174,6 +1180,14 @@ namespace MWAccessibility
                     toggleHideMarked();
                 else if (!ctrl && !alt)
                     toggleMarkedCurrent();
+                return true;
+            case SDL_SCANCODE_I:
+                // Inspect: read the selected object's live script state (its
+                // local variables). Gives blind players a way to see mechanism
+                // state that is otherwise purely visual/animated -- e.g. whether
+                // each lever in a Dwemer door puzzle is currently on or off.
+                if (!ctrl && !shift && !alt)
+                    announceObjectState();
                 return true;
             case SDL_SCANCODE_H:
                 // Toggle the accessible HUD (pauses the world; scanner +
@@ -2887,6 +2901,117 @@ namespace MWAccessibility
     void Scanner::announcePlayerFatigue()
     {
         announcePlayerStat(2, "Fatigue");
+    }
+
+    void Scanner::announceObjectState()
+    {
+        // Read the selected object's LIVE local script variables and speak them.
+        // A sighted player learns a mechanism's state from its animation pose (a
+        // lever thrown up vs down, a valve open vs shut); a blind player has no
+        // such cue. But the mod's script drives that pose from a local variable
+        // -- AFFresh's Dwemer door puzzle, for instance, keys each of six levers
+        // on a "short active" (1 = engaged) and opens the doors only when all six
+        // read 1. Exposing those variables turns an invisible, guess-and-check
+        // puzzle into a readable one, generally, without hard-coding any specific
+        // mod: whatever state the script itself tracks, the player can hear.
+        if (isWaypointCategory())
+        {
+            speak("No object selected.");
+            return;
+        }
+        MWWorld::Ptr target = currentTarget();
+        if (target.isEmpty())
+        {
+            speak("No object selected.");
+            return;
+        }
+
+        const std::string name = objectDisplayName(target);
+
+        // The script attached to this specific object (its BALT/base-record
+        // script). Empty for the vast majority of world objects, which simply
+        // have no scripted state to report.
+        const ESM::RefId scriptId = target.getClass().getScript(target);
+        if (scriptId.empty())
+        {
+            speak(name + " has no readable state.");
+            return;
+        }
+
+        // Names live in the COMPILER's Locals (declaration order, by type);
+        // values live in the object's runtime MWScript::Locals in the SAME
+        // per-type index order. Walk them in parallel to pair name<->value.
+        const Compiler::Locals& decls = MWBase::Environment::get().getScriptManager()->getLocals(scriptId);
+        MWScript::Locals& locals = target.getRefData().getLocals();
+        // Make sure the runtime store is populated for this script before we read
+        // it (a freshly loaded object may not have been configured yet).
+        locals.getSize(scriptId);
+
+        // Heuristic: a variable is a "switch" we can phrase as on/off when its
+        // name hints at a boolean state AND its value is exactly 0 or 1. Anything
+        // else is read as a raw "name: value" so we never speak a confident wrong
+        // interpretation (see the a11y honesty principle).
+        auto looksBoolean = [](std::string_view n) {
+            for (std::string_view key :
+                { "active", "state", "open", "on", "enabled", "activated", "toggle", "switch", "set", "done" })
+                if (Misc::StringUtils::ciFind(n, key) != std::string_view::npos)
+                    return true;
+            return false;
+        };
+
+        std::vector<std::string> parts;
+
+        auto emitShortLong = [&](char type, auto readValue) {
+            const std::vector<std::string>& names = decls.get(type);
+            for (size_t i = 0; i < names.size(); ++i)
+            {
+                const std::string& vn = names[i];
+                const int v = readValue(i);
+                if (looksBoolean(vn) && (v == 0 || v == 1))
+                    parts.push_back(vn + ": " + (v ? "on" : "off"));
+                else
+                    parts.push_back(vn + ": " + std::to_string(v));
+            }
+        };
+
+        // Shorts and longs are both integer-valued at runtime.
+        emitShortLong('s', [&](size_t i) { return i < locals.mShorts.size() ? locals.mShorts[i] : 0; });
+        emitShortLong('l', [&](size_t i) { return i < locals.mLongs.size() ? locals.mLongs[i] : 0; });
+
+        // Floats: report with light formatting (trim trailing zeros); never
+        // treated as on/off since a fractional value isn't a switch.
+        {
+            const std::vector<std::string>& names = decls.get('f');
+            for (size_t i = 0; i < names.size(); ++i)
+            {
+                const float v = i < locals.mFloats.size() ? locals.mFloats[i] : 0.f;
+                char buf[64];
+                std::snprintf(buf, sizeof(buf), "%.2f", v);
+                // Trim trailing zeros / dot so 3.00 -> 3, 2.50 -> 2.5.
+                std::string s(buf);
+                if (s.find('.') != std::string::npos)
+                {
+                    s.erase(s.find_last_not_of('0') + 1);
+                    if (!s.empty() && s.back() == '.')
+                        s.pop_back();
+                }
+                parts.push_back(names[i] + ": " + s);
+            }
+        }
+
+        if (parts.empty())
+        {
+            speak(name + " has no readable state.");
+            return;
+        }
+
+        std::string out = name + ". ";
+        for (size_t i = 0; i < parts.size(); ++i)
+        {
+            out += parts[i];
+            out += (i + 1 < parts.size()) ? ". " : ".";
+        }
+        speak(out);
     }
 
     std::string Scanner::readiedWeaponText() const
