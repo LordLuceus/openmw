@@ -11,7 +11,10 @@
 #include <cctype>
 #include <cmath>
 #include <cstdio>
+#include <filesystem>
+#include <fstream>
 #include <iterator>
+#include <sstream>
 #include <utility>
 #include <vector>
 
@@ -25,6 +28,7 @@
 #include <components/esm/defs.hpp>
 #include <components/esm/esm3exteriorcellrefid.hpp>
 #include <components/esm/util.hpp>
+#include <components/debug/debuglog.hpp>
 #include <components/misc/constants.hpp>
 #include <components/misc/strings/algorithm.hpp>
 #include <components/vfs/pathutil.hpp>
@@ -679,6 +683,11 @@ namespace MWAccessibility
             s.mWaypoints.clear();
             s.mIndex = -1;
             s.mSelectedRef = ESM::RefNum{};
+            // Marks are durable per-save, but this teardown wipes them for a
+            // clean slate: on LOAD, StateManager calls loadMarks() right after
+            // this cleanup to repopulate them from the save's sidecar; on NEW
+            // GAME (or quit) there is no sidecar, so an empty set is exactly
+            // right. This keeps one save's marks from leaking into another.
             s.mMarked.clear();
             s.mDirty = true;
         }
@@ -711,6 +720,119 @@ namespace MWAccessibility
         // when the world is torn down (e.g. the player loaded a save from the
         // HUD) can't strand the new game frozen.
         mHud.reset();
+    }
+
+    std::filesystem::path Scanner::marksSidecarPath(const std::filesystem::path& saveFile)
+    {
+        // The marks sidecar is the save's own path with this suffix appended, so
+        // "Quicksave.omwsave" pairs with "Quicksave.omwsave.a11ymarks". Appending
+        // (rather than replacing the extension) guarantees a 1:1 mapping even for
+        // saves whose names contain dots, and keeps the file adjacent so copying
+        // or deleting a save can carry or drop its marks alongside it.
+        std::filesystem::path p = saveFile;
+        p += ".a11ymarks";
+        return p;
+    }
+
+    void Scanner::saveMarks(const std::filesystem::path& saveFile) const
+    {
+        const std::filesystem::path sidecar = marksSidecarPath(saveFile);
+
+        // Count marks across all categories first: if there are none, we write no
+        // file and delete any stale sidecar from a previous save into this slot,
+        // so an empty mark set never masquerades as "file missing" vs "file with
+        // zero entries" -- both mean the same thing (no marks) on load.
+        size_t total = 0;
+        for (const auto& s : mLists)
+            total += s.mMarked.size();
+
+        if (total == 0)
+        {
+            std::error_code ec;
+            std::filesystem::remove(sidecar, ec); // best-effort; ignore if absent
+            return;
+        }
+
+        std::ofstream out(sidecar, std::ios::binary | std::ios::trunc);
+        if (!out)
+        {
+            Log(Debug::Warning) << "[a11y] Could not write marks sidecar: " << sidecar;
+            return;
+        }
+
+        // Plain-text, one mark per line: "<category> <index> <contentFile>".
+        // A RefNum (ESM::FormId) is just those two ints; category is the enum
+        // ordinal so a mark restores into the same per-category set it came from.
+        // A leading version line lets a future format change be detected.
+        out << "a11ymarks 1\n";
+        for (size_t c = 0; c < mLists.size(); ++c)
+        {
+            for (const ESM::RefNum& ref : mLists[c].mMarked)
+                out << c << ' ' << ref.mIndex << ' ' << ref.mContentFile << '\n';
+        }
+    }
+
+    void Scanner::loadMarks(const std::filesystem::path& saveFile)
+    {
+        // Always start from a clean slate: loading a save with no sidecar (or an
+        // unreadable one) must yield no marks, never leftovers from a prior game.
+        for (auto& s : mLists)
+            s.mMarked.clear();
+
+        const std::filesystem::path sidecar = marksSidecarPath(saveFile);
+        std::error_code ec;
+        if (!std::filesystem::exists(sidecar, ec))
+            return;
+
+        std::ifstream in(sidecar, std::ios::binary);
+        if (!in)
+        {
+            Log(Debug::Warning) << "[a11y] Could not read marks sidecar: " << sidecar;
+            return;
+        }
+
+        std::string header;
+        int version = 0;
+        {
+            std::string line;
+            if (!std::getline(in, line))
+                return;
+            std::istringstream hs(line);
+            hs >> header >> version;
+            if (header != "a11ymarks" || version != 1)
+            {
+                Log(Debug::Warning) << "[a11y] Unrecognised marks sidecar header, ignoring: " << sidecar;
+                return;
+            }
+        }
+
+        std::string line;
+        size_t restored = 0;
+        while (std::getline(in, line))
+        {
+            if (line.empty())
+                continue;
+            std::istringstream ls(line);
+            size_t cat = 0;
+            uint32_t index = 0;
+            int32_t contentFile = 0;
+            if (!(ls >> cat >> index >> contentFile))
+                continue; // skip malformed line rather than abort the whole load
+            if (cat >= mLists.size())
+                continue; // category out of range (e.g. from a future build)
+            ESM::RefNum ref;
+            ref.mIndex = index;
+            ref.mContentFile = contentFile;
+            mLists[cat].mMarked.insert(ref);
+            ++restored;
+        }
+
+        // Any currently-built lists must be recomputed so the hide-marked view
+        // and the "marked" suffix reflect the just-restored set immediately.
+        for (auto& s : mLists)
+            s.mDirty = true;
+
+        Log(Debug::Info) << "[a11y] Restored " << restored << " object mark(s) from " << sidecar;
     }
 
     void Scanner::notifyJournalEntry(bool completed)
@@ -882,13 +1004,14 @@ namespace MWAccessibility
                 s.mIndex = -1;
                 s.mDirty = true;
 
-                // Marks describe the room the player is standing in ("I've
-                // emptied these crates"), not a persistent property of the
-                // object, so they clear on any cell change -- exactly like the
-                // disambiguation letters (mLabels), which rebuildCurrentList
-                // reassigns per cell. Keeps the "already looked at" set scoped
-                // to the current area.
-                s.mMarked.clear();
+                // Marks are DURABLE, not scoped to the current room: they record
+                // what the player has already looted/checked ("I've emptied these
+                // crates") and must survive leaving and returning to a cell (and
+                // save/reload, via the sidecar file). So we deliberately do NOT
+                // clear s.mMarked here. A RefNum is unique within the save, so a
+                // mark stays meaningful anywhere; the player unmarks manually (K).
+                // (Contrast mLabels, the disambiguation letters, which ARE
+                // per-cell and get reassigned by rebuildCurrentList.)
 
                 if (crossedInOut)
                 {

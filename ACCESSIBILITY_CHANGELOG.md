@@ -4,6 +4,19 @@ A running log of screen-reader accessibility features added to this OpenMW fork.
 Newest changes are listed first. (OpenMW's own engine changelog lives in
 `CHANGELOG.md`.)
 
+## 2026-07-06
+
+- **Object marks now stick.** Marking an object as "already looked at" (the K
+  key) used to be a scratchpad for the room you were standing in: it wiped the
+  moment you left the cell, and reloading a save forgot everything. Now marks are
+  permanent -- they stay put when you leave and come back, and they survive
+  saving and reloading. So you can mark the crates you've emptied, go clear the
+  rest of a dungeon, reload after a bad fight, and still know exactly what you'd
+  already looted. Marks are per-save (each save remembers its own), and you
+  remove one the same way you always did, by pressing K on it again. This does
+  not change the save file itself -- the marks live in a small companion file
+  next to each save, so old saves keep working normally.
+
 ## 2026-07-03
 
 - **New: inspect an object's hidden state with the I key.** Some objects have a

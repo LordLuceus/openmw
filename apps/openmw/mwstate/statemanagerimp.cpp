@@ -352,6 +352,11 @@ void MWState::StateManager::saveGame(std::string_view description, const Slot* s
         Settings::saves().mCharacter.set(Files::pathToUnicodeString(slot->mPath.parent_path().filename()));
         mLastSavegame = slot->mPath;
 
+        // Persist the screen-reader scanner's "already looked at" marks to a
+        // sidecar next to this save (see Scanner::saveMarks). Keeps the durable
+        // looted/checked set in sync with the save without touching its format.
+        MWAccessibility::Scanner::instance().saveMarks(slot->mPath);
+
         const auto finish = std::chrono::steady_clock::now();
 
         Log(Debug::Info) << '\'' << description << "' is saved in "
@@ -613,6 +618,13 @@ void MWState::StateManager::loadGame(const Character* character, const std::file
         if (character)
             Settings::saves().mCharacter.set(Files::pathToUnicodeString(character->getPath().filename()));
         mLastSavegame = filepath;
+
+        // Restore the screen-reader scanner's "already looked at" marks from this
+        // save's sidecar (written by saveMarks). cleanup() cleared the in-memory
+        // set moments ago, so this repopulates it for the freshly loaded game;
+        // a save with no sidecar correctly yields no marks (loadMarks clears
+        // first). Must run after cleanup so it isn't wiped by the teardown.
+        MWAccessibility::Scanner::instance().loadMarks(filepath);
 
         MWBase::Environment::get().getWindowManager()->setNewGame(false);
         MWBase::Environment::get().getWorld()->saveLoaded(reader);

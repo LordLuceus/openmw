@@ -13,6 +13,8 @@
 #include <components/misc/strings/algorithm.hpp>
 #include <components/misc/utf8stream.hpp>
 
+#include "../mwaccessibility/scanner.hpp"
+
 bool MWState::operator<(const Slot& left, const Slot& right)
 {
     return left.mTimeStamp < right.mTimeStamp;
@@ -154,6 +156,14 @@ void MWState::Character::deleteSlot(const Slot* slot)
     }
 
     std::filesystem::remove(slot->mPath);
+
+    // Delete the screen-reader accessibility marks sidecar alongside its save, so
+    // removing a save (via the load/save menu, quicksave cycling, or failed-save
+    // cleanup -- all routed through here) never leaves an orphaned ".a11ymarks"
+    // file behind. Best-effort: a missing sidecar (the common case -- most saves
+    // have no marks) is not an error.
+    std::error_code ec;
+    std::filesystem::remove(MWAccessibility::Scanner::marksSidecarPath(slot->mPath), ec);
 
     mSlots.erase(mSlots.begin() + index);
 }

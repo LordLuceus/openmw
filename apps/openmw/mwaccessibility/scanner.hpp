@@ -2,6 +2,7 @@
 #define GAME_MWACCESSIBILITY_SCANNER_H
 
 #include <array>
+#include <filesystem>
 #include <map>
 #include <memory>
 #include <set>
@@ -59,7 +60,31 @@ namespace MWAccessibility
         /// Running) entirely within one input handler, before onFrame runs
         /// again; the next updateLockOn would then dereference a freed target
         /// and crash. This deterministic hook runs at the exact teardown point.
+        ///
+        /// NOTE: this does NOT clear the persistent "already looked at" marks
+        /// (CategoryState::mMarked). Those are a durable, per-save record of what
+        /// the player has looted/checked, saved to and restored from a sidecar
+        /// file (saveMarks/loadMarks) rather than being scoped to a cell or the
+        /// lifetime of one loaded world. loadMarks() replaces them wholesale.
         void clear();
+
+        /// Persist / restore the "already looked at" marks (the K key) to a
+        /// small text sidecar file next to the save. \p saveFile is the save's
+        /// own path (e.g. ...\\Quicksave.omwsave); the sidecar is that path with
+        /// ".a11ymarks" appended. Called by StateManager on save / load so marks
+        /// survive reloads without touching the save format. saveMarks writes
+        /// nothing (and removes any stale sidecar) when there are no marks;
+        /// loadMarks clears the in-memory set first, so loading a save with no
+        /// sidecar correctly yields no marks.
+        void saveMarks(const std::filesystem::path& saveFile) const;
+        void loadMarks(const std::filesystem::path& saveFile);
+
+        /// The marks sidecar path for a given save file (the save's path with
+        /// ".a11ymarks" appended). Exposed as the single source of truth for the
+        /// naming so the save system can delete the sidecar alongside its save
+        /// (see Character::deleteSlot) without duplicating the suffix. Pure path
+        /// computation -- touches no scanner state, needs no game running.
+        static std::filesystem::path marksSidecarPath(const std::filesystem::path& saveFile);
 
         /// Called from KeyboardManager. \p scancode is an SDL_Scancode,
         /// \p modState is the raw SDL_GetModState() bitmask. Returns true
