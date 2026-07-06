@@ -192,6 +192,16 @@ namespace MWGui
 
         virtual ~TypesetBookImpl() = default;
 
+        // Copy a run's source bytes (verbatim UTF-8) onto the accumulator. Runs
+        // were split only at style/word boundaries, not semantic ones, so no
+        // separator is inserted between runs on the same line.
+        static void appendRunText(std::string& out, const Run& run)
+        {
+            if (run.mRange.first && run.mRange.second)
+                out.append(reinterpret_cast<const char*>(run.mRange.first),
+                    reinterpret_cast<const char*>(run.mRange.second));
+        }
+
         std::string getPageText(size_t page) const override
         {
             if (page >= mPages.size())
@@ -215,11 +225,69 @@ namespace MWGui
                     result += ' ';
                 lastSection = &section;
                 lastLine = &line;
-                if (run.mRange.first && run.mRange.second)
-                    result.append(reinterpret_cast<const char*>(run.mRange.first),
-                        reinterpret_cast<const char*>(run.mRange.second));
+                appendRunText(result, run);
             });
             return result;
+        }
+
+        size_t sectionCount() const override { return mSections.size(); }
+
+        // The full text of one section (journal entry), independent of
+        // pagination: an entry that visually spills across a page boundary is
+        // still returned whole. Lines within the section are joined with spaces.
+        std::string getSectionText(size_t section) const override
+        {
+            if (section >= mSections.size())
+                return {};
+
+            std::string result;
+            bool firstLine = true;
+            for (const Line& line : mSections[section].mLines)
+            {
+                if (!firstLine && !result.empty() && result.back() != '\n')
+                    result += ' ';
+                firstLine = false;
+                for (const Run& run : line.mRuns)
+                    appendRunText(result, run);
+            }
+            return result;
+        }
+
+        // Which page's vertical window contains a section's top edge. Pages are
+        // contiguous vertical windows in document order, so the section begins on
+        // the first page whose window bottom reaches past its top.
+        size_t pageForSection(size_t section) const override
+        {
+            if (section >= mSections.size() || mPages.empty())
+                return 0;
+
+            const int top = mSections[section].mRect.top;
+            for (size_t page = 0; page < mPages.size(); ++page)
+            {
+                if (top < mPages[page].second)
+                    return page;
+            }
+            return mPages.size() - 1;
+        }
+
+        // Inverse of pageForSection: the section owning the top of a page. Used
+        // to resync the entry cursor after the user turns pages directly.
+        size_t sectionForPage(size_t page) const override
+        {
+            if (page >= mPages.size() || mSections.empty())
+                return 0;
+
+            const int pageTop = mPages[page].first;
+            size_t best = 0;
+            for (size_t section = 0; section < mSections.size(); ++section)
+            {
+                const int top = mSections[section].mRect.top;
+                if (top <= pageTop)
+                    best = section; // last section starting at or above the page top
+                else
+                    break; // sections are in document (vertical) order
+            }
+            return best;
         }
 
         Range addContent(std::string_view text)

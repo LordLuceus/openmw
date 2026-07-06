@@ -6,6 +6,17 @@ Newest changes are listed first. (OpenMW's own engine changelog lives in
 
 ## 2026-07-06
 
+- **Read the journal one entry at a time.** Reading the journal used to speak a
+  whole page at once, which could be several entries run together or a fragment
+  of a long one. Now, while reading, press **Ctrl+Up** and **Ctrl+Down** to move
+  through the journal one entry at a time -- each dated update (or, in a topic,
+  each response) is read on its own, from first word to last, even if it happens
+  to spill across a page break. The page you see turns to follow along, and the
+  reread key (R) repeats the current entry. It tells you where you are ("Entry 4
+  of 12") and stops politely at the ends ("No more entries"). Plain Up/Down still
+  turn a two-page spread and Left/Right still step single pages, so you can read
+  either way.
+
 - **Object marks now stick.** Marking an object as "already looked at" (the K
   key) used to be a scratchpad for the room you were standing in: it wiped the
   moment you left the cell, and reloading a save forgot everything. Now marks are

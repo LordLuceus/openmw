@@ -1,5 +1,6 @@
 #include "journalwindow.hpp"
 
+#include <limits>
 #include <set>
 #include <stack>
 #include <string>
@@ -67,6 +68,12 @@ namespace
         // spread (resetting this to the left page); Left/Right move between the
         // spread's two pages, reading each. See a11yReadCurrentPage.
         bool mA11yRightPage = false;
+        // Screen reader: the entry (journal section) the reader last stepped to
+        // with Ctrl+Up/Down, so that repeated presses move relative to it. An
+        // entry is one dated update / topic response; it may be shorter or longer
+        // than a page. npos = not yet placed on an entry this reading session
+        // (the next Ctrl+Up/Down derives a starting entry from the visible page).
+        size_t mA11yEntry = std::numeric_limits<size_t>::max();
         // Virtual-focus accessibility screen. The journal's page text isn't a
         // list of navigable options, so this registers NO elements: the anchor
         // merely captures keys (so the engine's button-focus navigation can't
@@ -292,13 +299,23 @@ namespace
         {
             if (mA11yView == A11yView::Reading)
             {
+                const bool ctrl = MyGUI::InputManager::getInstance().isControlPressed();
                 switch (key.getValue())
                 {
                     case MyGUI::KeyCode::ArrowUp:
-                        a11ySpreadPrev(mA11yAnchor);
+                        // Ctrl+Up/Down step one entry (journal section) at a time,
+                        // reading the whole entry and turning the page to follow;
+                        // plain Up/Down turn a two-page spread.
+                        if (ctrl)
+                            a11yStepEntry(-1);
+                        else
+                            a11ySpreadPrev(mA11yAnchor);
                         return true;
                     case MyGUI::KeyCode::ArrowDown:
-                        a11ySpreadNext(mA11yAnchor);
+                        if (ctrl)
+                            a11yStepEntry(1);
+                        else
+                            a11ySpreadNext(mA11yAnchor);
                         return true;
                     case MyGUI::KeyCode::ArrowLeft:
                         a11yPageLeft(mA11yAnchor);
@@ -538,6 +555,12 @@ namespace
         // screens aren't read here).
         void a11yReadCurrentPage()
         {
+            // Reading by page (open, page-turn, or return from a list view)
+            // drops the Ctrl+Up/Down entry anchor, so the next entry step
+            // resyncs to whatever page is now visible. a11yReadEntry sets the
+            // anchor itself and does not route through here.
+            mA11yEntry = std::numeric_limits<size_t>::max();
+
             if (mOptionsMode || mStates.empty())
                 return;
             const std::shared_ptr<MWGui::TypesetBook>& book = mStates.top().mBook;
@@ -559,9 +582,92 @@ namespace
             MWGui::A11y::sayRereadable(text, /*interrupt=*/true);
         }
 
+        // --- Screen-reader entry stepping (Ctrl+Up/Down) -----------------
+        // Move one journal entry (a dated update or topic response) at a time,
+        // reading the WHOLE entry -- even one that visually spans a page break --
+        // and turning the visible page to follow. An entry is one typeset
+        // section; sectionCount()/getSectionText()/pageForSection() expose them
+        // independent of pagination. delta is +1 (next/newer) or -1 (previous).
+        void a11yStepEntry(int delta)
+        {
+            if (mOptionsMode || mStates.empty())
+                return;
+            const std::shared_ptr<MWGui::TypesetBook>& book = mStates.top().mBook;
+            if (!book)
+                return;
+            const size_t count = book->sectionCount();
+            if (count == 0)
+            {
+                MWGui::A11y::say("No entries.", /*interrupt=*/true);
+                return;
+            }
+
+            size_t target;
+            if (mA11yEntry == std::numeric_limits<size_t>::max())
+            {
+                // First step this reading session (or after a manual page turn):
+                // anchor on the entry at the top of the visible page and read it,
+                // rather than skipping past it.
+                const size_t visiblePage = mStates.top().mPage + (mA11yRightPage ? 1 : 0);
+                target = book->sectionForPage(visiblePage);
+            }
+            else if (delta < 0)
+            {
+                if (mA11yEntry == 0)
+                {
+                    MWGui::A11y::say("No previous entries.", /*interrupt=*/true);
+                    return;
+                }
+                target = mA11yEntry - 1;
+            }
+            else
+            {
+                if (mA11yEntry + 1 >= count)
+                {
+                    MWGui::A11y::say("No more entries.", /*interrupt=*/true);
+                    return;
+                }
+                target = mA11yEntry + 1;
+            }
+
+            a11yReadEntry(target);
+        }
+
+        // Read one entry in full and turn the visible spread to the page it
+        // begins on, keeping the on-screen pages (and the R reread) in sync. The
+        // entry number is spoken last, per the positional-info-at-the-end
+        // convention.
+        void a11yReadEntry(size_t entry)
+        {
+            const std::shared_ptr<MWGui::TypesetBook>& book = mStates.top().mBook;
+            const size_t count = book->sectionCount();
+
+            const size_t page = book->pageForSection(entry);
+            const size_t spreadBase = page - (page % 2);
+            if (mStates.top().mPage != spreadBase)
+            {
+                mStates.top().mPage = spreadBase;
+                updateShowingPages();
+            }
+            mA11yRightPage = (page % 2) != 0;
+            mA11yEntry = entry;
+
+            std::string text = book->getSectionText(entry);
+            if (text.empty())
+                text = "Blank entry";
+            text += "\nEntry ";
+            text += std::to_string(entry + 1);
+            text += " of ";
+            text += std::to_string(count);
+            text += '.';
+            MWGui::A11y::sayRereadable(text, /*interrupt=*/true);
+        }
+
         // Up/Down turn a whole two-page spread (the native behaviour), landing
         // on its left page; Left/Right step one page at a time within and
-        // across spreads. Each reads the page it lands on.
+        // across spreads. Each reads the page it lands on. A manual page turn
+        // drops the entry-step anchor so the next Ctrl+Up/Down resyncs to the
+        // page the user turned to.
         void a11ySpreadNext(MyGUI::Widget* sender)
         {
             notifyNextPage(sender);

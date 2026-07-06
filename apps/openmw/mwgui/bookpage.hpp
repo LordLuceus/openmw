@@ -44,6 +44,31 @@ namespace MWGui
         /// out-of-range page.
         virtual std::string getPageText(size_t page) const = 0;
 
+        /// The number of sections (paragraphs) in the document. In the journal
+        /// each logical entry (a dated update, or a topic response) is laid out
+        /// as exactly one section, so for screen-reader output this is the
+        /// count of entries the reader can step through one at a time.
+        virtual size_t sectionCount() const = 0;
+
+        /// Reconstruct the plain text of a whole section (paragraph/entry) in
+        /// reading order, independent of pagination -- so an entry that visually
+        /// spans a page boundary still comes back as one string. Lines are
+        /// joined with spaces. Returns empty for an out-of-range section.
+        virtual std::string getSectionText(size_t section) const = 0;
+
+        /// The index of the page on which \p section begins, so a caller can
+        /// turn to it (and derive the two-page spread it sits in) to keep the
+        /// visible pages in sync while stepping entries. Returns 0 for an
+        /// out-of-range section.
+        virtual size_t pageForSection(size_t section) const = 0;
+
+        /// Inverse of pageForSection: the index of the first section that begins
+        /// on \p page (or, if none begins there because a long entry spans into
+        /// the page, the section that covers the top of the page). Lets a caller
+        /// resync its entry cursor after the user has turned pages directly.
+        /// Returns 0 for an out-of-range page.
+        virtual size_t sectionForPage(size_t page) const = 0;
+
         virtual ~TypesetBook() = default;
     };
 
