@@ -66,6 +66,22 @@ namespace
     // ~256, so this clears slopes, low daises and rugs but flags real levels.
     constexpr float kVerticalGapNotable = 128.0f;
 
+    // Flying vertical-first climb (see the flying branch in onFrame). When
+    // levitating toward a target high overhead, the ground-hugging navmesh route
+    // would skim the player under the target's dais where they can't rise; instead
+    // we climb steeply in the open first, then cruise in level. Tuned against
+    // Divayth Fyr in Tel Fyr (target ~440 units up).
+    constexpr float kFlyHeadProbeStart = 40.0f; // raycast origin above player pos
+    constexpr float kFlyHeadProbeLen = 600.0f; // how far up we probe for a ceiling
+    constexpr float kFlyClimbGap = 150.0f; // target must be at least this far above to climb
+    constexpr float kFlyMinHeadClear = 120.0f; // need at least this much room overhead
+    constexpr float kFlyClimbFullGap = 400.0f; // gap at/above which we climb at max angle
+    // Climb pitch ramps from "min" (gentle, near kFlyClimbGap) to "max" (steep,
+    // at kFlyClimbFullGap). Max is capped below vertical so we retain a little
+    // forward drift and never stall exactly straight up. Radians.
+    constexpr float kFlyClimbMinPitch = 0.35f * 3.14159265358979323846f; // ~63 deg
+    constexpr float kFlyClimbMaxPitch = 0.45f * 3.14159265358979323846f; // ~81 deg
+
     // How far from a requested destination we'll look for a walkable navmesh
     // point. Many useful targets (doors, levers, wall-mounted activators, items
     // on tables) sit slightly off the navmesh -- flush against a wall or up on
@@ -2126,28 +2142,95 @@ namespace MWAccessibility
             return;
         }
 
-        // --- Flying: follow the SAME navmesh route as walking, but in 3D -----
+        // --- Flying: follow the navmesh route in 3D, with a VERTICAL-FIRST climb
+        // for targets high overhead --------------------------------------------
         //
         // While airborne (Levitation, a flying creature form), the plain ground
-        // walker fails two ways: it only steers yaw (so it flies dead-level into
-        // arches and never climbs to a raised target), and a naive straight
-        // bee-line can't get through tight interior geometry -- the Vivec Puzzle
-        // Canal is a 3D maze, and no amount of climbing solves a maze; you must
-        // route AROUND the walls. The navmesh pathfinder already does that
-        // routing, so we reuse it wholesale and only change HOW we follow it: aim
-        // the player's absolute orientation (yaw AND pitch) at the next waypoint
-        // and push forward. The engine's flight velocity = orientation * forward
-        // then carries us up/down along the route's elevation profile (waypoints
-        // rise onto a platform / shrine dais, so pitch rises with them). Absolute
-        // aim (rotateObject, as lock-on uses) holds steady since there's no
-        // competing mouse input during auto-walk. All the maze-solving,
-        // stuck-detection, recovery, door-opening, repath and arrival logic above
-        // is shared with walking.
+        // walker fails: it only steers yaw, so it flies dead-level into arches and
+        // never climbs to a raised target. The base behaviour reuses the navmesh
+        // pathfinder wholesale -- it already solves 3D mazes like the Vivec Puzzle
+        // Canal, where you must route AROUND walls, not climb over them -- and only
+        // changes HOW we follow it: aim the player's absolute orientation (yaw AND
+        // pitch, via rotateObject as lock-on uses) at the next waypoint and push
+        // forward. The engine's flight velocity = orientation * forward then
+        // carries us up/down along the route's elevation profile.
+        //
+        // But the navmesh only covers the GROUND, so for a target sitting high on a
+        // raised dais (Divayth Fyr atop his tower core, a shrine on a ledge) every
+        // waypoint is at floor level: following them skims the player along the
+        // ground to the base of the structure, then the route runs out and a
+        // bee-line aims up at the target -- from DIRECTLY UNDER the dais lip, where
+        // solid geometry overhead blocks any rise and the player just wedges. The
+        // fix is to gain altitude EARLY, out in the open where there's headroom,
+        // then cruise in level above the lip: when the target is well above us and
+        // a straight-up raycast shows real clearance overhead, override pitch to
+        // climb steeply instead of tracking the ground waypoints. The climb angle
+        // eases as we near the target's height (proportional, so we settle at the
+        // right altitude instead of overshooting), and once we're level with or
+        // above the target the override releases and normal waypoint-following
+        // flies us in. If we're boxed in with no headroom (genuinely under an
+        // overhang) the override never engages, the route runs out, and stuck
+        // detection arms the teleport escape hatch -- the honest fallback.
+        //
+        // All the maze-solving, stuck-detection, recovery, door-opening, repath and
+        // arrival logic above is shared with walking.
         if (world->isFlying(player))
         {
             const float flyYaw = mPathFinder.getZAngleToNext(playerPos.x(), playerPos.y());
             const float flyPitch = mPathFinder.getXAngleToNext(playerPos.x(), playerPos.y(), playerPos.z());
-            world->rotateObject(player, osg::Vec3f(flyPitch, 0.0f, flyYaw), MWBase::RotationFlag_none);
+
+            // Headroom: distance to the first ceiling straight above the head, or a
+            // large sentinel if clear to the probe end. One cheap raycast/frame.
+            float headClear = 1.0e9f;
+            if (const auto* rc = world->getRayCasting())
+            {
+                const osg::Vec3f head = playerPos + osg::Vec3f(0.0f, 0.0f, kFlyHeadProbeStart);
+                const osg::Vec3f up = head + osg::Vec3f(0.0f, 0.0f, kFlyHeadProbeLen);
+                const auto r = rc->castRay(head, up, { player }, {},
+                    MWPhysics::CollisionType_World | MWPhysics::CollisionType_HeightMap
+                        | MWPhysics::CollisionType_Door);
+                if (r.mHit)
+                    headClear = (r.mHitPos - head).length();
+            }
+
+            // Vertical-first climb: engage when the target is meaningfully above us
+            // AND there is room to rise into. Climb angle is proportional to the
+            // remaining height gap so it steepens when far below and eases toward
+            // level as we approach target height -- this prevents overshoot and
+            // hands back to waypoint-following smoothly once we're level.
+            const float vGap = targetPos.z() - playerPos.z();
+            const bool verticalClimb = (vGap > kFlyClimbGap && headClear > kFlyMinHeadClear);
+            float useFlyPitch = flyPitch;
+            if (verticalClimb)
+            {
+                // Map the height gap onto a climb angle: kFlyClimbGap -> gentle,
+                // kFlyClimbFullGap and beyond -> near-straight-up (capped so we keep
+                // a little forward bias and never stall exactly vertical). Negative
+                // pitch aims up.
+                const float t = std::clamp((vGap - kFlyClimbGap) / (kFlyClimbFullGap - kFlyClimbGap), 0.0f, 1.0f);
+                useFlyPitch = -(kFlyClimbMinPitch + t * (kFlyClimbMaxPitch - kFlyClimbMinPitch));
+            }
+
+            if (kLogStairDiag)
+            {
+                mStairDiagTimer += dt;
+                if (mStairDiagTimer >= 0.2f)
+                {
+                    mStairDiagTimer = 0.0f;
+                    osg::Vec3f wp = targetPos;
+                    if (!mPathFinder.getPath().empty())
+                        wp = mPathFinder.getPath().front();
+                    constexpr float kRad2Deg = 57.2957795f;
+                    Log(Debug::Warning)
+                        << "[a11y] autowalk flydiag: pos=(" << playerPos.x() << "," << playerPos.y() << ","
+                        << playerPos.z() << ") vertGap=" << vGap << " horizDist=" << horizDist
+                        << " flyPitchDeg=" << (flyPitch * kRad2Deg) << " useFlyPitchDeg=" << (useFlyPitch * kRad2Deg)
+                        << " climb=" << verticalClimb << " onGround=" << world->isOnGround(player)
+                        << " headClear=" << headClear << " speed=" << speed;
+                }
+            }
+
+            world->rotateObject(player, osg::Vec3f(useFlyPitch, 0.0f, flyYaw), MWBase::RotationFlag_none);
 
             controls->mMovement = 1.0f; // full forward, along the new facing
             controls->mSideMovement = 0.0f;

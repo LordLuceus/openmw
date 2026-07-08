@@ -21,6 +21,15 @@ Newest changes are listed first. (OpenMW's own engine changelog lives in
   yourself. (Doors that genuinely block the route to a different target are still
   handled as before.)
 
+- **Auto-walk can now fly up to targets high overhead.** While levitating, walking
+  to something far above you -- Divayth Fyr atop his tower in Tel Fyr, a shrine on
+  a raised ledge -- used to skim you along the floor to the base and then stall
+  underneath it, unable to rise. Auto-walk now climbs straight up first, in open
+  space where there's room, then flies in level once it's high enough, so it
+  reaches targets set well above the ground. If you're genuinely boxed in beneath
+  something solid with no way up, it still stops honestly and offers to teleport
+  you the rest of the way.
+
 ## 2026-07-06
 
 - **Read the journal one entry at a time.** Reading the journal used to speak a
