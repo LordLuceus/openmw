@@ -2293,27 +2293,42 @@ namespace MWAccessibility
         // close that vertical gap on foot. Vanilla doesn't hit this because it
         // activates via a camera ray that strikes the visible SURFACE; the
         // nearest-bounding-box point is our equivalent of that surface hit.
-        float distanceToBounds(const osg::Vec3f& fromPos, const MWWorld::Ptr& target)
+        // The point on target's visual bounding box nearest to fromPos (clamped
+        // per-axis; the point itself if inside). Returns the reference origin when
+        // no renderable bounds exist. Shared by distanceToBounds (reach test) and
+        // Scanner::nearestBoundsPoint (routing target).
+        osg::Vec3f nearestBoundsPointImpl(const osg::Vec3f& fromPos, const MWWorld::Ptr& target)
         {
             const osg::Vec3f origin = target.getRefData().getPosition().asVec3();
             auto* node = target.getRefData().getBaseNode();
             if (!node)
-                return (origin - fromPos).length();
+                return origin;
 
             osg::ComputeBoundsVisitor cb;
             cb.setTraversalMask(~(MWRender::Mask_ParticleSystem | MWRender::Mask_Effect));
             node->accept(cb);
             const osg::BoundingBox& bb = cb.getBoundingBox();
             if (!bb.valid())
-                return (origin - fromPos).length();
+                return origin;
 
-            // Clamp the point to the box on each axis; the distance to that
-            // clamped point is the distance to the nearest surface (0 if inside).
-            const osg::Vec3f nearest(std::clamp(fromPos.x(), bb.xMin(), bb.xMax()),
+            // Clamp the point to the box on each axis; the clamped point is the
+            // nearest surface point (equal to fromPos when inside the box).
+            return osg::Vec3f(std::clamp(fromPos.x(), bb.xMin(), bb.xMax()),
                 std::clamp(fromPos.y(), bb.yMin(), bb.yMax()),
                 std::clamp(fromPos.z(), bb.zMin(), bb.zMax()));
-            return (nearest - fromPos).length();
         }
+
+        float distanceToBounds(const osg::Vec3f& fromPos, const MWWorld::Ptr& target)
+        {
+            return (nearestBoundsPointImpl(fromPos, target) - fromPos).length();
+        }
+    }
+
+    osg::Vec3f Scanner::nearestBoundsPoint(const osg::Vec3f& fromPos, const MWWorld::Ptr& target)
+    {
+        if (target.isEmpty())
+            return fromPos;
+        return nearestBoundsPointImpl(fromPos, target);
     }
 
     bool Scanner::isWithinActivationReach(const MWWorld::Ptr& target)

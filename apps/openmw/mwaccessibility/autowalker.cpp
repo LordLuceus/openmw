@@ -535,6 +535,17 @@ namespace MWAccessibility
         if (door.getType() != ESM::Door::sRecordId)
             return DoorProbe::None;
 
+        // The door we're WALKING TO is never a blocker -- it's the destination.
+        // Without this, walking to a teleport door (e.g. an Ashlander yurt's load
+        // door) tripped the getTeleport() guard below and stopped the walk with
+        // "leads elsewhere" the instant we got close, instead of arriving so the
+        // player can step through on their own. (Auto-open exists only to clear a
+        // shut door BLOCKING the route to some other target; a teleport door is
+        // never auto-opened anyway, so treating the target door as an obstacle was
+        // pure false-positive.) Let arrival handle it.
+        if (mHasPtrTarget && !mTarget.isEmpty() && door == mTarget)
+            return DoorProbe::None;
+
         // Already open / opening? Then it isn't what's blocking us -- don't
         // toggle it shut, and don't treat it as an obstacle. A closed idle door
         // has its current rotation equal to its authored (cellref) rotation; any
@@ -779,7 +790,21 @@ namespace MWAccessibility
             return false;
 
         osg::Vec3f start = player.getRefData().getPosition().asVec3();
-        const osg::Vec3f rawEnd = targetPosition();
+        // Route toward the target's real GEOMETRY, not its reference origin. For
+        // most objects these coincide, but some references (notably an Ashlander
+        // yurt's load door) store their node origin far from the mesh -- the
+        // yurt door pivots tent-centre while the openable flap sits several
+        // metres away, so origin-based pathing walks to the wrong side of the
+        // tent and wedges, never reaching activation range of the actual door.
+        // nearestBoundsPoint returns the point on the target's visual bounding
+        // box nearest the player -- i.e. the face of the real mesh we should walk
+        // up to, and exactly what the activation-reach check measures against.
+        // Only for non-actor object targets: actors move (their bbox chases them
+        // and we already widen arrival by body radius) and bare waypoints have no
+        // Ptr, so both keep the plain position.
+        osg::Vec3f rawEnd = targetPosition();
+        if (mHasPtrTarget && !mTarget.isEmpty() && !mTarget.getClass().isActor())
+            rawEnd = Scanner::nearestBoundsPoint(start, mTarget);
 
         // Assume a normal (navmesh / straight) route until proven otherwise; only
         // an adopted pathgrid fallback below sets this, which in turn suppresses
@@ -1975,21 +2000,33 @@ namespace MWAccessibility
             }
 
             // The navmesh route ran out short of the target. Before giving up,
-            // try a FINAL STRAIGHT-LINE APPROACH straight at the target: many
-            // targets sit just off the navmesh on an otherwise walkable floor
-            // (doors flush in a wall, items on the ground past the mesh edge),
-            // and a short straight walk closes that gap. If the target is
-            // genuinely unreachable (e.g. up on a level the navmesh doesn't
-            // model), this approach will wedge and stuck-detection will trigger
-            // the honest "couldn't reach" handling below. We only enter final
-            // approach once per walk (mFinalApproach guards re-entry) and only
-            // when the gap is small enough to be plausibly walkable.
+            // try a FINAL STRAIGHT-LINE APPROACH: many targets sit just off the
+            // navmesh on an otherwise walkable floor (doors flush in a wall,
+            // items on the ground past the mesh edge), and a short straight walk
+            // closes that gap. If the target is genuinely unreachable (e.g. up on
+            // a level the navmesh doesn't model), this approach will wedge and
+            // stuck-detection will trigger the honest "couldn't reach" handling
+            // below. We only enter final approach once per walk (mFinalApproach
+            // guards re-entry) and only when the gap is small enough to be
+            // plausibly walkable.
+            //
+            // Aim at mEffectiveTarget (the destination SNAPPED to the nearest
+            // walkable navmesh point), NOT the raw target origin. This matters
+            // for objects whose reference origin is buried inside geometry -- an
+            // Ashlander yurt's load door pivots at the CENTRE of the tent dome,
+            // several metres up inside the shell, with a perfectly walkable spot
+            // right in front of the flap that snapping finds. Bee-lining at the
+            // buried origin marched the player into the tent wall and wedged them
+            // ~4 m out (orbiting in stuck-recovery forever); bee-lining at the
+            // snapped spot walks them onto the reachable flap, from where the door
+            // is within activation range and arrival fires. When snapping found
+            // nothing (mEffectiveTarget == rawEnd) this is identical to before.
             constexpr float kMaxFinalApproach = 700.0f; // ~10 m
             if (!mFinalApproach && trueDist <= kMaxFinalApproach)
             {
                 mFinalApproach = true;
                 mPathFinder.clearPath();
-                mPathFinder.buildStraightPath(targetPos);
+                mPathFinder.buildStraightPath(mEffectiveTarget);
                 // Fresh progress budget for the straight-line leg.
                 mBestDistToGoal = std::numeric_limits<float>::max();
                 mBestPathRemaining = std::numeric_limits<float>::max();

@@ -128,6 +128,19 @@ namespace MWAccessibility
         /// running or \p target is empty.
         static bool isWithinActivationReach(const MWWorld::Ptr& target);
 
+        /// The point on \p target's visual bounding box nearest to \p fromPos, in
+        /// world coordinates (clamped per-axis; returns fromPos-projected surface,
+        /// or the point itself if inside the box). This is the "real" location of
+        /// the object's geometry, which for some references is FAR from the
+        /// reference origin returned by getPosition(): e.g. an Ashlander yurt's
+        /// load door has its node origin buried tent-centre while the openable
+        /// flap mesh sits several metres away, so origin-based pathfinding walks
+        /// to the wrong side of the tent. Routing to this bbox point instead aims
+        /// the walker at the geometry the player actually activates. Falls back to
+        /// the reference origin when no renderable bounds exist. Mirrors the
+        /// anchor distanceToBounds/isWithinActivationReach measure against.
+        static osg::Vec3f nearestBoundsPoint(const osg::Vec3f& fromPos, const MWWorld::Ptr& target);
+
         /// Speak "<name> is too far away." for \p target. Spoken feedback for an
         /// interaction the player deliberately attempted on a locked object that
         /// turned out to be beyond reach -- a blind player has no visual whiff

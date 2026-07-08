@@ -4,6 +4,23 @@ A running log of screen-reader accessibility features added to this OpenMW fork.
 Newest changes are listed first. (OpenMW's own engine changelog lives in
 `CHANGELOG.md`.)
 
+## 2026-07-08
+
+- **Auto-walk now reaches Ashlander yurt doors.** Walking to a yurt's entrance
+  (and some other oddly-built doors) used to stop a few metres short and never
+  arrive -- the walker aimed at the door's hidden anchor point buried in the
+  middle of the tent instead of the actual doorway you step through, so it kept
+  wedging against the wrong side of the shell. It now walks to the real door
+  geometry, so you arrive right at the entrance where you can open it.
+
+- **Auto-walk no longer bails out at doors that lead somewhere.** After the fix
+  above, walking to a yurt door would announce "leads elsewhere, stopping" and
+  quit the moment you got close -- the walker mistook the door you were heading
+  for for one blocking your way. Walking to a door that leads to another place is
+  exactly what you asked for, so it now arrives normally and lets you step through
+  yourself. (Doors that genuinely block the route to a different target are still
+  handled as before.)
+
 ## 2026-07-06
 
 - **Read the journal one entry at a time.** Reading the journal used to speak a
