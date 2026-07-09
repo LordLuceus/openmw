@@ -241,6 +241,36 @@ namespace
     // the stronger, direction-aware wiggle more chances before declaring defeat.
     constexpr int kMaxRecoveryAttempts = 6;
 
+    // Step-charge tuning. The navmesh (Recast) treats a step as walkable if it's
+    // within its climb hack, but the physics stepper only auto-lifts the actor
+    // over risers up to sStepSizeUp (34 units). A step between ~34 and a mountable
+    // height therefore routes fine yet physically stops the walker dead from a
+    // standstill: heading is dead-on, thrust is full, but z never rises (seen at a
+    // raised Wolverine Hall door, wpDz ~137 up a short flight, wedged at the base).
+    // Neither the sideways recovery wiggle (slides ALONG the step) NOR a jump in
+    // place (pogos -- clearing a step needs horizontal MOMENTUM, not just height)
+    // fixes it. What works, proven by hand, is a running start: back off a few
+    // metres, then charge. We detect the signature with a forward raycast probe (a
+    // hit near the feet that CLEARS at knee height = a surmountable step ahead)
+    // plus near-zero speed and an above-us waypoint, then run the back-off/charge
+    // maneuver below. It fires BEFORE the stuck-timeout so a flight of steps is
+    // taken with a run-up rather than after a wedge.
+    constexpr float kStepChargeProbeFeet = 8.0f; // ray height that should HIT the riser
+    constexpr float kStepChargeProbeKnee = 40.0f; // ray height that should be CLEAR above it
+    constexpr float kStepChargeProbeReach = 60.0f; // how far ahead to probe (units)
+    constexpr float kStepChargeWpAbove = 40.0f; // waypoint must be at least this far above
+    constexpr float kStepChargeMaxSpeed = 60.0f; // only trigger when nearly wedged (units/sec)
+    // Back-off: reverse along the path we came until we've opened this much runway
+    // (or the timeout trips, so we never reverse forever into a hazard).
+    constexpr float kStepChargeBackDist = 220.0f; // ~3.1 m of run-up room
+    constexpr float kStepChargeBackTimeout = 1.5f; // seconds max reversing
+    // Charge: sprint forward until we've climbed clear of the step (z gain) or the
+    // timeout trips (then we re-evaluate: still wedged => another attempt).
+    constexpr float kStepChargeRiseDone = 45.0f; // z gain that counts as "mounted"
+    constexpr float kStepChargeTimeout = 2.0f; // seconds max charging
+    constexpr float kStepHopCooldown = 0.4f; // min seconds between contact-hops
+    constexpr int kStepChargeMaxAttempts = 3; // cycles before deferring to stuck logic
+
     // Recovery-wiggle squeeze tuning. When wedged we now probe both sides and
     // sidestep toward open space (chooseRecoverySide) at full strength rather
     // than the old half-hearted alternating strafe -- this is what gets us
@@ -675,6 +705,28 @@ namespace MWAccessibility
         return true; // cancel the walk
     }
 
+    bool AutoWalker::detectClimbableStep(
+        const MWWorld::Ptr& player, const osg::Vec3f& playerPos, float yaw) const
+    {
+        MWBase::World* world = MWBase::Environment::get().getWorld();
+        if (!world)
+            return false;
+        const auto* rc = world->getRayCasting();
+        if (!rc)
+            return false;
+        // fwd = unit heading (yaw 0 faces +Y; +X at 90 deg).
+        const osg::Vec3f fwd(std::sin(yaw), std::cos(yaw), 0.0f);
+        const int mask = MWPhysics::CollisionType_World | MWPhysics::CollisionType_HeightMap
+            | MWPhysics::CollisionType_Door;
+        const osg::Vec3f feetFrom = playerPos + osg::Vec3f(0.0f, 0.0f, kStepChargeProbeFeet);
+        const osg::Vec3f kneeFrom = playerPos + osg::Vec3f(0.0f, 0.0f, kStepChargeProbeKnee);
+        const auto feetHit = rc->castRay(feetFrom, feetFrom + fwd * kStepChargeProbeReach, { player }, {}, mask);
+        const auto kneeHit = rc->castRay(kneeFrom, kneeFrom + fwd * kStepChargeProbeReach, { player }, {}, mask);
+        // Low ray blocked, higher ray clear -> a step whose top is between the two
+        // probe heights, right ahead: surmountable with a run-up.
+        return feetHit.mHit && !kneeHit.mHit;
+    }
+
     void AutoWalker::beginPhasing(const MWWorld::Ptr& blocker, const osg::Vec3f& playerPos)
     {
         if (!mPhasingActor.isEmpty() || blocker.isEmpty())
@@ -724,6 +776,10 @@ namespace MWAccessibility
         mRecoveryAttempts = 0;
         mRecoveryDir = 1.0f;
         mDoorBackoffTimer = 0.0f;
+        mStepChargePhase = StepCharge::None;
+        mStepChargeTimer = 0.0f;
+        mStepChargeAttempts = 0;
+        mStepHopCooldown = 0.0f;
         mProgressive = false;
         mTimeSinceCallout = 0.0f;
         mLastCalloutDist = std::numeric_limits<float>::max();
@@ -1623,6 +1679,141 @@ namespace MWAccessibility
             return;
         }
 
+        // --- Step-charge maneuver --------------------------------------------
+        // Mount a step the physics stepper won't auto-climb by backing off for a
+        // run-up, then charging (see header StepCharge). Runs before stuck
+        // detection so the deliberate reverse never trips a give-up, and only on
+        // foot (the flying branch has its own vertical-first climb). Keep mLastPos
+        // fresh each frame so the post-maneuver frame sees no false displacement.
+        if (!world->isFlying(player))
+        {
+            const float curYaw = player.getRefData().getPosition().rot[2];
+
+            // TRIGGER: not already maneuvering, nearly wedged, route wants us
+            // meaningfully higher, and a climbable step is right ahead. (We reuse
+            // the same 'speed' the stuck logic computes just below by recomputing
+            // the cheap displacement here; the shared 'speed' var is set later, so
+            // use the wedge signal we already have: near-zero this-frame move.)
+            if (mStepChargePhase == StepCharge::None && mRecoveryTimer <= 0.0f
+                && !mPathFinder.getPath().empty())
+            {
+                const osg::Vec3f wp = mPathFinder.getPath().front();
+                const float frameMove = horizDistTo(mLastPos); // this frame's displacement
+                const float frameSpeed = (dt > 0.0f) ? frameMove / dt : 0.0f;
+                if (frameSpeed < kStepChargeMaxSpeed && (wp.z() - playerPos.z()) > kStepChargeWpAbove
+                    && detectClimbableStep(player, playerPos, curYaw))
+                {
+                    mStepChargePhase = StepCharge::BackOff;
+                    mStepChargeTimer = 0.0f;
+                    mStepChargeAnchor = playerPos;
+                    // No announcement: a flight of steps triggers this once per
+                    // step, so speaking it spams the player. Log it instead so we
+                    // can still tell (from openmw.log) when/where it engaged if it
+                    // ever misfires somewhere else.
+                    Log(Debug::Warning)
+                        << "[a11y] autowalk step-charge engaged: pos=(" << playerPos.x() << ","
+                        << playerPos.y() << "," << playerPos.z() << ") wpDz=" << (wp.z() - playerPos.z())
+                        << " attempt=" << mStepChargeAttempts;
+                }
+            }
+
+            if (mStepChargePhase != StepCharge::None)
+            {
+                mStepChargeTimer += dt;
+                mLastPos = playerPos; // suppress false move/wedge accounting
+                auto* controls = MWBase::Environment::get().getLuaManager()->getActorControls(player);
+                if (!controls)
+                {
+                    cancel();
+                    return;
+                }
+
+                if (mStepChargePhase == StepCharge::BackOff)
+                {
+                    // Reverse (facing unchanged, so we back straight down the route
+                    // we arrived on -- safe by construction) until we've opened
+                    // enough runway or the timeout trips.
+                    const float backed = horizDistTo(mStepChargeAnchor);
+                    if (backed >= kStepChargeBackDist || mStepChargeTimer >= kStepChargeBackTimeout)
+                    {
+                        mStepChargePhase = StepCharge::Charge;
+                        mStepChargeTimer = 0.0f;
+                        mStepChargeAnchor = playerPos; // measure rise from here
+                    }
+                    else
+                    {
+                        controls->mMovement = -1.0f; // straight back
+                        controls->mSideMovement = 0.0f;
+                        controls->mYawChange = 0.0f; // hold facing at the step
+                        controls->mPitchChange = 0.0f;
+                        controls->mJump = false;
+                        controls->mRun = true; // back off briskly
+                        controls->mChanged = true;
+                        return;
+                    }
+                }
+
+                if (mStepChargePhase == StepCharge::Charge)
+                {
+                    const float rise = playerPos.z() - mStepChargeAnchor.z();
+                    if (rise >= kStepChargeRiseDone)
+                    {
+                        // Mounted: clear the maneuver and let normal steering (and
+                        // the arrival checks) resume. Reset the attempt counter --
+                        // we made real vertical progress.
+                        mStepChargePhase = StepCharge::None;
+                        mStepChargeAttempts = 0;
+                        mTimeSinceMove = 0.0f;
+                        mTimeSinceProgress = 0.0f;
+                    }
+                    else if (mStepChargeTimer >= kStepChargeTimeout)
+                    {
+                        // Charge ran out without mounting. Count the attempt; try
+                        // again (back off + charge) up to the cap, then hand off to
+                        // normal stuck handling (which arms the teleport fallback).
+                        ++mStepChargeAttempts;
+                        mStepChargePhase = StepCharge::None;
+                        if (mStepChargeAttempts >= kStepChargeMaxAttempts)
+                        {
+                            // Give the wedge timer a head start so stuck handling
+                            // (and its honest teleport/announce) takes over now.
+                            mTimeSinceMove = kStuckTimeout;
+                        }
+                    }
+                    else
+                    {
+                        // Steer at the waypoint while sprinting, hopping at contact
+                        // (pulsed so the jump re-fires only once grounded). Compute
+                        // the yaw delta locally (the shared one is set later in the
+                        // frame): turn toward the next waypoint, clamped per frame.
+                        float wantYaw = mPathFinder.getZAngleToNext(playerPos.x(), playerPos.y());
+                        float dYaw = wantYaw - curYaw;
+                        constexpr float kPiC = 3.14159265358979323846f;
+                        while (dYaw > kPiC)
+                            dYaw -= 2.0f * kPiC;
+                        while (dYaw < -kPiC)
+                            dYaw += 2.0f * kPiC;
+                        const float maxTurnC = 6.0f * dt;
+                        dYaw = std::clamp(dYaw, -maxTurnC, maxTurnC);
+
+                        if (mStepHopCooldown > 0.0f)
+                            mStepHopCooldown -= dt;
+                        const bool hop = mStepHopCooldown <= 0.0f;
+                        if (hop)
+                            mStepHopCooldown = kStepHopCooldown;
+                        controls->mMovement = 1.0f; // full charge forward
+                        controls->mSideMovement = 0.0f;
+                        controls->mYawChange = dYaw; // stay aimed at the waypoint
+                        controls->mPitchChange = 0.0f;
+                        controls->mJump = hop;
+                        controls->mRun = true;
+                        controls->mChanged = true;
+                        return;
+                    }
+                }
+            }
+        }
+
         // --- Stuck detection -------------------------------------------------
         //
         // Two independent signals (see the header for the full rationale):
@@ -2132,12 +2323,42 @@ namespace MWAccessibility
             if (!mPathFinder.getPath().empty())
                 wp = mPathFinder.getPath().front();
             constexpr float kRad2Deg = 57.2957795f;
+
+            // Forward geometry probe (temporary): cast horizontal rays straight
+            // AHEAD (along the current facing) at several heights above the feet,
+            // to measure the shape of whatever the walker is wedged against. A low
+            // hit that clears higher up = a step/riser (its height ~ the lowest
+            // clear band); hits at every height = a full wall. This distinguishes
+            // "tall single step we might hop" from "unjumpable wall" for an
+            // elevated-door approach. fwd = unit heading vector (yaw 0 = +Y, +X at
+            // 90deg). Each value = distance to first hit in units, or -1 if clear.
+            const float cy = player.getRefData().getPosition().rot[2];
+            const osg::Vec3f fwd(std::sin(cy), std::cos(cy), 0.0f);
+            float hitAtFeet = -1.0f, hitAtKnee = -1.0f, hitAtWaist = -1.0f, hitAtHead = -1.0f;
+            if (const auto* rc = world->getRayCasting())
+            {
+                const float heights[4] = { 8.0f, 40.0f, 80.0f, 120.0f };
+                float* outs[4] = { &hitAtFeet, &hitAtKnee, &hitAtWaist, &hitAtHead };
+                for (int i = 0; i < 4; ++i)
+                {
+                    const osg::Vec3f from = playerPos + osg::Vec3f(0.0f, 0.0f, heights[i]);
+                    const osg::Vec3f to = from + fwd * 80.0f;
+                    const auto r = rc->castRay(from, to, { player }, {},
+                        MWPhysics::CollisionType_World | MWPhysics::CollisionType_HeightMap
+                            | MWPhysics::CollisionType_Door);
+                    if (r.mHit)
+                        *outs[i] = (r.mHitPos - from).length();
+                }
+            }
+
             Log(Debug::Warning) << "[a11y] autowalk stairdiag: pos=(" << playerPos.x() << "," << playerPos.y() << ","
                                 << playerPos.z() << ") speed=" << speed << " horizDist=" << horizDist
                                 << " bestDist=" << mBestDistToGoal << " pathRem=" << pathRemaining
                                 << " bestPathRem=" << mBestPathRemaining << " wp=(" << wp.x() << "," << wp.y() << ","
                                 << wp.z() << ") wpDz=" << (wp.z() - playerPos.z()) << " pathSize="
                                 << mPathFinder.getPathSize() << " yawErrDeg=" << (yawErr * kRad2Deg)
+                                << " fwdFeet=" << hitAtFeet << " fwdKnee=" << hitAtKnee
+                                << " fwdWaist=" << hitAtWaist << " fwdHead=" << hitAtHead
                                 << " tSinceMove=" << mTimeSinceMove << " tSinceProg=" << mTimeSinceProgress
                                 << " recovTimer=" << mRecoveryTimer << " recovAtt=" << mRecoveryAttempts
                                 << " final=" << mFinalApproach << " prog=" << mProgressive

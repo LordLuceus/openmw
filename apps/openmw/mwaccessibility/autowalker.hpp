@@ -137,6 +137,12 @@ namespace MWAccessibility
         // give-up paths (no-progress backstop AND exhausted-recovery wedge) so
         // the behavior is identical regardless of which trips first.
         bool handleGiveUp(const MWWorld::Ptr& player, const osg::Vec3f& playerPos, const osg::Vec3f& targetPos);
+        // Detect a surmountable step directly ahead that the physics stepper won't
+        // auto-climb (a riser taller than sStepSizeUp): casts a forward ray at the
+        // feet and at knee height and returns true when the low one is blocked but
+        // the higher one is clear -- the signature of a step whose top sits between
+        // the two probe heights, right in front of us. \\p yaw is current facing.
+        bool detectClimbableStep(const MWWorld::Ptr& player, const osg::Vec3f& playerPos, float yaw) const;
 
         bool mActive = false;
         // A target is either a world object (mTarget) or, for scanner
@@ -291,6 +297,31 @@ namespace MWAccessibility
         float mRecoveryTimer = 0.0f;
         int mRecoveryAttempts = 0;
         float mRecoveryDir = 1.0f;
+
+        // Step-charge maneuver. A step just above the engine's 34-unit auto-step
+        // limit routes fine (Recast allows it) but the physics stepper won't lift
+        // the actor over it from a standstill -- and a jump in place only pogos,
+        // because clearing a step needs HORIZONTAL momentum (a running start), not
+        // just height. Confirmed at a raised Wolverine Hall door: from a dead stop
+        // at the base the walker hopped forever, but a manual ~10 m walk-back then
+        // charge sailed up at 500+ u/s. So we automate that: on detecting the
+        // wedged-at-a-climbable-step signature we reverse a few metres down the
+        // path we just travelled (BackOff) to open runway, then sprint forward
+        // (Charge) to mount it with momentum, hopping at contact. Capped retries;
+        // if it still fails, normal stuck handling takes over (teleport fallback).
+        enum class StepCharge
+        {
+            None,
+            BackOff,
+            Charge,
+        };
+        StepCharge mStepChargePhase = StepCharge::None;
+        float mStepChargeTimer = 0.0f; // time in the current phase
+        osg::Vec3f mStepChargeAnchor; // position at phase start (measures distance/rise)
+        int mStepChargeAttempts = 0; // back-off+charge cycles since last progress
+        // Pulses the contact-hop during a charge: a jump only re-fires when the
+        // actor is grounded, so we throttle rather than hold mJump every frame.
+        float mStepHopCooldown = 0.0f;
 
         // Door back-off state. When auto-walk opens a closed door it is usually
         // wedged flush against it, and the engine REFUSES to swing a door into an

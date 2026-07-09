@@ -6,6 +6,15 @@ Newest changes are listed first. (OpenMW's own engine changelog lives in
 
 ## 2026-07-09
 
+- **Auto-walk now climbs steep steps up to a raised door instead of stalling at
+  the bottom.** Some interior doors sit at the top of a short, steep flight (a
+  raised threshold in Wolverine Hall, for example). Walking to one from close by
+  used to jam the walker against the bottom step and never get up it, even though
+  walking back a few metres and trying again worked. Auto-walk now does that for
+  you automatically: when it meets a step too tall to walk straight up, it backs
+  off a couple of metres for a run-up and charges up onto it. Flights of several
+  steps are taken one run-up at a time until you reach the door.
+
 - **Auto-walk correctly announces arrival at people standing on a rise.** Walking
   to someone perched a little above you -- a Telvanni Mouth on their raised dais,
   for instance -- used to end with a misleading "so-and-so is 2 metres ahead and
