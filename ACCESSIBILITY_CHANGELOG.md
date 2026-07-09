@@ -4,6 +4,17 @@ A running log of screen-reader accessibility features added to this OpenMW fork.
 Newest changes are listed first. (OpenMW's own engine changelog lives in
 `CHANGELOG.md`.)
 
+## 2026-07-09
+
+- **Auto-walk correctly announces arrival at people standing on a rise.** Walking
+  to someone perched a little above you -- a Telvanni Mouth on their raised dais,
+  for instance -- used to end with a misleading "so-and-so is 2 metres ahead and
+  2 metres above" as if it had fallen short, even though you were parked right in
+  front of them and could talk to them straight away. It now checks whether you
+  can actually reach the person (the same test that decides whether you can speak
+  to them) and announces "Arrived" properly. Someone genuinely out of reach up on
+  a balcony still reports the honest remaining distance.
+
 ## 2026-07-08
 
 - **Auto-walk now reaches Ashlander yurt doors.** Walking to a yurt's entrance

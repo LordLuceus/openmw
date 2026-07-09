@@ -1996,15 +1996,25 @@ namespace MWAccessibility
             // "Arrived" while the door sat ~5 m up. Apply the identical gate:
             // for a non-actor object target require real activation reach (3D
             // distance to its nearest bounding-box surface, honouring
-            // Telekinesis); for an actor require vertical proximity too; a bare
-            // waypoint (no Ptr) keeps the horizontal rule. A hatch you CAN open
-            // from directly below still passes (it's within activation range --
-            // exactly why the engine lets you open it).
+            // Telekinesis); a bare waypoint (no Ptr) keeps the horizontal rule.
+            //
+            // For an ACTOR, the authoritative "have we arrived?" question is the
+            // same one that governs whether you can TALK to them: are we within
+            // activation reach? A fixed vertical-proximity gate was too strict --
+            // a Telvanni Mouth sits on a ~2 m dais, so the walk parked right in
+            // front of them (well within talking range) yet the >128u vertical
+            // gap tripped a false "2 metres ahead and 2 metres above" stop. Use
+            // isWithinActivationReach for actors too, but keep vertical proximity
+            // as an additional accept so a same-level NPC we're beside (whose
+            // 3D-to-bounds might edge just past activation distance) still counts.
+            // A balcony NPC genuinely 3-4 m up fails BOTH (out of reach, big
+            // vertical gap), so the original false-arrival guard is preserved.
             bool reachOk = trueDist <= reachDist;
             if (reachOk && mHasPtrTarget && !mTarget.isEmpty())
             {
                 if (mTarget.getClass().isActor())
-                    reachOk = std::abs(targetPos.z() - playerPos.z()) <= kVerticalGapNotable;
+                    reachOk = std::abs(targetPos.z() - playerPos.z()) <= kVerticalGapNotable
+                        || Scanner::isWithinActivationReach(mTarget);
                 else
                     reachOk = Scanner::isWithinActivationReach(mTarget);
             }
