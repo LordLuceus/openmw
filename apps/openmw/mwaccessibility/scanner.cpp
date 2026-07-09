@@ -14,6 +14,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iterator>
+#include <optional>
 #include <sstream>
 #include <utility>
 #include <vector>
@@ -451,6 +452,45 @@ using MWAccessibility::kPi;
         return ptr.getCellRef().getRefId().toDebugString();
     }
 
+    // Resolve a place name (e.g. a road signpost's "Balmora", "Vos") to a world
+    // position, by matching it against the names of the game's exterior cells.
+    // This reads the STATIC cell records, so it works for any named place in the
+    // world -- crucially including towns the player has never visited, which is
+    // the whole value of a signpost (a sighted player reads the direction off the
+    // sign without having been there). A multi-cell town (Balmora spans several
+    // named cells) resolves to the barycentre of its cells' centres, mirroring
+    // how the global-map markers aggregate discovered locations. Returns nullopt
+    // when the name matches no exterior cell (e.g. a sign to a landmark that is
+    // not itself a named cell), so the caller can fall back to name-only rather
+    // than fabricate a bearing.
+    std::optional<osg::Vec2f> resolveExteriorPlacePosition(std::string_view placeName)
+    {
+        if (placeName.empty())
+            return std::nullopt;
+        const auto& cells = MWBase::Environment::get().getESMStore()->get<ESM::Cell>();
+        osg::Vec2f sum(0.0f, 0.0f);
+        int count = 0;
+        for (auto it = cells.extBegin(); it != cells.extEnd(); ++it)
+        {
+            if (it->mName.empty())
+                continue;
+            // Match on the display name BEFORE any comma ("Balmora" from
+            // "Balmora, Fred's House"), exactly as the map's location aggregation
+            // does, so every named sub-cell of a town folds into one place.
+            std::string_view cellName = it->mName;
+            if (const auto comma = cellName.find(','); comma != std::string_view::npos)
+                cellName = cellName.substr(0, comma);
+            if (!Misc::StringUtils::ciEqual(cellName, placeName))
+                continue;
+            sum += osg::Vec2f((it->getGridX() + 0.5f) * Constants::CellSizeInUnits,
+                (it->getGridY() + 0.5f) * Constants::CellSizeInUnits);
+            ++count;
+        }
+        if (count == 0)
+            return std::nullopt;
+        return sum / static_cast<float>(count);
+    }
+
     void appendDoorDestination(const MWWorld::Ptr& ptr, std::string& out)
     {
         if (ptr.getType() != ESM::Door::sRecordId)
@@ -477,6 +517,48 @@ using MWAccessibility::kPi;
             out += ", to ";
             out += dest;
         }
+    }
+
+    // For a road signpost (and any other named activator that points at a place),
+    // append the compass direction and distance to the place it names, computed
+    // from where the player stands. Signposts are activators whose name is a
+    // place ("Balmora", "Vos") but carry no script, so vanilla activation does
+    // nothing and the scanner previously spoke only the bare name -- useless,
+    // since a signpost's entire purpose is telling you WHICH WAY somewhere is.
+    // We resolve the name against the static exterior cells (so it works for
+    // places never visited -- exactly the case a signpost helps with), then speak
+    // the true bearing/distance, e.g. "Vos, northwest, 1800 metres". If the name
+    // matches no exterior cell (a landmark that is not a named cell, or the
+    // player is in an interior/other worldspace where the exterior XY is not
+    // comparable), we append NOTHING and the caller keeps the plain name -- never
+    // a fabricated direction. \p ptr must be the selected object; \p playerPos is
+    // the player's world position.
+    void appendSignpostDirection(const MWWorld::Ptr& ptr, const osg::Vec3f& playerPos, std::string& out)
+    {
+        if (!ptr.getClass().isActivator())
+            return;
+        // Only meaningful when we ourselves are in the exterior worldspace: the
+        // bearing is computed in exterior world XY, which is not comparable to an
+        // interior's local coordinates.
+        const MWWorld::Ptr player = MWBase::Environment::get().getWorld()->getPlayerPtr();
+        if (player.isEmpty() || !player.getCell() || !player.getCell()->getCell())
+            return;
+        if (player.getCell()->getCell()->getWorldSpace() != ESM::Cell::sDefaultWorldspaceId)
+            return;
+
+        const std::optional<osg::Vec2f> place = resolveExteriorPlacePosition(ptr.getClass().getName(ptr));
+        if (!place)
+            return;
+
+        const osg::Vec2f delta = *place - osg::Vec2f(playerPos.x(), playerPos.y());
+        // atan2(x, y): 0 = north, +X = east -- the absolute-bearing convention
+        // used everywhere in the scanner (compassLabel, target readout).
+        const float bearing = std::atan2(delta.x(), delta.y());
+        const float dist = delta.length();
+        out += ", ";
+        out += MWAccessibility::compassLabel(bearing);
+        out += ", ";
+        out += MWAccessibility::formatDistance(dist);
     }
 
     // The current open/closed state of a door, as a spoken word ("open" /
@@ -2387,6 +2469,32 @@ namespace MWAccessibility
         if (target.isEmpty())
             return false; // Nothing selected; let the default Activate run.
 
+        // Road signposts are scriptless activators, so the engine's activation
+        // does nothing -- pressing Activate on one appears dead. Repurpose it to
+        // re-speak the sign's direction (the useful thing it conveys), so the
+        // player can re-hear "Vos, northwest, 1800 metres" without re-walking the
+        // scanner list. Info-only, so it is NOT gated on activation reach -- you
+        // read a sign from a distance. Only triggers when the name resolves to a
+        // place (true signposts); other activators fall through to normal
+        // activation below. Skip when the direction would be empty (interior /
+        // unknown place) so we never consume the key without saying anything.
+        if (target.getClass().isActivator())
+        {
+            const MWWorld::Ptr p = MWBase::Environment::get().getWorld()->getPlayerPtr();
+            if (!p.isEmpty())
+            {
+                std::string dir;
+                appendSignpostDirection(target, p.getRefData().getPosition().asVec3(), dir);
+                if (!dir.empty())
+                {
+                    // dir carries its own leading ", ", so this reads e.g.
+                    // "Vos, northwest, 1800 metres."
+                    speak(objectDisplayName(target) + dir + ".");
+                    return true; // handled; don't also fire the crosshair Activate
+                }
+            }
+        }
+
         if (!isWithinActivationReach(target))
         {
             announceTooFarAway(target);
@@ -3642,6 +3750,12 @@ namespace MWAccessibility
 
         std::string name = objectDisplayName(target);
         appendDoorDestination(target, name);
+        // NOTE: a signpost's destination direction is deliberately NOT added here.
+        // The list readout already states the bearing/distance to the SIGN itself,
+        // and adding the bearing to the place it points at on the same line is
+        // confusing (two different directions back to back). Destination direction
+        // is spoken on demand when the player activates the sign instead -- see
+        // activateTarget / appendSignpostDirection.
 
         auto& state = mLists[static_cast<size_t>(mCategory)];
 

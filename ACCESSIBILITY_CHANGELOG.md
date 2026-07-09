@@ -6,6 +6,16 @@ Newest changes are listed first. (OpenMW's own engine changelog lives in
 
 ## 2026-07-09
 
+- **Road signposts now tell you which way a place is, and how far.** Signposts
+  showed up in the scanner's Activators list but only spoke their bare name
+  (\"Balmora\", \"Vos\"), and activating one did nothing -- so they were useless,
+  even though a signpost's whole point is pointing the way. Activating a signpost
+  now speaks the compass direction and distance to the place it names, e.g. \"Vos,
+  northwest, 1800 metres\". This works for places you have never visited (the case
+  a signpost actually helps with), reading the direction from wherever you stand.
+  A sign pointing to a landmark that is not a town on the map, or read from
+  indoors, just speaks the name as before rather than guess a direction.
+
 - **Auto-walk now climbs steep steps up to a raised door instead of stalling at
   the bottom.** Some interior doors sit at the top of a short, steep flight (a
   raised threshold in Wolverine Hall, for example). Walking to one from close by
