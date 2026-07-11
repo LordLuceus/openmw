@@ -259,6 +259,18 @@ namespace
     constexpr float kStepChargeProbeKnee = 40.0f; // ray height that should be CLEAR above it
     constexpr float kStepChargeProbeReach = 60.0f; // how far ahead to probe (units)
     constexpr float kStepChargeWpAbove = 40.0f; // waypoint must be at least this far above
+    // ...but NOT arbitrarily far above. A real step/raised threshold is at most
+    // about a storey up; a waypoint tens of metres overhead means we are looking
+    // at a long steep SLOPE or a far-above goal, not a step -- and a run-up can
+    // never "mount" that, so charging at it loops forever. Cap the rise so the
+    // maneuver only engages on genuine step-height obstacles. (Observed a hillside
+    // with wpDz ~= 1280 units spin the walker in an endless run-up.)
+    constexpr float kStepChargeWpAboveMax = 300.0f; // ~4.3 m; above this it is a slope, not a step
+    // Only engage after a SUSTAINED physical wedge, not a single slow frame. On a
+    // slope the body keeps creeping forward each frame, so its wedge timer never
+    // accumulates -- which is exactly what tells a true dead stop (Wolverine Hall
+    // door) apart from a slow climb we should just keep walking up.
+    constexpr float kStepChargeWedgeTime = 0.5f; // seconds wedged before a run-up
     constexpr float kStepChargeMaxSpeed = 60.0f; // only trigger when nearly wedged (units/sec)
     // Back-off: reverse along the path we came until we've opened this much runway
     // (or the timeout trips, so we never reverse forever into a hazard).
@@ -1695,24 +1707,40 @@ namespace MWAccessibility
             // the cheap displacement here; the shared 'speed' var is set later, so
             // use the wedge signal we already have: near-zero this-frame move.)
             if (mStepChargePhase == StepCharge::None && mRecoveryTimer <= 0.0f
-                && !mPathFinder.getPath().empty())
+                && mStepChargeAttempts < kStepChargeMaxAttempts && !mPathFinder.getPath().empty())
             {
                 const osg::Vec3f wp = mPathFinder.getPath().front();
+                const float wpDz = wp.z() - playerPos.z();
                 const float frameMove = horizDistTo(mLastPos); // this frame's displacement
                 const float frameSpeed = (dt > 0.0f) ? frameMove / dt : 0.0f;
-                if (frameSpeed < kStepChargeMaxSpeed && (wp.z() - playerPos.z()) > kStepChargeWpAbove
+                // Engage only on a genuine step: nearly-stopped AND wedged for a
+                // sustained moment (not one slow frame on a slope we are still
+                // creeping up), the next waypoint above us but within step height
+                // (not a long hillside), a climbable step probed right ahead, and
+                // we have not already spent our attempt budget on this snag.
+                if (frameSpeed < kStepChargeMaxSpeed && mTimeSinceMove >= kStepChargeWedgeTime
+                    && wpDz > kStepChargeWpAbove && wpDz < kStepChargeWpAboveMax
                     && detectClimbableStep(player, playerPos, curYaw))
                 {
                     mStepChargePhase = StepCharge::BackOff;
                     mStepChargeTimer = 0.0f;
                     mStepChargeAnchor = playerPos;
+                    // Count the attempt at ENGAGEMENT, so every run-up costs budget
+                    // whether or not it briefly gains height. This is what stops the
+                    // endless loop on a slope: charging partway up and sliding back
+                    // repeatedly used to reset the counter (via the old "mounted"
+                    // reset) and never gave up. Now only genuine GOAL progress
+                    // refills the budget -- so a true flight (which advances between
+                    // steps) keeps going, but a spot we never actually get past
+                    // exhausts the cap and defers to stuck/teleport handling.
+                    ++mStepChargeAttempts;
                     // No announcement: a flight of steps triggers this once per
                     // step, so speaking it spams the player. Log it instead so we
                     // can still tell (from openmw.log) when/where it engaged if it
                     // ever misfires somewhere else.
                     Log(Debug::Warning)
                         << "[a11y] autowalk step-charge engaged: pos=(" << playerPos.x() << ","
-                        << playerPos.y() << "," << playerPos.z() << ") wpDz=" << (wp.z() - playerPos.z())
+                        << playerPos.y() << "," << playerPos.z() << ") wpDz=" << wpDz
                         << " attempt=" << mStepChargeAttempts;
                 }
             }
@@ -1758,27 +1786,33 @@ namespace MWAccessibility
                     const float rise = playerPos.z() - mStepChargeAnchor.z();
                     if (rise >= kStepChargeRiseDone)
                     {
-                        // Mounted: clear the maneuver and let normal steering (and
-                        // the arrival checks) resume. Reset the attempt counter --
-                        // we made real vertical progress.
+                        // Climbed clear of this step: end the maneuver and let normal
+                        // steering (and the arrival checks) resume. Do NOT reset the
+                        // attempt counter here -- a transient z-gain also happens when
+                        // charging partway up a SLOPE before sliding back, so resetting
+                        // on rise alone let the run-up re-arm forever (observed looping
+                        // endlessly on a hillside). The counter is reset only on genuine
+                        // GOAL progress (see the madeProgress block below), so a real
+                        // step -- after which we actually advance toward the target --
+                        // clears it, while a slope that never nets progress exhausts the
+                        // budget and defers to stuck/teleport handling.
                         mStepChargePhase = StepCharge::None;
-                        mStepChargeAttempts = 0;
                         mTimeSinceMove = 0.0f;
                         mTimeSinceProgress = 0.0f;
                     }
                     else if (mStepChargeTimer >= kStepChargeTimeout)
                     {
-                        // Charge ran out without mounting. Count the attempt; try
-                        // again (back off + charge) up to the cap, then hand off to
-                        // normal stuck handling (which arms the teleport fallback).
-                        ++mStepChargeAttempts;
+                        // Charge ran out without climbing clear. The attempt was
+                        // already counted at engagement; end the phase. If we have
+                        // now spent the whole budget without netting goal progress
+                        // (which would have reset it), hand off to normal stuck
+                        // handling -- give the wedge timer a head start so its honest
+                        // teleport/announce takes over now instead of us re-arming.
+                        // Otherwise fall through: the trigger will fire another run-up
+                        // next frame (still within budget) for a genuine flight.
                         mStepChargePhase = StepCharge::None;
                         if (mStepChargeAttempts >= kStepChargeMaxAttempts)
-                        {
-                            // Give the wedge timer a head start so stuck handling
-                            // (and its honest teleport/announce) takes over now.
                             mTimeSinceMove = kStuckTimeout;
-                        }
                     }
                     else
                     {
@@ -1889,6 +1923,7 @@ namespace MWAccessibility
         {
             mTimeSinceProgress = 0.0f;
             mRecoveryAttempts = 0; // genuine progress: fresh set of wiggles next snag
+            mStepChargeAttempts = 0; // and a fresh run-up budget for the next real step
         }
         else
         {

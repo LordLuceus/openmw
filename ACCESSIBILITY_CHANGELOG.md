@@ -4,6 +4,19 @@ A running log of screen-reader accessibility features added to this OpenMW fork.
 Newest changes are listed first. (OpenMW's own engine changelog lives in
 `CHANGELOG.md`.)
 
+## 2026-07-11
+
+- **Fixed auto-walk getting stuck in an endless run-up on a slope.** The run-up
+  maneuver that mounts steep steps could mistake a long, steep hillside for a
+  step and charge it over and over, gaining a little height, sliding back, and
+  trying again forever without ever giving up -- you had to cancel the walk by
+  hand. It now engages only on genuine step-height obstacles after the walker is
+  truly wedged (not merely climbing a slope slowly), and each run-up counts
+  against a fixed budget that refills only when you actually get closer to the
+  goal. A real flight of steps still gets taken one run-up at a time, but a spot
+  that cannot be climbed now gives up promptly and falls back to the usual
+  \"stuck, cannot reach\" with the teleport option, instead of looping.
+
 ## 2026-07-10
 
 - **Fixed the signpost feature hijacking activators that share a name with a
