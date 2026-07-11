@@ -4,6 +4,17 @@ A running log of screen-reader accessibility features added to this OpenMW fork.
 Newest changes are listed first. (OpenMW's own engine changelog lives in
 `CHANGELOG.md`.)
 
+## 2026-07-10
+
+- **Fixed the signpost feature hijacking activators that share a name with a
+  place.** Some interactive objects are named after the cell they sit in -- the
+  Sanctus Shrine you activate to complete that pilgrimage is named \"Sanctus
+  Shrine\", the same as its location. The new signpost handling saw the matching
+  name and spoke a direction instead of letting the object do its job, so the
+  shrine could not be used. Signpost handling is now limited to signs that
+  genuinely do nothing on their own (no attached script); anything that actually
+  reacts when you activate it -- like the shrine -- works normally again.
+
 ## 2026-07-09
 
 - **Road signposts now tell you which way a place is, and how far.** Signposts

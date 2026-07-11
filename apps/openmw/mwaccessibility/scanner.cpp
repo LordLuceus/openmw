@@ -537,6 +537,17 @@ using MWAccessibility::kPi;
     {
         if (!ptr.getClass().isActivator())
             return;
+        // CRITICAL: only treat SCRIPTLESS activators as signposts. A road sign is
+        // a plain activator whose name is a place and which carries no script, so
+        // vanilla activation does nothing -- that is exactly why we repurpose it.
+        // But some scriptABLE activators share a name with a cell: the Sanctus
+        // Shrine pilgrimage object is named "Sanctus Shrine" (same as its cell)
+        // and runs a script on activation to complete the pilgrimage. Without this
+        // guard we hijacked its Activate and spoke a direction instead of letting
+        // the shrine script fire, breaking the quest. A present script means the
+        // object DOES something when activated, so it is never a signpost.
+        if (!ptr.getClass().getScript(ptr).empty())
+            return;
         // Only meaningful when we ourselves are in the exterior worldspace: the
         // bearing is computed in exterior world XY, which is not comparable to an
         // interior's local coordinates.
