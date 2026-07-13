@@ -171,6 +171,7 @@ namespace MWGui
 
         void openScannerSearch(const std::string& currentText) override;
         void openWaypointNote() override;
+        void openMarkNote(const std::string& prefill) override;
         bool dropPlayerMapNote(const std::string& text) override;
         std::vector<MapNote> getPlayerMapNotes(const ESM::RefId& cellId) const override;
         std::vector<MapNote> getAllPlayerMapNotes() const override;
@@ -473,6 +474,11 @@ namespace MWGui
         WaitDialog* mWaitDialog;
         ScannerSearchDialog* mScannerSearchDialog;
         WaypointNoteDialog* mWaypointNoteDialog;
+        // The note dialog (GM_WaypointNote) is shared between dropping a map note
+        // and attaching a note to a scanner mark; this records which one the
+        // currently-open prompt is for, so the accept/cancel handlers route to the
+        // right Scanner callback.
+        bool mNoteDialogForMark = false;
         std::unique_ptr<SoulgemDialog> mSoulgemDialog;
         MyGUI::ImageBox* mVideoBackground;
         VideoWidget* mVideoWidget;

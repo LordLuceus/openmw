@@ -853,15 +853,23 @@ namespace MWAccessibility
             return;
         }
 
-        // Plain-text, one mark per line: "<category> <index> <contentFile>".
+        // Plain-text, one mark per line: "<category> <index> <contentFile> <note>".
         // A RefNum (ESM::FormId) is just those two ints; category is the enum
         // ordinal so a mark restores into the same per-category set it came from.
-        // A leading version line lets a future format change be detected.
-        out << "a11ymarks 1\n";
+        // The note is the REST OF THE LINE after the third field (may contain
+        // spaces; may be empty for a plain mark). A leading version line lets the
+        // format change be detected -- v2 adds the note; v1 (note-less) still
+        // loads (see loadMarks).
+        out << "a11ymarks 2\n";
         for (size_t c = 0; c < mLists.size(); ++c)
         {
-            for (const ESM::RefNum& ref : mLists[c].mMarked)
-                out << c << ' ' << ref.mIndex << ' ' << ref.mContentFile << '\n';
+            for (const auto& [ref, note] : mLists[c].mMarked)
+            {
+                out << c << ' ' << ref.mIndex << ' ' << ref.mContentFile;
+                if (!note.empty())
+                    out << ' ' << note; // rest-of-line; newlines can't occur (single-line prompt)
+                out << '\n';
+            }
         }
     }
 
@@ -892,7 +900,9 @@ namespace MWAccessibility
                 return;
             std::istringstream hs(line);
             hs >> header >> version;
-            if (header != "a11ymarks" || version != 1)
+            // v1 = mark lines without notes; v2 adds an optional rest-of-line note.
+            // Accept both so old saves keep their marks.
+            if (header != "a11ymarks" || (version != 1 && version != 2))
             {
                 Log(Debug::Warning) << "[a11y] Unrecognised marks sidecar header, ignoring: " << sidecar;
                 return;
@@ -913,10 +923,16 @@ namespace MWAccessibility
                 continue; // skip malformed line rather than abort the whole load
             if (cat >= mLists.size())
                 continue; // category out of range (e.g. from a future build)
+            // The note (v2) is the rest of the line after the third field and a
+            // single separating space. It may be empty (plain mark) and may
+            // contain spaces. v1 lines have no note, so this is simply empty.
+            std::string note;
+            if (std::getline(ls, note) && !note.empty() && note.front() == ' ')
+                note.erase(note.begin()); // drop the one separator space
             ESM::RefNum ref;
             ref.mIndex = index;
             ref.mContentFile = contentFile;
-            mLists[cat].mMarked.insert(ref);
+            mLists[cat].mMarked.emplace(ref, std::move(note));
             ++restored;
         }
 
@@ -1390,9 +1406,13 @@ namespace MWAccessibility
                 // Mark tracking: K toggles the selected object's "already looked
                 // at" mark (solves losing your place among many identical
                 // crates/urns); Shift+K toggles hiding all marked objects so the
-                // scanner cycles only what you haven't checked yet. Marks are
-                // scoped to the current cell and clear when you leave it.
-                if (shift && !ctrl && !alt)
+                // scanner cycles only what you haven't checked yet; Ctrl+K opens a
+                // text prompt to attach/edit a custom NOTE on the selected object
+                // (e.g. labelling a silt-strider caravaner), marking it if needed.
+                // Marks are durable per-save (persisted to the .a11ymarks sidecar).
+                if (ctrl && !shift && !alt)
+                    addNoteToCurrent();
+                else if (shift && !ctrl && !alt)
                     toggleHideMarked();
                 else if (!ctrl && !alt)
                     toggleMarkedCurrent();
@@ -1699,7 +1719,7 @@ namespace MWAccessibility
             return;
         }
 
-        state.mMarked.insert(ref);
+        state.mMarked.emplace(ref, std::string()); // plain mark, no note
 
         // If the hide-marked view is on, this object is about to vanish from the
         // list. Rebuild so the cursor lands on a still-visible neighbour, and
@@ -1734,6 +1754,83 @@ namespace MWAccessibility
         }
 
         speak(name + " marked.");
+    }
+
+    void Scanner::addNoteToCurrent()
+    {
+        // Notes attach to the RefNum-identified world objects, exactly like marks
+        // -- not the position-based Waypoints/Locations categories.
+        if (isWaypointCategory())
+        {
+            speak("Cannot add a note to a waypoint.");
+            return;
+        }
+
+        MWWorld::Ptr target = currentTarget();
+        if (target.isEmpty())
+        {
+            speak("No target selected.");
+            return;
+        }
+
+        // Capture which object (and category) the prompt is for: the modal text
+        // entry returns asynchronously, so onMarkNoteEntered must re-find THIS
+        // object rather than whatever is selected when the prompt closes.
+        mPendingNoteCategory = mCategory;
+        mPendingNoteRef = target.getCellRef().getRefNum();
+
+        // Pre-fill with the existing note (if any) so Ctrl+K edits in place.
+        std::string existing;
+        if (auto it = mLists[static_cast<size_t>(mCategory)].mMarked.find(mPendingNoteRef);
+            it != mLists[static_cast<size_t>(mCategory)].mMarked.end())
+            existing = it->second;
+
+        MWBase::Environment::get().getWindowManager()->openMarkNote(existing);
+    }
+
+    void Scanner::onMarkNoteEntered(const std::string& text)
+    {
+        if (mPendingNoteCategory == Category::Count)
+            return; // no pending prompt (shouldn't happen)
+        auto& state = mLists[static_cast<size_t>(mPendingNoteCategory)];
+        const ESM::RefNum ref = mPendingNoteRef;
+        mPendingNoteCategory = Category::Count; // consume the pending state
+
+        // Resolve a spoken name for the object if it's still in range; fall back to
+        // a neutral word if it has since despawned/left the list.
+        std::string name = "Object";
+        for (const MWWorld::Ptr& p : state.mObjects)
+        {
+            if (p.getCellRef().getRefNum() == ref)
+            {
+                name = objectDisplayName(p);
+                break;
+            }
+        }
+
+        // The prompt already treats an empty submission as cancel, but guard
+        // anyway: empty text clears the note (keeping the mark) rather than
+        // storing a blank. Setting a note also MARKS the object if it wasn't.
+        state.mMarked[ref] = text; // inserts (marking it) or overwrites the note
+
+        // A note change can affect the hide-marked list membership (a freshly
+        // marked object should vanish when hiding is on); refresh so the view and
+        // suffix are immediately consistent.
+        if (mHideMarked)
+        {
+            refreshActiveListPreservingSelection();
+        }
+
+        if (text.empty())
+            speak(name + " note cleared.");
+        else
+            speak(name + " note: " + text + ".");
+    }
+
+    void Scanner::onMarkNoteCancelled()
+    {
+        mPendingNoteCategory = Category::Count; // discard pending state
+        speak("Cancelled.");
     }
 
     void Scanner::toggleHideMarked()
@@ -3791,9 +3888,15 @@ namespace MWAccessibility
         // If the player has marked this object as already-looked-at (K key),
         // say so at the end of its identity. Read live from mMarked so it
         // reflects the current state (a mark/unmark takes effect immediately),
-        // and keyed by the same stable RefNum as the disambiguation letters.
-        if (state.mMarked.count(target.getCellRef().getRefNum()))
+        // and keyed by the same stable RefNum as the disambiguation letters. A
+        // custom note (Ctrl+K) is spoken just before the ", marked" cue, so a
+        // labelled object reads e.g. "Gjalund, Khuul shipmaster, marked".
+        if (auto it = state.mMarked.find(target.getCellRef().getRefNum()); it != state.mMarked.end())
+        {
+            if (!it->second.empty())
+                name += ", " + it->second;
             name += ", marked";
+        }
 
         // Direction is the absolute compass heading -- a fixed frame the
         // player can use to remember where a thing is regardless of which way

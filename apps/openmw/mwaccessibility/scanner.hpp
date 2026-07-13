@@ -267,6 +267,16 @@ namespace MWAccessibility
         /// note was placed.
         void onWaypointNoteCancelled();
 
+        /// Called by the WindowManager when the mark-note prompt (Ctrl+K) is
+        /// confirmed. Attaches \p text as the note on the object that was selected
+        /// when the prompt opened (marking it if it wasn't), or clears the note if
+        /// \p text is empty. Announces the result.
+        void onMarkNoteEntered(const std::string& text);
+
+        /// Called when the mark-note prompt is cancelled; announces that the note
+        /// was left unchanged.
+        void onMarkNoteCancelled();
+
     private:
         // Update the proximity audio cue to follow the current selection.
         // Call whenever the selected target changes (cycle, clear, reset).
@@ -523,10 +533,16 @@ namespace MWAccessibility
             // hide-marked view is on (Shift+K) -- is dropped from the list so the
             // player can cycle only what they haven't checked yet. This solves
             // the "twenty identical crates" looting problem: mark each crate as
-            // you empty it and it stops cluttering the cycle. Cleared on a cell
-            // change, exactly like mLabels (the marks describe the room you're
-            // standing in, not a persistent property of the object).
-            std::unordered_set<ESM::RefNum> mMarked;
+            // you empty it and it stops cluttering the cycle. Marks are durable
+            // per-save (persisted to the .a11ymarks sidecar), not scoped to a cell.
+            //
+            // The mapped value is an OPTIONAL custom NOTE (Ctrl+K). Empty string =
+            // a plain mark (speaks only ", marked"); a non-empty note is spoken
+            // before the marked cue, e.g. "Gjalund, Khuul shipmaster, marked", so
+            // the player can label hard-to-remember objects like fast-travel NPCs.
+            // Presence of the KEY means "marked"; the value only enriches the
+            // announcement. Was previously an unordered_set<RefNum>.
+            std::unordered_map<ESM::RefNum, std::string> mMarked;
         };
 
         std::array<CategoryState, static_cast<size_t>(Category::Count)> mLists;
@@ -569,6 +585,15 @@ namespace MWAccessibility
         void toggleMarkedCurrent();
         // Toggle the global hide-marked view (Shift+K) and re-announce the list.
         void toggleHideMarked();
+        // Open the text prompt to attach/edit a custom note on the selected
+        // object (Ctrl+K). Remembers the object so the async callback can find it.
+        void addNoteToCurrent();
+        // Identity of the object a mark-note prompt is currently open for, and its
+        // category. Captured when the prompt opens because the selection could in
+        // principle change before the modal returns; the callback re-marks THIS
+        // object rather than whatever happens to be selected on confirm.
+        ESM::RefNum mPendingNoteRef;
+        Category mPendingNoteCategory = Category::Count;
 
         // The last cell name we announced on entry. Cities span several cells
         // that all share one name (e.g. every Balmora exterior cell is named

@@ -1513,25 +1513,44 @@ namespace MWGui
     {
         // Fresh empty prompt each time, then push the dedicated GUI mode (pausing
         // the world and routing keystrokes to the edit box).
+        mNoteDialogForMark = false;
         mWaypointNoteDialog->setNoteText({});
+        pushGuiMode(GM_WaypointNote);
+    }
+
+    void WindowManager::openMarkNote(const std::string& prefill)
+    {
+        // Same text prompt as the map-note drop, but flagged so the accept/cancel
+        // handlers hand the text to the scanner's mark-note callbacks. Pre-fill
+        // with any existing note so Ctrl+K edits rather than always starts blank.
+        mNoteDialogForMark = true;
+        mWaypointNoteDialog->setNoteText(prefill);
         pushGuiMode(GM_WaypointNote);
     }
 
     void WindowManager::onWaypointNoteAccepted(WindowBase* /*sender*/)
     {
         const std::string text = mWaypointNoteDialog->getNoteText();
+        const bool forMark = mNoteDialogForMark;
         if (containsMode(GM_WaypointNote))
             removeGuiMode(GM_WaypointNote);
-        // Hand the typed text to the scanner, which places the marker at the
-        // player's position and announces the result.
-        MWAccessibility::Scanner::instance().onWaypointNoteEntered(text);
+        // Route by purpose: attach the note to the selected scanner mark, or drop
+        // a map note at the player's position. Both announce their own result.
+        if (forMark)
+            MWAccessibility::Scanner::instance().onMarkNoteEntered(text);
+        else
+            MWAccessibility::Scanner::instance().onWaypointNoteEntered(text);
     }
 
     void WindowManager::onWaypointNoteCancelled(WindowBase* /*sender*/)
     {
+        const bool forMark = mNoteDialogForMark;
         if (containsMode(GM_WaypointNote))
             removeGuiMode(GM_WaypointNote);
-        MWAccessibility::Scanner::instance().onWaypointNoteCancelled();
+        if (forMark)
+            MWAccessibility::Scanner::instance().onMarkNoteCancelled();
+        else
+            MWAccessibility::Scanner::instance().onWaypointNoteCancelled();
     }
 
     bool WindowManager::dropPlayerMapNote(const std::string& text)

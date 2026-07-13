@@ -152,6 +152,13 @@ namespace MWBase
         /// the player's current position with the typed text.
         virtual void openWaypointNote() = 0;
 
+        /// Accessibility: open the same text prompt to attach a NOTE to the
+        /// selected scanner object (Ctrl+K), pre-filled with \p prefill (the
+        /// object's existing note, if any, so it can be edited). On confirm the
+        /// text is handed to Scanner::onMarkNoteEntered rather than dropping a map
+        /// note; cancel routes to Scanner::onMarkNoteCancelled.
+        virtual void openMarkNote(const std::string& prefill) = 0;
+
         /// Accessibility: place a map note (custom marker) with \p text at the
         /// player's current world position. Returns false if it couldn't be
         /// placed (no player/cell, or empty text). Delegates to the map window.

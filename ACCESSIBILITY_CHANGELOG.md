@@ -6,6 +6,15 @@ Newest changes are listed first. (OpenMW's own engine changelog lives in
 
 ## 2026-07-11
 
+- **You can now attach a custom note to a marked object.** Press Ctrl+K on the
+  selected object to type a short label; the scanner then speaks it as part of
+  the object's identity, e.g. \"Gjalund, Khuul shipmaster, marked\". Handy for
+  labelling things whose names are hard to remember -- silt-strider caravaners,
+  shipmasters, or any object you want to recognise later. Plain K still toggles a
+  quick mark with no note, and Shift+K still hides marked objects. Notes persist
+  with your save alongside the marks, and Ctrl+K on an already-noted object edits
+  its note (submit an empty note to clear it, keeping the mark).
+
 - **Fixed auto-walk getting stuck in an endless run-up on a slope.** The run-up
   maneuver that mounts steep steps could mistake a long, steep hillside for a
   step and charge it over and over, gaining a little height, sliding back, and
