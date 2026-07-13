@@ -639,13 +639,14 @@ namespace MWAccessibility
             speakQueued(spoken + " is locked. Stopping.");
             return DoorProbe::Blocked;
         }
-        //  - TELEPORT: leads to another cell; silently walking the player through
-        //    would teleport them somewhere they didn't choose to go.
+        //  - TELEPORT: leads to another cell. We deliberately do NOT treat this as
+        //    a blocker or auto-open it (opening would teleport the player somewhere
+        //    they didn't choose). Testing (2026-07-12) confirmed a teleport door's
+        //    collision is solid and never opens from a walk, so letting the walk
+        //    continue just wedges into it and defers to the normal stuck handling
+        //    -- no risk of an unwanted teleport. Return None (not our blocker).
         if (door.getCellRef().getTeleport())
-        {
-            speakQueued(spoken + " leads elsewhere. Stopping.");
-            return DoorProbe::Blocked;
-        }
+            return DoorProbe::None;
 
         // Safe: closed, idle, in-cell, unlocked, untrapped. Open it via the
         // normal activation path (Lua objectActivated -> Door::activate ->

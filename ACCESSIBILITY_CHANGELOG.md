@@ -4,6 +4,16 @@ A running log of screen-reader accessibility features added to this OpenMW fork.
 Newest changes are listed first. (OpenMW's own engine changelog lives in
 `CHANGELOG.md`.)
 
+## 2026-07-12
+
+- **Auto-walk no longer stops short when a door leading to another area is in
+  the way.** Previously, walking toward (or past) a door that leads elsewhere
+  would halt immediately with "that door leads elsewhere, stopping". Such doors
+  are solid and never open on their own during a walk, so auto-walk now simply
+  keeps going; if the door genuinely blocks the route, it falls back to the
+  normal "stuck, cannot reach" handling with the teleport option. Auto-walk
+  still never opens a door that would move you to another area on its own.
+
 ## 2026-07-11
 
 - **You can now attach a custom note to a marked object.** Press Ctrl+K on the
