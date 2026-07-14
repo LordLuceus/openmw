@@ -4,6 +4,17 @@ A running log of screen-reader accessibility features added to this OpenMW fork.
 Newest changes are listed first. (OpenMW's own engine changelog lives in
 `CHANGELOG.md`.)
 
+## 2026-07-14
+
+- **Arrow keys can now reach every option in a choice dialog, even when the
+  labels vary a lot in length.** In pop-up choice boxes with a vertical list of
+  options (the kind used by shrines, soul-gem prompts, yes/no questions, and mod
+  menus such as Uvirith's Legacy teleport platforms), an option whose text was
+  much longer or shorter than its neighbours could become a dead spot for the Up
+  and Down arrows -- you could not arrow onto it, and once you landed on it with
+  Tab the arrows stopped responding. Such options are now always reachable with
+  the arrow keys. (Tab still works everywhere too.)
+
 ## 2026-07-12
 
 - **Auto-walk no longer stops short when a door leading to another area is in

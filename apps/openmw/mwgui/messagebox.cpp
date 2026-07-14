@@ -373,9 +373,18 @@ namespace MWGui
 
             int top = textPadding + textSize.height + textButtonPadding;
 
+            // Accessibility: give every stacked button the same width (the widest
+            // label) so they share an identical left edge. Arrow-key navigation
+            // (keyboardnavigation.cpp) is geometric and rejects an Up/Down move
+            // when the horizontal offset between two buttons exceeds the vertical
+            // one; individually-centered buttons of differing widths produce that
+            // offset and leave options with unusually long/short labels
+            // unreachable by arrows (only Tab, which ignores geometry, could reach
+            // them). A uniform width makes horizdiff 0 for every adjacent pair, so
+            // Up/Down always works. The block stays visually centered.
             for (MyGUI::Button* button : mButtons)
             {
-                buttonSize.width = button->getTextSize().width + buttonLabelLeftPadding * 2;
+                buttonSize.width = biggestButtonWidth;
                 buttonSize.height = button->getTextSize().height + buttonLabelTopPadding * 2;
 
                 buttonCord.top = top;
