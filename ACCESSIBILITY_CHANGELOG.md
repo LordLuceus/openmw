@@ -6,6 +6,17 @@ Newest changes are listed first. (OpenMW's own engine changelog lives in
 
 ## 2026-07-16
 
+- **The stats screen now tells you when an attribute or skill is permanently
+  damaged.** Some enemies (a bonewalker's curse is the classic example) inflict
+  permanent Damage Attribute/Skill, which lowers the stat until you cure it with
+  Restore magic -- and, unlike a temporary Drain, it never appears in your
+  active-effects list. Sighted players see the affected number turn red; blind
+  players previously had no way to tell. Now, reading your attributes or skills
+  in the stats window appends ", damaged" to any stat with uncured permanent
+  damage (for example "Strength 34, damaged"). Temporary Drain and Absorb
+  effects, which already show in the active-effects list, are correctly not
+  flagged.
+
 - **Shift+K (marked-object view) is now a three-way toggle.** It used to just
   hide marked objects and show them again. It now cycles through three modes:
   show all objects (the default), show unmarked only (hides what you've already
