@@ -120,7 +120,7 @@ combat.
 | **X** | Toggle combat / interaction lock-on to the target (keeps you aimed at it) |
 | **Shift + X** | Engage: jump to the nearest hostile and lock onto it in one press |
 | **K** | Mark / unmark the target as "already looked at" (it reads back as "marked"). Handy for keeping track when looting a room full of identical crates. Marks are permanent: they persist when you leave and return, and survive saving and reloading. Each save keeps its own marks (stored in a small companion file beside the save). Press K again on an object to unmark it |
-| **Shift + K** | Hide all marked objects from the scanner, so you cycle only what's left to check; press again to show them |
+| **Shift + K** | Cycle the marked-object view: show all objects (the default), then unmarked only (hides what you've checked, so you cycle only what's left), then marked only (focus on just the objects you've flagged), then back to all |
 
 ### Information and orientation
 

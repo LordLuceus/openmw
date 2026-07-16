@@ -572,19 +572,37 @@ namespace MWAccessibility
         bool mDirectionFilterActive = false;
         int mDirectionSector = -1; // -1 = unset/off
 
-        // Global "hide marked objects" view (Shift+K). When on, every category's
-        // list build drops objects the player has marked as already-looked-at
-        // (per-category CategoryState::mMarked), so cycling shows only what's
-        // left to check. Global (not per-category) because the intent -- "only
-        // show me what I haven't dealt with" -- spans categories. Marked objects
-        // are still marked when this is off; it only governs whether they're
-        // hidden. Reset when no game is running (transient view, not saved).
-        bool mHideMarked = false;
+        // Global marked-object view mode, cycled by Shift+K. Every category's
+        // list build filters on the player's per-category marks
+        // (CategoryState::mMarked, "already looked at"):
+        //   All          -- show everything (default);
+        //   HideMarked   -- drop marked objects, so cycling shows only what's
+        //                   left to check;
+        //   HideUnmarked -- drop unmarked objects, so cycling shows only the
+        //                   ones the player has flagged.
+        // Global (not per-category) because the intent -- "only show me X" --
+        // spans categories. Marks themselves are unaffected; this only governs
+        // visibility. Reset to All when no game is running (transient view,
+        // not saved).
+        enum class MarkedView
+        {
+            All,
+            HideMarked,
+            HideUnmarked,
+        };
+        MarkedView mMarkedView = MarkedView::All;
+        // True when \p marked objects are dropped from the list under the
+        // current view (i.e. an object with this marked-state is hidden).
+        bool isHiddenUnderMarkedView(bool marked) const
+        {
+            return (mMarkedView == MarkedView::HideMarked && marked)
+                || (mMarkedView == MarkedView::HideUnmarked && !marked);
+        }
         // Toggle the marked state of the currently selected object (K). Speaks
         // the new state; no-op with feedback when nothing suitable is selected.
         void toggleMarkedCurrent();
-        // Toggle the global hide-marked view (Shift+K) and re-announce the list.
-        void toggleHideMarked();
+        // Cycle the global marked-object view (Shift+K) and re-announce the list.
+        void cycleMarkedView();
         // Open the text prompt to attach/edit a custom note on the selected
         // object (Ctrl+K). Remembers the object so the async callback can find it.
         void addNoteToCurrent();

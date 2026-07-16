@@ -6,6 +6,15 @@ Newest changes are listed first. (OpenMW's own engine changelog lives in
 
 ## 2026-07-16
 
+- **Shift+K (marked-object view) is now a three-way toggle.** It used to just
+  hide marked objects and show them again. It now cycles through three modes:
+  show all objects (the default), show unmarked only (hides what you've already
+  checked, so you cycle only what's left), and show marked only (focus on just
+  the objects you've flagged), then back to all. Each press announces the new
+  mode. Toggling an object's mark (K) while a filtered view is active still
+  advances the cursor to the next visible object, in whichever direction the
+  view hides.
+
 - **"Lock onto nearest hostile" (Shift+X) now always finds an attacker,
   regardless of your active scanner filters.** Previously, if you had the
   direction filter engaged (Ctrl+Up), Shift+X would only consider hostiles in

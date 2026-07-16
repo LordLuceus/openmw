@@ -784,9 +784,9 @@ namespace MWAccessibility
             s.mMarked.clear();
             s.mDirty = true;
         }
-        // The hide-marked view, like the direction filter, is a transient global
-        // mode -- not a saved preference -- so drop it on world teardown.
-        mHideMarked = false;
+        // The marked-object view, like the direction filter, is a transient
+        // global mode -- not a saved preference -- so drop it on world teardown.
+        mMarkedView = MarkedView::All;
         // The auto-walker and proximity cue each cache a Ptr to the object they
         // are chasing / homing on and dereference it every frame (getCellRef,
         // getRefData). On world teardown that backing object is freed, so -- as
@@ -1405,15 +1405,16 @@ namespace MWAccessibility
             case SDL_SCANCODE_K:
                 // Mark tracking: K toggles the selected object's "already looked
                 // at" mark (solves losing your place among many identical
-                // crates/urns); Shift+K toggles hiding all marked objects so the
-                // scanner cycles only what you haven't checked yet; Ctrl+K opens a
+                // crates/urns); Shift+K cycles the marked-object view (show all
+                // -> unmarked only -> marked only) so you can hide what you've
+                // checked or focus on just what you've flagged; Ctrl+K opens a
                 // text prompt to attach/edit a custom NOTE on the selected object
                 // (e.g. labelling a silt-strider caravaner), marking it if needed.
                 // Marks are durable per-save (persisted to the .a11ymarks sidecar).
                 if (ctrl && !shift && !alt)
                     addNoteToCurrent();
                 else if (shift && !ctrl && !alt)
-                    toggleHideMarked();
+                    cycleMarkedView();
                 else if (!ctrl && !alt)
                     toggleMarkedCurrent();
                 return true;
@@ -1712,48 +1713,56 @@ namespace MWAccessibility
         auto& state = mLists[static_cast<size_t>(mCategory)];
         const ESM::RefNum ref = target.getCellRef().getRefNum();
         const std::string name = objectDisplayName(target);
+
+        // Flip the mark, and remember both what we did (for the verb) and the
+        // object's new marked-state (for the visibility check below).
+        bool nowMarked;
         if (state.mMarked.count(ref))
         {
             state.mMarked.erase(ref);
-            speak(name + " unmarked.");
-            return;
+            nowMarked = false;
         }
+        else
+        {
+            state.mMarked.emplace(ref, std::string()); // plain mark, no note
+            nowMarked = true;
+        }
+        const std::string verb = nowMarked ? " marked." : " unmarked.";
 
-        state.mMarked.emplace(ref, std::string()); // plain mark, no note
-
-        // If the hide-marked view is on, this object is about to vanish from the
-        // list. Rebuild so the cursor lands on a still-visible neighbour, and
-        // announce it -- so the player hears what's next rather than silence on
-        // the now-hidden object. Otherwise just confirm the mark in place.
-        if (mHideMarked)
+        // If the active marked-object view now hides this object (marked it while
+        // hiding marked, or unmarked it while hiding unmarked), it's about to
+        // vanish from the list. Rebuild so the cursor lands on a still-visible
+        // neighbour, and announce it -- so the player hears what's next rather
+        // than silence on the now-hidden object. Otherwise just confirm in place.
+        if (isHiddenUnderMarkedView(nowMarked))
         {
             state.mDirty = true;
             rebuildCurrentList();
             if (currentListSize() == 0)
             {
-                speak(name + " marked. No more unmarked in range.");
+                speak(name + verb + " No more in range.");
                 clearSelection();
                 updateProximityCue();
                 return;
             }
-            // The marked object was at mIndex and is now hidden, so the object
-            // that shifted up into that slot is the next-nearest unmarked one --
-            // exactly where the player wants to continue. rebuildCurrentList
-            // can't re-pin the (now-hidden) selection by RefNum, so mIndex keeps
-            // its old value; just clamp it into range for the last-row case.
+            // The toggled object was at mIndex and is now hidden, so the object
+            // that shifted up into that slot is the next one -- exactly where the
+            // player wants to continue. rebuildCurrentList can't re-pin the
+            // (now-hidden) selection by RefNum, so mIndex keeps its old value;
+            // just clamp it into range for the last-row case.
             if (state.mIndex < 0 || state.mIndex >= static_cast<int>(state.mObjects.size()))
                 state.mIndex = static_cast<int>(state.mObjects.size()) - 1;
             // Refresh the remembered identity to the landed object so a later
             // rebuild (cell shift, live refresh) re-pins here, not on the removed
             // object.
             state.mSelectedRef = state.mObjects[state.mIndex].getCellRef().getRefNum();
-            speak(name + " marked.");
+            speak(name + verb);
             announceCurrent();
             updateProximityCue();
             return;
         }
 
-        speak(name + " marked.");
+        speak(name + verb);
     }
 
     void Scanner::addNoteToCurrent()
@@ -1813,10 +1822,11 @@ namespace MWAccessibility
         // storing a blank. Setting a note also MARKS the object if it wasn't.
         state.mMarked[ref] = text; // inserts (marking it) or overwrites the note
 
-        // A note change can affect the hide-marked list membership (a freshly
-        // marked object should vanish when hiding is on); refresh so the view and
-        // suffix are immediately consistent.
-        if (mHideMarked)
+        // A note change can affect marked-view list membership (adding a note
+        // marks the object, so it should vanish under hide-marked, or appear
+        // under hide-marked-only); refresh so the view and suffix are
+        // immediately consistent.
+        if (mMarkedView != MarkedView::All)
         {
             refreshActiveListPreservingSelection();
         }
@@ -1833,9 +1843,22 @@ namespace MWAccessibility
         speak("Cancelled.");
     }
 
-    void Scanner::toggleHideMarked()
+    void Scanner::cycleMarkedView()
     {
-        mHideMarked = !mHideMarked;
+        // Three-way cycle: All -> HideMarked -> HideUnmarked -> All.
+        switch (mMarkedView)
+        {
+            case MarkedView::All:
+                mMarkedView = MarkedView::HideMarked;
+                break;
+            case MarkedView::HideMarked:
+                mMarkedView = MarkedView::HideUnmarked;
+                break;
+            case MarkedView::HideUnmarked:
+                mMarkedView = MarkedView::All;
+                break;
+        }
+
         // A view change alters what every category lists, so invalidate them all.
         for (auto& s : mLists)
             s.mDirty = true;
@@ -1851,10 +1874,18 @@ namespace MWAccessibility
         else
             state.mSelectedRef = ESM::RefNum{};
 
-        if (mHideMarked)
-            speak("Hiding marked objects.");
-        else
-            speak("Showing marked objects.");
+        switch (mMarkedView)
+        {
+            case MarkedView::All:
+                speak("Showing all objects.");
+                break;
+            case MarkedView::HideMarked:
+                speak("Showing unmarked objects only.");
+                break;
+            case MarkedView::HideUnmarked:
+                speak("Showing marked objects only.");
+                break;
+        }
         // Read the current object so the player hears where the cursor landed
         // in the newly filtered list (or nothing if the list is now empty).
         if (currentListSize() > 0)
@@ -1912,15 +1943,16 @@ namespace MWAccessibility
         //     vanish exactly when you need it most;
         //   * a stale name/search filter on the Actors list excludes any
         //     attacker whose spoken identity doesn't contain the search text;
-        //   * the hide-marked view (Shift+K) would drop an attacker the player
-        //     had previously marked.
+        //   * the marked-object view (Shift+K) would drop an attacker depending
+        //     on whether it happened to be marked (hide-marked) or unmarked
+        //     (hide-unmarked).
         // These are all transient view state, so resetting them here is
         // consistent with how they already clear on a cell transition. The
         // lock-on / "no hostiles" speech below is the feedback, so no separate
         // filter-cleared announcement (which would just be combat-time noise).
         mDirectionFilterActive = false;
         mDirectionSector = -1;
-        mHideMarked = false;
+        mMarkedView = MarkedView::All;
         state.mFilter.clear();
 
         // Find the "Hostile" subcategory index by name rather than hardcoding
@@ -3622,12 +3654,12 @@ namespace MWAccessibility
                 });
             }
 
-            // Hide-marked view (Shift+K): drop objects the player has marked as
-            // already-looked-at so only the unchecked ones remain in the cycle.
-            if (mHideMarked)
+            // Marked-object view (Shift+K): hide marked or unmarked objects
+            // depending on the mode, same as the cell-scan path.
+            if (mMarkedView != MarkedView::All)
             {
                 std::erase_if(state.mObjects, [&](const MWWorld::Ptr& ptr) {
-                    return state.mMarked.count(ptr.getCellRef().getRefNum()) != 0;
+                    return isHiddenUnderMarkedView(state.mMarked.count(ptr.getCellRef().getRefNum()) != 0);
                 });
             }
 
@@ -3720,9 +3752,9 @@ namespace MWAccessibility
                 // the compass sector the player faces. No-op when disengaged.
                 if (!passesDirectionFilter(ptr.getRefData().getPosition().asVec3()))
                     return true;
-                // Hide-marked view (Shift+K): drop objects the player has marked
-                // as already-looked-at. No-op when the view is off.
-                if (mHideMarked && state.mMarked.count(ptr.getCellRef().getRefNum()))
+                // Marked-object view (Shift+K): hide marked or unmarked objects
+                // depending on the mode. No-op in the default "All" mode.
+                if (isHiddenUnderMarkedView(state.mMarked.count(ptr.getCellRef().getRefNum()) != 0))
                     return true;
                 state.mObjects.push_back(ptr);
                 return true;
