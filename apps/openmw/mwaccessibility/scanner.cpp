@@ -1903,6 +1903,26 @@ namespace MWAccessibility
         mCategory = Category::Npcs;
         auto& state = mLists[static_cast<size_t>(Category::Npcs)];
 
+        // Shift+X is the one-key combat opener: it must find the nearest
+        // attacker no matter what the scanner was set to before. So clear every
+        // filter that could hide a hostile, otherwise the rebuild below silently
+        // drops it and we wrongly announce "No hostiles nearby":
+        //   * the global direction filter (Ctrl+Up) excludes anything outside
+        //     the faced compass sector -- an attacker behind or beside you would
+        //     vanish exactly when you need it most;
+        //   * a stale name/search filter on the Actors list excludes any
+        //     attacker whose spoken identity doesn't contain the search text;
+        //   * the hide-marked view (Shift+K) would drop an attacker the player
+        //     had previously marked.
+        // These are all transient view state, so resetting them here is
+        // consistent with how they already clear on a cell transition. The
+        // lock-on / "no hostiles" speech below is the feedback, so no separate
+        // filter-cleared announcement (which would just be combat-time noise).
+        mDirectionFilterActive = false;
+        mDirectionSector = -1;
+        mHideMarked = false;
+        state.mFilter.clear();
+
         // Find the "Hostile" subcategory index by name rather than hardcoding
         // it, so reordering kNpcSubs can't silently point this at the wrong
         // filter.

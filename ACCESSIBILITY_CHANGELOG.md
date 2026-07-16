@@ -6,6 +6,14 @@ Newest changes are listed first. (OpenMW's own engine changelog lives in
 
 ## 2026-07-16
 
+- **"Lock onto nearest hostile" (Shift+X) now always finds an attacker,
+  regardless of your active scanner filters.** Previously, if you had the
+  direction filter engaged (Ctrl+Up), Shift+X would only consider hostiles in
+  the compass direction you happened to be facing -- so an enemy attacking from
+  behind or the side made it wrongly say "No hostiles nearby." It now clears the
+  direction filter, any name search, and the hide-marked view before searching,
+  so it reliably locks onto the closest attacker anywhere around you.
+
 - **Picture-only books and scrolls are no longer announced as "blank."**
   Some books consist entirely of an illustration with no body text (for
   example *The Egg of Time* and *Divine Metaphysics*). Opening one used to say
