@@ -4,6 +4,16 @@ A running log of screen-reader accessibility features added to this OpenMW fork.
 Newest changes are listed first. (OpenMW's own engine changelog lives in
 `CHANGELOG.md`.)
 
+## 2026-07-16
+
+- **Picture-only books and scrolls are no longer announced as "blank."**
+  Some books consist entirely of an illustration with no body text (for
+  example *The Egg of Time* and *Divine Metaphysics*). Opening one used to say
+  "This book is blank," which was misleading. It now says "This book contains
+  only images, which cannot be read aloud." (and the equivalent for scrolls),
+  so you know there is a picture there rather than nothing at all. Genuinely
+  empty books and scrolls still report as blank.
+
 ## 2026-07-14
 
 - **Arrow keys can now reach every option in a choice dialog, even when the

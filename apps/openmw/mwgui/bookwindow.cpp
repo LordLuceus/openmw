@@ -280,10 +280,17 @@ namespace MWGui
             text = &mBook.get<ESM4::Book>()->mBase->mText;
         const bool shrinkTextAtLastTag = mBook.getType() == ESM::REC_BOOK;
 
-        std::vector<std::string> paragraphs = A11y::bookMarkupToParagraphs(*text, shrinkTextAtLastTag);
+        bool hasImage = false;
+        std::vector<std::string> paragraphs = A11y::bookMarkupToParagraphs(*text, shrinkTextAtLastTag, &hasImage);
 
         if (paragraphs.empty())
-            mA11y.add({ .widget = nullptr, .label = "This book is blank." });
+        {
+            // An image-only book (e.g. The Egg of Time, Divine Metaphysics) has
+            // no extractable text but is not blank -- don't mislead the reader.
+            mA11y.add({ .widget = nullptr,
+                .label = hasImage ? "This book contains only images, which cannot be read aloud."
+                                  : "This book is blank." });
+        }
         else
             for (std::string& para : paragraphs)
                 mA11y.add({ .widget = nullptr, .label = std::move(para) });

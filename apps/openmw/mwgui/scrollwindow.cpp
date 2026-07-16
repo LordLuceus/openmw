@@ -161,10 +161,14 @@ namespace MWGui
             text = &mScroll.get<ESM4::Book>()->mBase->mText;
         const bool shrinkTextAtLastTag = mScroll.getType() == ESM::REC_BOOK;
 
-        std::vector<std::string> paragraphs = A11y::bookMarkupToParagraphs(*text, shrinkTextAtLastTag);
+        bool hasImage = false;
+        std::vector<std::string> paragraphs = A11y::bookMarkupToParagraphs(*text, shrinkTextAtLastTag, &hasImage);
 
         if (paragraphs.empty())
-            mA11y.add({ .widget = nullptr, .label = "This scroll is blank." });
+            // An image-only scroll has no extractable text but is not blank.
+            mA11y.add({ .widget = nullptr,
+                .label = hasImage ? "This scroll contains only images, which cannot be read aloud."
+                                  : "This scroll is blank." });
         else
             for (std::string& para : paragraphs)
                 mA11y.add({ .widget = nullptr, .label = std::move(para) });

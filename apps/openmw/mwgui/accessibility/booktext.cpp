@@ -20,8 +20,12 @@ namespace
 
 namespace MWGui::A11y
 {
-    std::vector<std::string> bookMarkupToParagraphs(const std::string& markup, bool shrinkTextAtLastTag)
+    std::vector<std::string> bookMarkupToParagraphs(
+        const std::string& markup, bool shrinkTextAtLastTag, bool* outHasImage)
     {
+        if (outHasImage)
+            *outHasImage = false;
+
         // Drive the engine's own parser exactly as the visual renderer does
         // (see Formatting::BookFormatter::markupToWidget): pull text blocks,
         // skipping <BR> and attribute-less <P> events. The parser embeds '\n'
@@ -42,6 +46,8 @@ namespace MWGui::A11y
             {
                 combined += parser.getReadyText();
             }
+            if (event == Formatting::BookTextParser::Event_ImgTag && outHasImage)
+                *outHasImage = true;
             if (event == Formatting::BookTextParser::Event_EOF)
                 break;
         }

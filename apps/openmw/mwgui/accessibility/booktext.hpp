@@ -19,7 +19,12 @@ namespace MWGui::A11y
     /// \param markup the record text (ESM::Book::mText).
     /// \param shrinkTextAtLastTag matches the engine's per-record flag
     ///        (true for ESM3 books, false for ESM4).
-    std::vector<std::string> bookMarkupToParagraphs(const std::string& markup, bool shrinkTextAtLastTag);
+    /// \param outHasImage if non-null, set to true when the markup contains at
+    ///        least one \c <IMG> tag. Lets callers distinguish a genuinely empty
+    ///        book from an image-only one (e.g. The Egg of Time, Divine
+    ///        Metaphysics), which has no extractable text but is not blank.
+    std::vector<std::string> bookMarkupToParagraphs(
+        const std::string& markup, bool shrinkTextAtLastTag, bool* outHasImage = nullptr);
 }
 
 #endif
