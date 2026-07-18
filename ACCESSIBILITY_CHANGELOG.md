@@ -4,6 +4,19 @@ A running log of screen-reader accessibility features added to this OpenMW fork.
 Newest changes are listed first. (OpenMW's own engine changelog lives in
 `CHANGELOG.md`.)
 
+## 2026-07-18
+
+- **Auto-walk no longer chases an unreachable wandering creature in place
+  forever.** If you targeted a moving NPC or creature that auto-walk couldn't
+  actually reach -- for example one wandering on a ledge or across a gap the
+  route can't bridge -- it would inch back and forth without ever getting
+  closer, and keep doing so until you manually cancelled. It now recognises when
+  it's stuck far from a moving target with no progress, stops after about fifteen
+  seconds, says "Can't reach [name]," and offers the teleport shortcut
+  (Ctrl+Shift+Enter) in case the target is within range. Chasing a creature you
+  can genuinely catch up to is unaffected -- the timeout only counts while you're
+  stuck far away.
+
 ## 2026-07-16
 
 - **The stats screen now tells you when an attribute or skill is permanently

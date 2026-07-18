@@ -379,6 +379,13 @@ namespace MWAccessibility
         osg::Vec3f mTargetStartPos;
         bool mTargetMoving = false;
         bool mAnnouncedTargetMoving = false;
+        // How long we've been FAR from a moving target while making no progress.
+        // Accrues only while mTargetMoving is latched and we're beyond
+        // kMovingTargetFarDist of the NPC; resets whenever we get near it or make
+        // headway. Once it passes kMovingTargetStuckTimeout we give up honestly,
+        // so an unreachable wandering NPC no longer makes auto-walk chase in place
+        // forever (the moving flag otherwise suppresses both give-up backstops).
+        float mMovingTargetStuckTime = 0.0f;
 
         // Route-hazard warning state (deep water / steep drops). warnRouteHazards()
         // runs on every rebuildPath() so hazards that only come into view as new

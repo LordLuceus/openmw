@@ -225,6 +225,22 @@ namespace
     // soon as an NPC actually walks.
     constexpr float kTargetMovedThreshold = 150.0f;
 
+    // Moving-target suppression of the give-up backstops (see kTargetMovedThreshold)
+    // is only legitimate while we're actually CLOSING ON / ORBITING the NPC. If the
+    // target is unreachable -- e.g. a wandering NPC across a vertical gap the route
+    // can't bridge -- suppressing the backstops forever makes auto-walk chase in
+    // place until the user cancels (observed: 90 s pinned ~2100u away, navShortfall
+    // frozen, doing nothing). So the suppression is REVOKED when we are both FAR
+    // from the target and making no headway: if we stay farther than
+    // kMovingTargetFarDist from the target for kMovingTargetStuckTimeout while the
+    // moving flag is latched, we give up honestly (announce + offer teleport).
+    // kMovingTargetFarDist is generous (well beyond any actor-arrival distance /
+    // normal chase orbit) so a real reachable chase never trips it; the timeout is a
+    // bit longer than the static no-progress backstop to give an erratic-but-
+    // reachable NPC extra rope.
+    constexpr float kMovingTargetFarDist = 700.0f; // ~10 m: clearly not near the NPC
+    constexpr float kMovingTargetStuckTimeout = 15.0f; // s far + no progress => give up
+
     // Below this per-frame horizontal speed (units/sec) we consider the body
     // "not moving". Running speed is many hundreds of units/sec, so this only
     // catches a genuine wedge, not slow turning. ~30 u/s is well under a walk.
@@ -799,6 +815,7 @@ namespace MWAccessibility
         mPathHadWater = false;
         mPathHadDrop = false;
         mTargetMoving = false;
+        mMovingTargetStuckTime = 0.0f;
         mAnnouncedTargetMoving = false;
         mSafeTrail.clear();
         mWalkClock = 0.0f;
@@ -1664,6 +1681,33 @@ namespace MWAccessibility
             mAnnouncedTargetMoving = true;
             speakQueued(mTargetName + " is moving.");
         }
+
+        // Moving-target suppression is only legitimate while we're actually near
+        // the NPC. If the NPC is unreachable (e.g. wandering across a vertical gap
+        // the route can't bridge) the flag would otherwise suppress BOTH give-up
+        // backstops forever and auto-walk chases in place until the user cancels.
+        // Guard against that: while the flag is latched, accrue time whenever we're
+        // FAR from the NPC; reset the instant we close within kMovingTargetFarDist.
+        // Persisting far for kMovingTargetStuckTimeout means we can't reach it --
+        // give up honestly (announce + offer the teleport escape hatch). A genuine,
+        // reachable chase keeps closing to within the far radius and never trips.
+        if (mTargetMoving)
+        {
+            const float distToTarget = (targetPos - playerPos).length();
+            if (distToTarget <= kMovingTargetFarDist)
+                mMovingTargetStuckTime = 0.0f;
+            else
+                mMovingTargetStuckTime += dt;
+            if (mMovingTargetStuckTime >= kMovingTargetStuckTimeout)
+            {
+                speakQueued("Can't reach " + mTargetName + ".");
+                armTeleport(); // within-range escape hatch (scanner enforces the cap)
+                cancel();
+                return;
+            }
+        }
+        else
+            mMovingTargetStuckTime = 0.0f;
 
         // --- Door back-off ---------------------------------------------------
         // We just opened a door we were wedged against. The engine won't swing a
