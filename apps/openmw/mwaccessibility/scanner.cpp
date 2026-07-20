@@ -663,6 +663,23 @@ using MWAccessibility::kPi;
         return out;
     }
 
+    // True if the spell has at least one effect that reaches OUT of the caster --
+    // i.e. a Touch or Target ranged effect. A purely self-ranged spell (RT_Self,
+    // e.g. Levitation or Water Walking a companion casts on herself to follow you)
+    // can never be aimed "at" anyone. We need this because the engine's cast path
+    // still runs a hit-contact/aim raycast for a non-scripted self-buff and can
+    // resolve a spurious "target" -- whoever happens to stand in front of the
+    // caster (often the player) -- even though the spell only ever affects the
+    // caster. Gating the "at you" suffix on a non-self effect stops that false
+    // "casts X at you" (design principle: never speak confident wrong info).
+    bool spellHasNonSelfEffect(const ESM::EffectList& effects)
+    {
+        for (const ESM::IndexedENAMstruct& e : effects.mList)
+            if (e.mData.mRange != ESM::RT_Self)
+                return true;
+        return false;
+    }
+
     // The text the search filter matches against: the same enriched, spoken
     // identity the user hears -- the display name plus a door's destination
     // (e.g. "Door, to Balmora, Guild of Mages"). Without this, doors (which are
@@ -2401,7 +2418,12 @@ namespace MWAccessibility
         // player -- and is announced plainly. This replaces the old heuristic
         // (in-combat + outward-reaching) which wrongly said "at you" whenever a
         // hostile cast anything, even a self-buff or a spell at the player's ally.
-        if (!target.isEmpty() && target == player)
+        // Also require the spell to actually reach out of the caster: a purely
+        // self-ranged spell (e.g. a companion levitating/water-walking herself to
+        // follow you) can never be "at" anyone, yet the engine's cast path still
+        // resolves a spurious hit-contact target -- often the player standing in
+        // front -- so target==player alone wrongly said "at you" (the reported bug).
+        if (!target.isEmpty() && target == player && spellHasNonSelfEffect(effects))
             text += " at you";
         text += ".";
         speak(text);

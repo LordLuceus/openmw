@@ -4,6 +4,18 @@ A running log of screen-reader accessibility features added to this OpenMW fork.
 Newest changes are listed first. (OpenMW's own engine changelog lives in
 `CHANGELOG.md`.)
 
+## 2026-07-20
+
+- **Spell-cast announcements no longer wrongly say "at you" for a
+  self-only spell.** When another actor cast a spell that only affects
+  themselves -- most noticeably a companion levitating or water-walking herself
+  so she can follow you -- the announcement sometimes appended "at you" (for
+  example "Erisa casts Levitate at you"), because the engine still resolves a
+  stray aim target for such casts and it was often the player standing right in
+  front. A self-only spell can never be aimed at anyone, so it's now always
+  announced plainly ("Erisa casts Levitate"). Spells that genuinely reach you
+  still correctly say "at you."
+
 ## 2026-07-18
 
 - **Auto-walk no longer chases an unreachable wandering creature in place
