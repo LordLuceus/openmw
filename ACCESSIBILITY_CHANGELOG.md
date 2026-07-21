@@ -4,6 +4,15 @@ A running log of screen-reader accessibility features added to this OpenMW fork.
 Newest changes are listed first. (OpenMW's own engine changelog lives in
 `CHANGELOG.md`.)
 
+## 2026-07-21
+
+- **Reading a skill now tells you how close it is to going up.** Sighted
+  players see a progress bar in each skill's tooltip; the accessible skills list
+  now speaks the same thing. Inspecting a skill appends its progress toward the
+  next increase (for example "Long Blade 42. Governing attribute: Strength.
+  Skill progress 63/100. ..."), or "Skill increases at maximum" once the skill
+  has reached 100. The percentage matches the bar sighted players see.
+
 ## 2026-07-20
 
 - **You now hear when you're spotted (or slip back out of sight) while

@@ -868,6 +868,8 @@ namespace MWGui
             auto valueIt = mSkillValues.find(skillId);
             const int modified = (valueIt != mSkillValues.end()) ? static_cast<int>(valueIt->second.getModified()) : 0;
             const float damage = (valueIt != mSkillValues.end()) ? valueIt->second.getDamage() : 0.f;
+            const int base = (valueIt != mSkillValues.end()) ? static_cast<int>(valueIt->second.getBase()) : 0;
+            const float progress = (valueIt != mSkillValues.end()) ? valueIt->second.getProgress() : 0.f;
 
             const std::string name = skill->mName;
             const std::string description = skill->mDescription;
@@ -878,15 +880,41 @@ namespace MWGui
                 MWMechanics::getPlayer(), damage, ESM::MagicEffect::DrainSkill, ESM::MagicEffect::AbsorbSkill, skillId);
             const std::string suffix = damaged ? ", damaged" : std::string();
 
+            // Progress toward the next skill-up, mirroring the SkillToolTip a
+            // sighted player hovers (statswindow SkillToolTip layout): a
+            // #{sSkillProgress} bar reading progressPercent/100 while the skill
+            // can still rise, or #{sSkillMaxReached} once the BASE hits 100.
+            // Skill-up depends on BASE (unmodified) skill, so a Fortify/Drain
+            // that changes the modified value must not flip the maxed check --
+            // gate on base, exactly like setValue()'s getBase()<100 test.
+            const bool maxed = base >= 100;
+            int progressPercent = 0;
+            if (!maxed)
+            {
+                MWWorld::Ptr player = MWMechanics::getPlayer();
+                const float requirement = player.getClass().getNpcStats(player).getSkillProgressRequirement(
+                    skillId, *MWBase::Environment::get().getESMStore()->get<ESM::Class>().find(
+                        player.get<ESM::NPC>()->mBase->mClass));
+                // Match statswindow's setSkillProgress rounding exactly so the
+                // spoken figure equals the visible bar (guard divide-by-zero).
+                if (requirement > 0.f)
+                    progressPercent = static_cast<int>(progress / requirement * 100.f + 0.5f);
+            }
+
             A11y::SubItem item;
             item.label = name + " " + MyGUI::utility::toString(modified) + suffix;
             item.section = section;
-            item.tooltips = [name, description, governingId, modified, suffix] {
+            item.tooltips = [name, description, governingId, modified, suffix, maxed, progressPercent] {
                 std::string line = name + " " + MyGUI::utility::toString(modified) + suffix;
                 const ESM::Attribute* attr
                     = MWBase::Environment::get().getESMStore()->get<ESM::Attribute>().search(governingId);
                 if (attr)
                     line += ". #{sGoverningAttribute}: " + attr->mName;
+                // Speak progress to the next skill increase, as sighted players see.
+                if (maxed)
+                    line += ". #{sSkillMaxReached}";
+                else
+                    line += ". #{sSkillProgress} " + MyGUI::utility::toString(progressPercent) + "/100";
                 if (!description.empty())
                     line += ". " + description;
                 return std::vector<std::string>{ line };
