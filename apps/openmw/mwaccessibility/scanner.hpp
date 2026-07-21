@@ -209,6 +209,14 @@ namespace MWAccessibility
         void announceActorSpellCast(const MWWorld::Ptr& caster, const std::string& sourceName,
             const ESM::EffectList& effects, const MWWorld::Ptr& target);
 
+        /// Mirror the HUD "sneak eye" by ear. Called every frame from
+        /// Actors::updateSneaking with the live facts: whether the player is
+        /// sneaking and, if so, whether any nearby actor currently detects them.
+        /// Plays a non-speech 2D cue on the hidden->detected edge (cover blown)
+        /// and a distinct cue on the detected->hidden edge (unnoticed again);
+        /// fires on transitions only. No-op outside gameplay.
+        void updateSneakDetection(bool sneaking, bool detected);
+
         /// --- Accessible HUD (AHUD) ---------------------------------------
         /// Toggle the accessible HUD. Bound to H. While active, the world is
         /// paused (so a suddenly-attacked player has time to assess and react)
@@ -674,6 +682,29 @@ namespace MWAccessibility
         int mLastDrawState = -1;
         // Poll the player's draw state and announce any change (see above).
         void announceDrawStateChange();
+
+        // --- Sneak-detection cue ----------------------------------------
+        // Sighted players get a HUD "sneak eye" icon that is shown only while
+        // sneaking AND unnoticed, and vanishes the instant any nearby actor
+        // with line-of-sight becomes aware of them (see Actors::updateSneaking).
+        // A blind player has no equivalent, so we mirror that exact signal by
+        // ear: a non-speech 2D cue on the hidden->detected edge (your cover is
+        // blown) and a distinct, subtler cue on the detected->hidden edge
+        // (you're unnoticed again -- safe to move). Fires on EDGES only, never
+        // per-frame. The authoritative state is computed in
+        // Actors::updateSneaking, which calls updateSneakDetection() each frame
+        // with the current sneaking/detected facts so we don't duplicate the
+        // observer-awareness scan here.
+        enum class SneakState
+        {
+            NotSneaking, // not crouched: no cue, and the baseline while standing
+            Hidden, // sneaking and unnoticed (the HUD eye would be shown)
+            Detected, // sneaking but seen by someone (the HUD eye is hidden)
+        };
+        // Last sneak state we played a cue for, so we only fire on a change.
+        // Starts NotSneaking so simply crouching (Hidden) doesn't beep, and the
+        // first cue is the meaningful hidden->detected / detected->hidden edge.
+        SneakState mLastSneakState = SneakState::NotSneaking;
 
         // --- Live refresh of the Actors list ----------------------------
         // Actors move and change combat state continuously, so a list cached at

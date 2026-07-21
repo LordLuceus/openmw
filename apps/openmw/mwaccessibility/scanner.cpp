@@ -172,6 +172,12 @@ using MWAccessibility::kPi;
     constexpr VFS::Path::NormalizedView kQuestUpdateSound("sounds/a11y/quest_update.wav");
     constexpr VFS::Path::NormalizedView kQuestCompleteSound("sounds/a11y/quest_complete.wav");
 
+    // Sneak-detection cues (see Scanner::updateSneakDetection). 2D status cues:
+    // they report the player's OWN stealth state (mirroring the HUD sneak eye),
+    // not a sound from any observer, so they're deliberately non-positional.
+    constexpr VFS::Path::NormalizedView kSneakDetectedSound("sounds/a11y/sneak_detected.wav");
+    constexpr VFS::Path::NormalizedView kSneakHiddenSound("sounds/a11y/sneak_hidden.wav");
+
     // How many seconds before a timed magic effect ends we warn the player.
     // A single one-shot cue at this point (not a per-second tick), and effects
     // whose entire duration is no longer than this never warn at all.
@@ -1042,6 +1048,41 @@ namespace MWAccessibility
         if (fire)
             MWBase::Environment::get().getSoundManager()->playSound(
                 kMagicExpiringSound, /*volume=*/1.0f, /*pitch=*/1.0f, MWSound::Type::A11y);
+    }
+
+    void Scanner::updateSneakDetection(bool sneaking, bool detected)
+    {
+        // Only meaningful during live gameplay. Guard here (rather than trusting
+        // the caller) so a menu/dialogue frame can't fire a stealth cue, and so
+        // the state doesn't drift while paused. Mirrors updateMagicExpiry's gate.
+        if (!isGameplayActive())
+        {
+            // Don't reset mLastSneakState: a menu opened mid-sneak should not
+            // re-fire the cue when gameplay resumes at the same state. The state
+            // only changes on a real gameplay transition below.
+            return;
+        }
+
+        const SneakState now
+            = !sneaking ? SneakState::NotSneaking : (detected ? SneakState::Detected : SneakState::Hidden);
+        if (now == mLastSneakState)
+            return;
+
+        const SneakState prev = mLastSneakState;
+        mLastSneakState = now;
+
+        // Fire a cue only on the transitions that carry information:
+        //  - Detected: your cover is blown (someone now sees you). Always worth
+        //    a cue, whether you were Hidden or just started sneaking already-seen.
+        //  - Hidden after having been Detected: you've slipped out of sight, safe
+        //    to move again. NOT when first crouching from standing (NotSneaking ->
+        //    Hidden), which is the ordinary "start sneaking, nobody around" case
+        //    and would beep on every crouch.
+        MWBase::SoundManager* snd = MWBase::Environment::get().getSoundManager();
+        if (now == SneakState::Detected)
+            snd->playSound(kSneakDetectedSound, /*volume=*/1.0f, /*pitch=*/1.0f, MWSound::Type::A11y);
+        else if (now == SneakState::Hidden && prev == SneakState::Detected)
+            snd->playSound(kSneakHiddenSound, /*volume=*/1.0f, /*pitch=*/1.0f, MWSound::Type::A11y);
     }
 
     void Scanner::onFrame(float dt)

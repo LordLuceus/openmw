@@ -36,6 +36,8 @@
 #include "../mwbase/windowmanager.hpp"
 #include "../mwbase/world.hpp"
 
+#include "../mwaccessibility/scanner.hpp"
+
 #include "../mwmechanics/aibreathe.hpp"
 
 #include "../mwrender/vismask.hpp"
@@ -1923,6 +1925,7 @@ namespace MWMechanics
         if (!ctrl)
         {
             MWBase::Environment::get().getWindowManager()->setSneakVisibility(false);
+            MWAccessibility::Scanner::instance().updateSneakDetection(/*sneaking=*/false, false);
             return;
         }
 
@@ -1931,6 +1934,7 @@ namespace MWMechanics
         if (!MWBase::Environment::get().getMechanicsManager()->isSneaking(player))
         {
             MWBase::Environment::get().getWindowManager()->setSneakVisibility(false);
+            MWAccessibility::Scanner::instance().updateSneakDetection(/*sneaking=*/false, false);
             return;
         }
 
@@ -1971,6 +1975,8 @@ namespace MWMechanics
                         detected = true;
                         avoidedNotice = false;
                         MWBase::Environment::get().getWindowManager()->setSneakVisibility(false);
+                        MWAccessibility::Scanner::instance().updateSneakDetection(
+                            /*sneaking=*/true, /*detected=*/true);
                         break;
                     }
                     else
@@ -1987,7 +1993,11 @@ namespace MWMechanics
                 player.getClass().skillUsageSucceeded(player, ESM::Skill::Sneak, ESM::Skill::Sneak_AvoidNotice);
 
             if (!detected)
+            {
                 MWBase::Environment::get().getWindowManager()->setSneakVisibility(true);
+                MWAccessibility::Scanner::instance().updateSneakDetection(
+                    /*sneaking=*/true, /*detected=*/false);
+            }
         }
 
         mSneakTimer += duration;

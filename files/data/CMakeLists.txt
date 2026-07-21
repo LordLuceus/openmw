@@ -67,6 +67,11 @@ set(BUILTIN_DATA_FILES
     sounds/a11y/quest_update.wav
     sounds/a11y/quest_complete.wav
 
+    # Accessibility stealth cues: mirror the HUD "sneak eye" by ear -- a cue when
+    # you're spotted while sneaking, and a distinct one when you slip out of sight.
+    sounds/a11y/sneak_detected.wav
+    sounds/a11y/sneak_hidden.wav
+
     # Default animation blending config
     animations/animation-config.yaml
 

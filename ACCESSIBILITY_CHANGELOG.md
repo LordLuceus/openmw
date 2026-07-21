@@ -6,6 +6,15 @@ Newest changes are listed first. (OpenMW's own engine changelog lives in
 
 ## 2026-07-20
 
+- **You now hear when you're spotted (or slip back out of sight) while
+  sneaking.** Sighted players get a HUD "sneak eye" that shows while you're
+  crouched and unnoticed and vanishes the moment someone sees you; blind players
+  had no equivalent. There's now an audio cue when a nearby character detects
+  you while sneaking (your cover is blown), and a distinct, calmer cue when you
+  become unnoticed again after having been seen -- so you know when it's safe to
+  move. Simply crouching when nobody's looking stays silent. (The bundled sounds
+  are placeholder tones for now and can be replaced with nicer ones later.)
+
 - **Spell-cast announcements no longer wrongly say "at you" for a
   self-only spell.** When another actor cast a spell that only affects
   themselves -- most noticeably a companion levitating or water-walking herself
