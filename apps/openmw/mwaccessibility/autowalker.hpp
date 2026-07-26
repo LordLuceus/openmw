@@ -144,6 +144,17 @@ namespace MWAccessibility
         // the two probe heights, right in front of us. \\p yaw is current facing.
         bool detectClimbableStep(const MWWorld::Ptr& player, const osg::Vec3f& playerPos, float yaw) const;
 
+        /// How far straight down it is clear from \p from before hitting floor.
+        /// Returns the full probe length when nothing is hit (i.e. "open as far as
+        /// we can see"), so callers can just compare against a threshold.
+        float probeDropClearance(const MWWorld::Ptr& player, const osg::Vec3f& from) const;
+
+        /// Ring-probe around the player for a nearby opening with a genuine drop
+        /// (a levitation shaft, stairwell void, balcony edge), preferring one on
+        /// the target's side. Read-only; on success writes the spot to \p outSpot.
+        bool findDescentOpening(const MWWorld::Ptr& player, const osg::Vec3f& playerPos,
+            const osg::Vec3f& targetPos, osg::Vec3f& outSpot) const;
+
         bool mActive = false;
         // A target is either a world object (mTarget) or, for scanner
         // waypoints, a fixed position (mTargetPos with mHasPtrTarget == false).
@@ -322,6 +333,21 @@ namespace MWAccessibility
         // Pulses the contact-hop during a charge: a jump only re-fires when the
         // actor is grounded, so we throttle rather than hold mJump every frame.
         float mStepHopCooldown = 0.0f;
+
+        // --- Flying shaft-seeking descent -------------------------------------
+        // Mirror of the vertical-first climb, for targets BELOW us while
+        // levitating. Descending isn't symmetric with climbing: we're normally
+        // standing on the very floor that separates us from the target, so there's
+        // nothing to sink into straight down -- the ground route just circles the
+        // upper platform, runs out, and we report "target is N metres below". A
+        // sighted player instead finds the opening (a Telvanni tower's levitation
+        // shaft, a stairwell void, a balcony edge) and drops through it. So we ring
+        // -probe for a clear drop, remember the best one, steer to it, then pitch
+        // down through it. mSeekingShaft is true while steering at mShaftSpot;
+        // mShaftSearchTimer throttles the ring search (kFlyShaftSearchInterval).
+        bool mSeekingShaft = false;
+        osg::Vec3f mShaftSpot;
+        float mShaftSearchTimer = 0.0f;
 
         // Door back-off state. When auto-walk opens a closed door it is usually
         // wedged flush against it, and the engine REFUSES to swing a door into an

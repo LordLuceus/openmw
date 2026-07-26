@@ -4,6 +4,21 @@ A running log of screen-reader accessibility features added to this OpenMW fork.
 Newest changes are listed first. (OpenMW's own engine changelog lives in
 `CHANGELOG.md`.)
 
+## 2026-07-26
+
+- **Auto-walk can now descend to targets below you while levitating, instead of
+  giving up on the floor above.** Previously, flying to something on a lower
+  level (a person at the bottom of a Telvanni tower's levitation shaft, say)
+  would wander around the upper platform for a bit and then stop with "target is
+  N metres below" -- because the walk was standing on the very floor separating
+  you from the target, with nowhere to sink. Auto-walk now does what a sighted
+  player does: it looks around for a genuine opening (the levitation shaft, a
+  stairwell void, a balcony edge), flies level to it, and drops down through it,
+  easing off as it nears the target's height. This mirrors the existing climb
+  behaviour for targets high overhead. If there really is no opening nearby,
+  auto-walk carries on as before and still reports honestly rather than grinding
+  into the floor.
+
 ## 2026-07-21
 
 - **Reading a skill now tells you how close it is to going up.** Sighted

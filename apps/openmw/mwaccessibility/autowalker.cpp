@@ -82,6 +82,44 @@ namespace
     constexpr float kFlyClimbMinPitch = 0.35f * 3.14159265358979323846f; // ~63 deg
     constexpr float kFlyClimbMaxPitch = 0.45f * 3.14159265358979323846f; // ~81 deg
 
+    // Flying vertical-first DESCENT (the mirror of the climb above; see the
+    // flying branch in onFrame). Descending is NOT symmetric with climbing: when
+    // the target is below, the player is normally standing on the very floor that
+    // separates them, so there is nothing to "descend into" straight down -- the
+    // ground-hugging route just walks around the upper platform until it runs out
+    // and we report "target is N metres below". What a sighted player does is spot
+    // the OPENING (a Telvanni tower's levitation shaft, a stairwell void, a
+    // balcony edge) and drop through it. So instead of only probing straight down
+    // we sample a ring of nearby points for a clear vertical drop and steer to the
+    // best one, then descend through it.
+    constexpr float kFlyDescendGap = 150.0f; // target must be this far below to seek a shaft
+    constexpr float kFlyFloorProbeStart = 20.0f; // drop-probe origin below player pos
+    constexpr float kFlyFloorProbeLen = 600.0f; // how far down we probe for a floor
+    // A drop counts as "open" when we can see this far straight down. Roughly two
+    // storeys (kFloorHeight ~230): enough to be a genuine shaft/void rather than a
+    // shallow lip or a step down, so we don't dive at every ledge.
+    constexpr float kFlyMinDropClear = 260.0f;
+    // Ring search for an opening: sample this many bearings at these radii around
+    // the player. Radii stay within a room's width so we never wander off looking
+    // for a hole in the next hall. 8 bearings x 3 radii = 24 cheap raycasts, only
+    // while actively seeking a shaft (not every frame of every flight).
+    constexpr int kFlyShaftBearings = 8;
+    constexpr float kFlyShaftRadius1 = 110.0f;
+    constexpr float kFlyShaftRadius2 = 220.0f;
+    constexpr float kFlyShaftRadius3 = 330.0f;
+    // Once within this horizontal distance of the chosen opening, stop steering
+    // toward it and pitch down through it. Slightly forgiving so we commit to the
+    // drop rather than circling the exact centre.
+    constexpr float kFlyShaftArriveDist = 70.0f;
+    // Re-run the ring search at most this often (seconds) while seeking, so a
+    // moving/failed search doesn't burn raycasts every frame.
+    constexpr float kFlyShaftSearchInterval = 0.5f;
+    // Descent pitch, ramped like the climb (gentle when nearly level with the
+    // target, steep when far above it). Positive pitch aims down.
+    constexpr float kFlyDescendFullGap = 400.0f;
+    constexpr float kFlyDescendMinPitch = 0.30f * 3.14159265358979323846f; // ~54 deg
+    constexpr float kFlyDescendMaxPitch = 0.45f * 3.14159265358979323846f; // ~81 deg
+
     // How far from a requested destination we'll look for a walkable navmesh
     // point. Many useful targets (doors, levers, wall-mounted activators, items
     // on tables) sit slightly off the navmesh -- flush against a wall or up on
@@ -756,6 +794,61 @@ namespace MWAccessibility
         return feetHit.mHit && !kneeHit.mHit;
     }
 
+    float AutoWalker::probeDropClearance(const MWWorld::Ptr& player, const osg::Vec3f& from) const
+    {
+        MWBase::World* world = MWBase::Environment::get().getWorld();
+        if (!world)
+            return 0.0f;
+        const auto* rc = world->getRayCasting();
+        if (!rc)
+            return 0.0f;
+        const osg::Vec3f start = from - osg::Vec3f(0.0f, 0.0f, kFlyFloorProbeStart);
+        const osg::Vec3f end = start - osg::Vec3f(0.0f, 0.0f, kFlyFloorProbeLen);
+        const auto r = rc->castRay(start, end, { player }, {},
+            MWPhysics::CollisionType_World | MWPhysics::CollisionType_HeightMap
+                | MWPhysics::CollisionType_Door);
+        // No hit within the probe = clear as far as we can see: report the full
+        // probe length rather than a sentinel, so callers can compare distances.
+        return r.mHit ? (start - r.mHitPos).length() : kFlyFloorProbeLen;
+    }
+
+    bool AutoWalker::findDescentOpening(
+        const MWWorld::Ptr& player, const osg::Vec3f& playerPos, const osg::Vec3f& targetPos, osg::Vec3f& outSpot) const
+    {
+        // Sample a ring of bearings at a few radii and keep the opening that both
+        // clears kFlyMinDropClear and sits closest to the target's horizontal
+        // position -- so in a Telvanni tower we pick the shaft on the target's
+        // side rather than an unrelated void behind us. Purely read-only probing:
+        // this never moves the player, it just nominates a spot to steer at.
+        const float radii[] = { kFlyShaftRadius1, kFlyShaftRadius2, kFlyShaftRadius3 };
+        bool found = false;
+        float bestScore = std::numeric_limits<float>::max();
+        for (const float radius : radii)
+        {
+            for (int i = 0; i < kFlyShaftBearings; ++i)
+            {
+                const float bearing
+                    = (2.0f * 3.14159265358979323846f * static_cast<float>(i)) / static_cast<float>(kFlyShaftBearings);
+                const osg::Vec3f candidate
+                    = playerPos + osg::Vec3f(std::sin(bearing) * radius, std::cos(bearing) * radius, 0.0f);
+                if (probeDropClearance(player, candidate) < kFlyMinDropClear)
+                    continue;
+                // Prefer openings nearer the target horizontally; break ties toward
+                // the closer ring so we don't cross a room when a hole is at hand.
+                const float dx = targetPos.x() - candidate.x();
+                const float dy = targetPos.y() - candidate.y();
+                const float score = std::sqrt(dx * dx + dy * dy) + radius * 0.25f;
+                if (score < bestScore)
+                {
+                    bestScore = score;
+                    outSpot = candidate;
+                    found = true;
+                }
+            }
+        }
+        return found;
+    }
+
     void AutoWalker::beginPhasing(const MWWorld::Ptr& blocker, const osg::Vec3f& playerPos)
     {
         if (!mPhasingActor.isEmpty() || blocker.isEmpty())
@@ -809,6 +902,8 @@ namespace MWAccessibility
         mStepChargeTimer = 0.0f;
         mStepChargeAttempts = 0;
         mStepHopCooldown = 0.0f;
+        mSeekingShaft = false;
+        mShaftSearchTimer = 0.0f;
         mProgressive = false;
         mTimeSinceCallout = 0.0f;
         mLastCalloutDist = std::numeric_limits<float>::max();
@@ -2512,6 +2607,7 @@ namespace MWAccessibility
             const float vGap = targetPos.z() - playerPos.z();
             const bool verticalClimb = (vGap > kFlyClimbGap && headClear > kFlyMinHeadClear);
             float useFlyPitch = flyPitch;
+            float useFlyYaw = flyYaw;
             if (verticalClimb)
             {
                 // Map the height gap onto a climb angle: kFlyClimbGap -> gentle,
@@ -2520,6 +2616,64 @@ namespace MWAccessibility
                 // pitch aims up.
                 const float t = std::clamp((vGap - kFlyClimbGap) / (kFlyClimbFullGap - kFlyClimbGap), 0.0f, 1.0f);
                 useFlyPitch = -(kFlyClimbMinPitch + t * (kFlyClimbMaxPitch - kFlyClimbMinPitch));
+            }
+            else if (-vGap > kFlyDescendGap)
+            {
+                // --- SHAFT-SEEKING DESCENT (mirror of the climb) ---------------
+                // Target is well BELOW us. If the floor right here is already open
+                // (we're over the shaft / off a ledge) just pitch down and ride it.
+                // Otherwise hunt for the nearest opening on the target's side and
+                // steer at it; once we're over it, the open-floor test below takes
+                // over and we drop through. If no opening exists we leave pitch
+                // alone: normal waypoint-following continues (stairs/ramps may still
+                // get us there) and, failing that, stuck detection reports honestly
+                // rather than us silently grinding into the floor.
+                const float dropHere = probeDropClearance(player, playerPos);
+                if (dropHere >= kFlyMinDropClear)
+                {
+                    mSeekingShaft = false;
+                    const float t
+                        = std::clamp((-vGap - kFlyDescendGap) / (kFlyDescendFullGap - kFlyDescendGap), 0.0f, 1.0f);
+                    useFlyPitch = kFlyDescendMinPitch + t * (kFlyDescendMaxPitch - kFlyDescendMinPitch);
+                }
+                else
+                {
+                    // Standing on solid floor above the target: find/steer to a hole.
+                    mShaftSearchTimer -= dt;
+                    if (!mSeekingShaft && mShaftSearchTimer <= 0.0f)
+                    {
+                        mShaftSearchTimer = kFlyShaftSearchInterval;
+                        osg::Vec3f spot;
+                        if (findDescentOpening(player, playerPos, targetPos, spot))
+                        {
+                            mShaftSpot = spot;
+                            mSeekingShaft = true;
+                        }
+                    }
+                    if (mSeekingShaft)
+                    {
+                        const osg::Vec3f toShaft = mShaftSpot - playerPos;
+                        const float shaftDist = std::sqrt(toShaft.x() * toShaft.x() + toShaft.y() * toShaft.y());
+                        if (shaftDist <= kFlyShaftArriveDist)
+                        {
+                            // Over the opening: stop steering, start dropping. Next
+                            // frame the open-floor branch above takes it from here.
+                            mSeekingShaft = false;
+                            useFlyPitch = kFlyDescendMinPitch;
+                        }
+                        else
+                        {
+                            // Fly level toward the opening (no pitch) so we clear the
+                            // platform we're standing on instead of nosing into it.
+                            useFlyYaw = std::atan2(toShaft.x(), toShaft.y());
+                            useFlyPitch = 0.0f;
+                        }
+                    }
+                }
+            }
+            else
+            {
+                mSeekingShaft = false;
             }
 
             if (kLogStairDiag)
@@ -2537,11 +2691,13 @@ namespace MWAccessibility
                         << playerPos.z() << ") vertGap=" << vGap << " horizDist=" << horizDist
                         << " flyPitchDeg=" << (flyPitch * kRad2Deg) << " useFlyPitchDeg=" << (useFlyPitch * kRad2Deg)
                         << " climb=" << verticalClimb << " onGround=" << world->isOnGround(player)
-                        << " headClear=" << headClear << " speed=" << speed;
+                        << " headClear=" << headClear << " speed=" << speed
+                        << " seekShaft=" << mSeekingShaft
+                        << " dropHere=" << probeDropClearance(player, playerPos);
                 }
             }
 
-            world->rotateObject(player, osg::Vec3f(useFlyPitch, 0.0f, flyYaw), MWBase::RotationFlag_none);
+            world->rotateObject(player, osg::Vec3f(useFlyPitch, 0.0f, useFlyYaw), MWBase::RotationFlag_none);
 
             controls->mMovement = 1.0f; // full forward, along the new facing
             controls->mSideMovement = 0.0f;
