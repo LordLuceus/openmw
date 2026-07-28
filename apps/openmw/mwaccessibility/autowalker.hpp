@@ -4,11 +4,18 @@
 #include <deque>
 #include <limits>
 #include <utility>
+#include <vector>
 
 #include <osg/Vec3f>
 
 #include "../mwmechanics/pathfinding.hpp"
 #include "../mwworld/ptr.hpp"
+#include "verticalshaft.hpp"
+
+namespace MWWorld
+{
+    class CellStore;
+}
 
 namespace MWAccessibility
 {
@@ -348,6 +355,21 @@ namespace MWAccessibility
         bool mSeekingShaft = false;
         osg::Vec3f mShaftSpot;
         float mShaftSearchTimer = 0.0f;
+
+        /// The levitation shaft (if any) that spans a journey from \p playerPos to
+        /// \p targetPos, read from the cell's architecture. Preferred over the blind
+        /// ring probe in findDescentOpening because it knows the shaft's axis at any
+        /// distance, whereas the probe only reaches a few hundred units. Returns
+        /// nullptr when this cell has no recognised shaft covering the journey, in
+        /// which case the probe still applies. Result points into mShaftCache.
+        const VerticalShaft* shaftForJourney(
+            const MWWorld::Ptr& player, const osg::Vec3f& playerPos, const osg::Vec3f& targetPos);
+
+        /// Shafts detected in mShaftCacheCell. Cached per cell: detection walks
+        /// every ref in the cell, far too costly to repeat on the search interval,
+        /// and a cell's architecture doesn't change while we're in it.
+        std::vector<VerticalShaft> mShaftCache;
+        const MWWorld::CellStore* mShaftCacheCell = nullptr;
 
         // Door back-off state. When auto-walk opens a closed door it is usually
         // wedged flush against it, and the engine REFUSES to swing a door into an

@@ -13,6 +13,14 @@ Newest changes are listed first. (OpenMW's own engine changelog lives in
   reached. Alt+L answers all of that: "Shaft, 4.2 metres east. 3 floor openings,
   nearest 2 of 3, 1.5 metres up." If the building has no shaft it says so rather
   than staying silent.
+- **Ctrl+Alt+L walks you into the shaft**, so you can position yourself in the
+  column and then fly up or down it under your own control.
+- **Auto-walk now uses the shaft to reach other floors while levitating.** It
+  previously hunted for a hole in the floor with short-range probes that only
+  reached about 4.7 metres, so from the top of a tower -- where the shaft is
+  further away than that -- it never found the way down and gave up every time.
+  It now steers to the shaft the building actually has, and falls back to the old
+  probing where no shaft is recognised.
 
 ## 2026-07-26
 

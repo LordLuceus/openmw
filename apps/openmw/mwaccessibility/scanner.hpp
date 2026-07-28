@@ -380,11 +380,10 @@ namespace MWAccessibility
         /// it. Says so plainly when there is no shaft here.
         void announceVerticalShaft();
 
-        /// Detect the levitation shafts in the player's current cell from its
-        /// architecture (see verticalshaft.hpp). Shaft pieces are statics, which
-        /// the scanner's categories deliberately skip, so this walks the cell refs
-        /// directly. Ordered most substantial first.
-        std::vector<VerticalShaft> collectShafts(const MWWorld::Ptr& player) const;
+        /// Auto-walk into the levitation shaft's column at the player's current
+        /// height (Ctrl+Alt+L), so the player can then fly up or down it under their
+        /// own control rather than relying on auto-walk to cross floors.
+        void walkToVerticalShaft();
         // Snap the player's facing to the previous/next of the eight compass
         // points (Ctrl+A = counter-clockwise, Ctrl+D = clockwise). Levels the
         // pitch and announces the new heading. A keyboard-friendly way to aim

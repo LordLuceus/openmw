@@ -1425,13 +1425,16 @@ namespace MWAccessibility
                 // height above the ground / depth below the water (vertical).
                 // Alt+L finds the levitation shaft in a Telvanni-style tower,
                 // where there are no stairs between floors and the shaft is the
-                // only way up or down.
+                // only way up or down; Ctrl+Alt+L walks you into the shaft so you
+                // can then fly up or down it under your own control.
                 if (ctrl && !shift && !alt)
                     announceFacing();
                 else if (shift && !ctrl && !alt)
                     announceHeight();
                 else if (alt && !ctrl && !shift)
                     announceVerticalShaft();
+                else if (alt && ctrl && !shift)
+                    walkToVerticalShaft();
                 else if (!ctrl && !shift && !alt)
                     announceLocation();
                 else
@@ -3069,42 +3072,6 @@ namespace MWAccessibility
         speak(std::string("Facing ") + compassLabel(yaw) + ".");
     }
 
-    std::vector<VerticalShaft> Scanner::collectShafts(const MWWorld::Ptr& player) const
-    {
-        MWWorld::CellStore* cell = player.getCell();
-        if (!cell)
-            return {};
-
-        // Shaft pieces are STATICS, which the scanner's categories deliberately
-        // ignore (announcing every wall would be unusable). So we walk the cell's
-        // refs ourselves. mRefId is a string_view into the ref, and the ids we
-        // classify against outlive this call, but keep the strings alive anyway to
-        // avoid depending on RefId's storage details.
-        std::vector<std::string> ids;
-        std::vector<ShaftPiece> pieces;
-        ids.reserve(64);
-        pieces.reserve(64);
-        cell->forEachConst([&](const MWWorld::ConstPtr& ptr) {
-            if (ptr.getCellRef().getCount() <= 0)
-                return true;
-            // toString(), NOT getRefIdString(): the latter THROWS for any RefId
-            // that isn't string-backed (generated/index refs do occur among a
-            // cell's refs), which would take the game down from a readout key.
-            std::string id = ptr.getCellRef().getRefId().toString();
-            if (classifyShaftPiece(id) == ShaftPieceKind::NotShaft)
-                return true;
-            ids.push_back(std::move(id));
-            pieces.push_back(ShaftPiece{ std::string_view(), ptr.getRefData().getPosition().asVec3() });
-            return true;
-        });
-        // Bind the views only after `ids` has finished growing, so reallocation
-        // can't leave them dangling.
-        for (std::size_t i = 0; i < pieces.size(); ++i)
-            pieces[i].mRefId = ids[i];
-
-        return detectShafts(pieces);
-    }
-
     void Scanner::announceVerticalShaft()
     {
         MWBase::World* world = MWBase::Environment::get().getWorld();
@@ -3112,7 +3079,7 @@ namespace MWAccessibility
         if (player.isEmpty())
             return;
 
-        const std::vector<VerticalShaft> shafts = collectShafts(player);
+        const std::vector<VerticalShaft> shafts = collectCellShafts(player);
         if (shafts.empty())
         {
             // Never fail silently: say why there's nothing to report.
@@ -3181,6 +3148,30 @@ namespace MWAccessibility
         line += ".";
 
         speak(line);
+    }
+
+    void Scanner::walkToVerticalShaft()
+    {
+        MWBase::World* world = MWBase::Environment::get().getWorld();
+        MWWorld::Ptr player = world->getPlayerPtr();
+        if (player.isEmpty())
+            return;
+
+        const std::vector<VerticalShaft> shafts = collectCellShafts(player);
+        if (shafts.empty())
+        {
+            speak("No levitation shaft here.");
+            return;
+        }
+
+        const osg::Vec3f playerPos = player.getRefData().getPosition().asVec3();
+        const VerticalShaft& shaft = shafts.front();
+        // Aim for the shaft's axis at our CURRENT height: the point is to get you
+        // standing in the column, from where you fly up or down yourself. Going to
+        // some other floor's height would fight the walk rather than help it.
+        const osg::Vec3f spot(shaft.mX, shaft.mY, playerPos.z());
+        if (!mAutoWalker.start(spot, "shaft"))
+            speak("Cannot reach the shaft.");
     }
 
     void Scanner::announceHeight()

@@ -7,6 +7,11 @@
 
 #include <osg/Vec3f>
 
+namespace MWWorld
+{
+    class Ptr;
+}
+
 namespace MWAccessibility
 {
     // Detection of LEVITATION SHAFTS from a cell's own architecture.
@@ -97,6 +102,14 @@ namespace MWAccessibility
     // shaft. Returns \p z itself when the shaft has no recorded openings (fly to
     // the target's own height and try there).
     float nearestOpening(const VerticalShaft& shaft, float z);
+
+    // Detect the shafts in \p player's current cell. This is the one engine-facing
+    // entry point in this module: it walks the cell's refs (shaft pieces are
+    // STATICS, which the scanner's categories deliberately skip) and feeds them to
+    // detectShafts. Shared by the scanner's readout and the auto-walker's descent
+    // so the two can never disagree about where the shaft is. Callers should cache
+    // the result per cell -- this visits every ref in the cell.
+    std::vector<VerticalShaft> collectCellShafts(const MWWorld::Ptr& player);
 }
 
 #endif

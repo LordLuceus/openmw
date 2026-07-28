@@ -4,6 +4,10 @@
 #include <cmath>
 #include <limits>
 
+#include "../mwworld/cellstore.hpp"
+#include "../mwworld/class.hpp"
+#include "../mwworld/ptr.hpp"
+
 namespace MWAccessibility
 {
     namespace
@@ -157,6 +161,38 @@ namespace MWAccessibility
             }
         }
         return best;
+    }
+
+    std::vector<VerticalShaft> collectCellShafts(const MWWorld::Ptr& player)
+    {
+        MWWorld::CellStore* cell = player.getCell();
+        if (!cell)
+            return {};
+
+        // Keep the id strings alive for the whole call: ShaftPiece::mRefId is a
+        // view, and the views are bound only after `ids` has stopped growing so a
+        // reallocation can't leave them dangling.
+        std::vector<std::string> ids;
+        std::vector<ShaftPiece> pieces;
+        ids.reserve(64);
+        pieces.reserve(64);
+        cell->forEachConst([&](const MWWorld::ConstPtr& ptr) {
+            if (ptr.getCellRef().getCount() <= 0)
+                return true;
+            // toString(), NOT getRefIdString(): the latter THROWS for any RefId
+            // that isn't string-backed (generated/index refs do occur among a
+            // cell's refs), which would take the game down.
+            std::string id = ptr.getCellRef().getRefId().toString();
+            if (classifyShaftPiece(id) == ShaftPieceKind::NotShaft)
+                return true;
+            ids.push_back(std::move(id));
+            pieces.push_back(ShaftPiece{ std::string_view(), ptr.getRefData().getPosition().asVec3() });
+            return true;
+        });
+        for (std::size_t i = 0; i < pieces.size(); ++i)
+            pieces[i].mRefId = ids[i];
+
+        return detectShafts(pieces);
     }
 
     float nearestOpening(const VerticalShaft& shaft, float z)

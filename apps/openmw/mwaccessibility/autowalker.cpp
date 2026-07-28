@@ -812,6 +812,24 @@ namespace MWAccessibility
         return r.mHit ? (start - r.mHitPos).length() : kFlyFloorProbeLen;
     }
 
+    const VerticalShaft* AutoWalker::shaftForJourney(
+        const MWWorld::Ptr& player, const osg::Vec3f& playerPos, const osg::Vec3f& targetPos)
+    {
+        // Cache per cell: scanning every ref is far too costly to redo twice a
+        // second, and a cell's architecture cannot change under us.
+        const MWWorld::CellStore* cell = player.getCell();
+        if (!cell)
+            return nullptr;
+        if (cell != mShaftCacheCell)
+        {
+            mShaftCacheCell = cell;
+            mShaftCache = collectCellShafts(player);
+        }
+        if (mShaftCache.empty())
+            return nullptr;
+        return bestShaftForTravel(mShaftCache, playerPos.x(), playerPos.y(), playerPos.z(), targetPos.z());
+    }
+
     bool AutoWalker::findDescentOpening(
         const MWWorld::Ptr& player, const osg::Vec3f& playerPos, const osg::Vec3f& targetPos, osg::Vec3f& outSpot) const
     {
@@ -2643,12 +2661,30 @@ namespace MWAccessibility
                     if (!mSeekingShaft && mShaftSearchTimer <= 0.0f)
                     {
                         mShaftSearchTimer = kFlyShaftSearchInterval;
+                        // PREFER THE BUILDING'S OWN SHAFT. The ring probe below only
+                        // reaches kFlyShaftRadius3 (330 units), but a tower's shaft
+                        // is routinely further than that from where you stand -- in
+                        // Tel Uvirith's throne room it measures ~406 units, so the
+                        // probe was groping just short of it and the descent failed
+                        // every time from up there. The architecture tells us the
+                        // axis outright, at any distance, so try it first and keep
+                        // the blind probe as the fallback for buildings whose shaft
+                        // we don't recognise (it also handles plain ledges/voids,
+                        // which aren't shafts at all).
+                        bool haveSpot = false;
+                        if (const VerticalShaft* shaft = shaftForJourney(player, playerPos, targetPos))
+                        {
+                            mShaftSpot = osg::Vec3f(shaft->mX, shaft->mY, playerPos.z());
+                            haveSpot = true;
+                        }
                         osg::Vec3f spot;
-                        if (findDescentOpening(player, playerPos, targetPos, spot))
+                        if (!haveSpot && findDescentOpening(player, playerPos, targetPos, spot))
                         {
                             mShaftSpot = spot;
-                            mSeekingShaft = true;
+                            haveSpot = true;
                         }
+                        if (haveSpot)
+                            mSeekingShaft = true;
                     }
                     if (mSeekingShaft)
                     {
@@ -2693,6 +2729,8 @@ namespace MWAccessibility
                         << " climb=" << verticalClimb << " onGround=" << world->isOnGround(player)
                         << " headClear=" << headClear << " speed=" << speed
                         << " seekShaft=" << mSeekingShaft
+                        << " shaftSpot=(" << mShaftSpot.x() << "," << mShaftSpot.y() << ")"
+                        << " knownShafts=" << mShaftCache.size()
                         << " dropHere=" << probeDropClearance(player, playerPos);
                 }
             }
