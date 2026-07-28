@@ -4,6 +4,16 @@ A running log of screen-reader accessibility features added to this OpenMW fork.
 Newest changes are listed first. (OpenMW's own engine changelog lives in
 `CHANGELOG.md`.)
 
+## 2026-07-28
+
+- **New: Alt+L finds the levitation shaft** in Telvanni towers (Tel Fyr, Tel
+  Aruhn, Tel Vos, and player strongholds like Tel Uvirith). These towers have no
+  stairs between most floors -- the central shaft is the only way up or down --
+  and until now nothing in the game told you where it was or which floors it
+  reached. Alt+L answers all of that: "Shaft, 4.2 metres east. 3 floor openings,
+  nearest 2 of 3, 1.5 metres up." If the building has no shaft it says so rather
+  than staying silent.
+
 ## 2026-07-26
 
 - **Auto-walk can now descend to targets below you while levitating, instead of

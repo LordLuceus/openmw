@@ -20,6 +20,7 @@ file(GLOB UNITTEST_SRC_FILES
     mwaccessibility/spokenformat.cpp
     mwaccessibility/itembucket.cpp
     mwaccessibility/booktext.cpp
+    mwaccessibility/verticalshaft.cpp
 
     mwscript/testscripts.cpp
 )

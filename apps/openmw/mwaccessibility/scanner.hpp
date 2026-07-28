@@ -22,6 +22,7 @@
 #include "category.hpp"
 #include "hud.hpp"
 #include "proximitycue.hpp"
+#include "verticalshaft.hpp"
 
 namespace ESM
 {
@@ -371,6 +372,19 @@ namespace MWAccessibility
         // matching the arrow-key cluster). Needed because flying/diving without a
         // mouse gives no other sense of altitude or depth.
         void announceHeight();
+
+        /// Announce the levitation shaft in the current cell (Alt+L): its direction
+        /// and distance, how many floors open onto it, and which of those you are
+        /// nearest. In a Telvanni tower there are no stairs between most levels, so
+        /// the shaft is the only way up or down and nothing in the game points to
+        /// it. Says so plainly when there is no shaft here.
+        void announceVerticalShaft();
+
+        /// Detect the levitation shafts in the player's current cell from its
+        /// architecture (see verticalshaft.hpp). Shaft pieces are statics, which
+        /// the scanner's categories deliberately skip, so this walks the cell refs
+        /// directly. Ordered most substantial first.
+        std::vector<VerticalShaft> collectShafts(const MWWorld::Ptr& player) const;
         // Snap the player's facing to the previous/next of the eight compass
         // points (Ctrl+A = counter-clockwise, Ctrl+D = clockwise). Levels the
         // pitch and announces the new heading. A keyboard-friendly way to aim

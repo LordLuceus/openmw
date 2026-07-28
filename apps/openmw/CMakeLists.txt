@@ -117,7 +117,7 @@ add_openmw_dir (mwstate
     )
 
 add_openmw_dir (mwaccessibility
-    scanner autowalker proximitycue spokenformat itembucket hud
+    scanner autowalker proximitycue spokenformat itembucket hud verticalshaft
     )
 
 add_openmw_dir (mwbase
