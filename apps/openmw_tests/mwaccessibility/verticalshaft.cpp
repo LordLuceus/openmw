@@ -145,6 +145,48 @@ namespace
         EXPECT_NEAR(nearestOpening(s, 321.f), 321.f, 0.01f);
     }
 
+    // Tower of Tel Fyr, Hall of Fyr -- the REAL refs from Morrowind.esm.
+    //
+    // Unlike Tel Uvirith this is a vanilla tower, and its shaft is short: the
+    // column spans z 14320..14832, only 512 units (~7 m). Note also that four of
+    // the five hallshaft_caps sit 256 units OFF the axis, on the four compass
+    // points -- they cap the horizontal halls that meet the shaft, not the column.
+    static std::vector<ShaftPiece> telFyrHallOfFyr()
+    {
+        return {
+            { "in_t_s_hallshaft_cap", { 3904.f, 3920.f, 14832.f } }, // hall cap, off-axis
+            { "in_t_s_shaft_01", { 4160.f, 3920.f, 14576.f } },
+            { "in_t_s_shaft_vconnect", { 4160.f, 3920.f, 14320.f } },
+            { "in_t_s_shaft_6way", { 4160.f, 3920.f, 14832.f } },
+            { "in_t_s_hallshaft_cap", { 4416.f, 3920.f, 14832.f } }, // hall cap, off-axis
+            { "in_t_s_hallshaft_cap", { 4160.f, 3664.f, 14832.f } }, // hall cap, off-axis
+            { "in_t_s_hallshaft_cap", { 4160.f, 4176.f, 14832.f } }, // hall cap, off-axis
+            { "in_t_s_hallshaft_cap", { 4160.f, 3920.f, 14832.f } }, // on-axis cap
+        };
+    }
+
+    TEST(MWAccessibilityVerticalShaft, TelFyrShaftIsFoundOnItsTrueAxis)
+    {
+        const std::vector<VerticalShaft> shafts = detectShafts(telFyrHallOfFyr());
+        ASSERT_FALSE(shafts.empty());
+        const VerticalShaft& s = shafts.front();
+        // The off-axis hall caps must NOT drag the axis away from the real column,
+        // or the descent steers at a spot beside the shaft and lands on the floor.
+        EXPECT_NEAR(s.mX, 4160.f, 1.f);
+        EXPECT_NEAR(s.mY, 3920.f, 1.f);
+    }
+
+    TEST(MWAccessibilityVerticalShaft, TelFyrShaftDoesNotClaimTheWholeTower)
+    {
+        // The detected span is only what the pieces cover (512u). A walk from the
+        // Hall down to a target far below is NOT served by this shaft, and saying
+        // otherwise would send the descent to the column and then fail there --
+        // worse than never having claimed it, because the old ring probe (which
+        // would have found the actual nearby opening) never gets a turn.
+        const std::vector<VerticalShaft> shafts = detectShafts(telFyrHallOfFyr());
+        EXPECT_EQ(bestShaftForTravel(shafts, 4160.f, 3920.f, 14832.f, 12000.f), nullptr);
+    }
+
     // --- Obstructions in the column (e.g. the stronghold's elevator platform) ---
 
     TEST(MWAccessibilityVerticalShaft, PlatformParkedMidShaftBlocksDescent)
