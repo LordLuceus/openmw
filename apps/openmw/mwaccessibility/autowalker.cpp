@@ -254,6 +254,24 @@ namespace
     // it's low-volume and pinpoints routing/pathgrid-fallback decisions.)
     constexpr bool kLogStairDiag = false;
 
+    // A/B BUILD SWITCH for the architecture-derived levitation shaft.
+    //
+    // Set to false to get the pre-shaft behaviour: the descent falls back to the
+    // blind ring probe (findDescentOpening) exactly as it did before commit
+    // 9de963b391, and the Alt+L readout / walk-to-shaft keys still work but no
+    // longer influence routing. This exists so a suspected regression can be
+    // tested against a build that differs ONLY in this one decision -- comparing
+    // against an older checkout would also drag in every other change since.
+    //
+    // Kept as a constant rather than a setting deliberately: it must be provable
+    // from the binary which behaviour is in play (see the startup log line).
+    constexpr bool kUseArchitectureShaft = true;
+
+    // Low-volume log of every shaft decision (one line per search, ~2/sec while
+    // descending, nothing at all when not). Safe to leave on in a test build:
+    // unlike kLogStairDiag it does not fire during ordinary walking.
+    constexpr bool kLogShaftDiag = true;
+
     // How far a target actor must have moved from where it stood when the walk
     // began before we treat it as a "moving target" (a wandering NPC). Past this
     // we suppress the no-progress backstop -- which measures all-time-closest
@@ -483,6 +501,9 @@ namespace MWAccessibility
         // Capture where the target stood at walk start, so onFrame can tell if
         // it's a wandering actor that has since moved (see mTargetMoving).
         mTargetStartPos = targetPosition();
+        if (kLogShaftDiag)
+            Log(Debug::Warning) << "[a11y] shaftdiag: BUILD archShaft=" << (kUseArchitectureShaft ? 1 : 0)
+                                << " walkTo=" << mTargetName;
         if (!rebuildPath())
         {
             cancel();
@@ -502,6 +523,9 @@ namespace MWAccessibility
         resetProgress();
         // A fixed waypoint never moves; record it anyway for symmetry.
         mTargetStartPos = target;
+        if (kLogShaftDiag)
+            Log(Debug::Warning) << "[a11y] shaftdiag: BUILD archShaft=" << (kUseArchitectureShaft ? 1 : 0)
+                                << " walkTo=" << name;
         if (!rebuildPath())
         {
             cancel();
@@ -2693,7 +2717,26 @@ namespace MWAccessibility
                         // we don't recognise (it also handles plain ledges/voids,
                         // which aren't shafts at all).
                         bool haveSpot = false;
-                        if (const VerticalShaft* shaft = shaftForJourney(player, playerPos, targetPos))
+                        const VerticalShaft* shaft
+                            = kUseArchitectureShaft ? shaftForJourney(player, playerPos, targetPos) : nullptr;
+                        if (kLogShaftDiag)
+                        {
+                            Log(Debug::Warning)
+                                << "[a11y] shaftdiag: archShaft=" << (kUseArchitectureShaft ? 1 : 0)
+                                << " cellShafts=" << mShaftCache.size() << " pos=(" << playerPos.x() << ","
+                                << playerPos.y() << "," << playerPos.z() << ")"
+                                << " targetZ=" << targetPos.z() << " vGap=" << vGap << " dropHere=" << dropHere
+                                << " picked=" << (shaft ? 1 : 0);
+                            if (shaft)
+                                Log(Debug::Warning)
+                                    << "[a11y] shaftdiag: shaftAxis=(" << shaft->mX << "," << shaft->mY << ")"
+                                    << " bottom=" << shaft->mBottom << " top=" << shaft->mTop
+                                    << " pieces=" << shaft->mPieceCount << " openings=" << shaft->mOpenings.size()
+                                    << " horizDistToAxis="
+                                    << std::sqrt((shaft->mX - playerPos.x()) * (shaft->mX - playerPos.x())
+                                        + (shaft->mY - playerPos.y()) * (shaft->mY - playerPos.y()));
+                        }
+                        if (shaft)
                         {
                             // A Telvanni shaft is not always open: the stronghold kit
                             // runs a rideable elevator platform up the same column, and
@@ -2702,6 +2745,11 @@ namespace MWAccessibility
                             // go on, so check before committing and say so instead.
                             const ShaftObstruction blockage
                                 = probeShaftObstruction(player, *shaft, playerPos.z(), targetPos.z());
+                            if (kLogShaftDiag)
+                                Log(Debug::Warning)
+                                    << "[a11y] shaftdiag: blockHit=" << (blockage.mZ != 0.f ? 1 : 0)
+                                    << " blocked=" << (blockage.mBlocked ? 1 : 0) << " blockZ=" << blockage.mZ
+                                    << " playerZ=" << playerPos.z() << " targetZ=" << targetPos.z();
                             if (blockage.mBlocked)
                             {
                                 if (!mReportedShaftBlocked)
@@ -2720,13 +2768,23 @@ namespace MWAccessibility
                             }
                         }
                         osg::Vec3f spot;
-                        if (!haveSpot && findDescentOpening(player, playerPos, targetPos, spot))
+                        const bool probeFound
+                            = !haveSpot && findDescentOpening(player, playerPos, targetPos, spot);
+                        if (probeFound)
                         {
                             mShaftSpot = spot;
                             haveSpot = true;
                         }
                         if (haveSpot)
                             mSeekingShaft = true;
+                        if (kLogShaftDiag)
+                            Log(Debug::Warning)
+                                << "[a11y] shaftdiag: chose=" << (!haveSpot ? "nothing" : (shaft ? "arch" : "probe"))
+                                << " probeFound=" << (probeFound ? 1 : 0) << " spot=(" << mShaftSpot.x() << ","
+                                << mShaftSpot.y() << ")"
+                                << " spotDist="
+                                << std::sqrt((mShaftSpot.x() - playerPos.x()) * (mShaftSpot.x() - playerPos.x())
+                                    + (mShaftSpot.y() - playerPos.y()) * (mShaftSpot.y() - playerPos.y()));
                     }
                     if (mSeekingShaft)
                     {
