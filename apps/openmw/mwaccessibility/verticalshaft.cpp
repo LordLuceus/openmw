@@ -4,6 +4,10 @@
 #include <cmath>
 #include <limits>
 
+#include "../mwbase/environment.hpp"
+#include "../mwbase/world.hpp"
+#include "../mwphysics/collisiontype.hpp"
+#include "../mwphysics/raycasting.hpp"
 #include "../mwworld/cellstore.hpp"
 #include "../mwworld/class.hpp"
 #include "../mwworld/ptr.hpp"
@@ -211,5 +215,49 @@ namespace MWAccessibility
             }
         }
         return best;
+    }
+
+    bool obstructionBlocksJourney(float obstructionZ, float fromZ, float toZ, float slack)
+    {
+        const float lo = std::min(fromZ, toZ);
+        const float hi = std::max(fromZ, toZ);
+        if (obstructionZ < lo - slack || obstructionZ > hi + slack)
+            return false;
+        // Ground at the DESTINATION is expected -- it's what you're landing on --
+        // so give only that end the slack. The starting end gets none: a platform
+        // parked under your feet is exactly the obstruction worth reporting.
+        return std::abs(obstructionZ - toZ) > slack;
+    }
+
+    ShaftObstruction probeShaftObstruction(
+        const MWWorld::Ptr& player, const VerticalShaft& shaft, float fromZ, float toZ)
+    {
+        MWBase::World* world = MWBase::Environment::get().getWorld();
+        if (!world)
+            return {};
+        const auto* rc = world->getRayCasting();
+        if (!rc)
+            return {};
+
+        // Cast along the shaft's own axis, from just clear of where we stand to
+        // just past the destination, and let the physics world answer. Doors count:
+        // some kits close a shaft with a trapdoor rather than a moving platform.
+        constexpr float kStartOffset = 24.f;
+        const bool descending = toZ < fromZ;
+        const float dir = descending ? -1.f : 1.f;
+        const osg::Vec3f start(shaft.mX, shaft.mY, fromZ + dir * kStartOffset);
+        const osg::Vec3f end(shaft.mX, shaft.mY, toZ);
+        if ((end - start).length2() <= 0.f)
+            return {};
+
+        const auto r = rc->castRay(start, end, { player }, {},
+            MWPhysics::CollisionType_World | MWPhysics::CollisionType_HeightMap | MWPhysics::CollisionType_Door);
+        if (!r.mHit)
+            return {};
+
+        ShaftObstruction out;
+        out.mZ = r.mHitPos.z();
+        out.mBlocked = obstructionBlocksJourney(out.mZ, fromZ, toZ);
+        return out;
     }
 }

@@ -556,6 +556,26 @@ namespace MWAccessibility
         speakQueued(buf);
     }
 
+    void AutoWalker::announceShaftBlocked(float playerZ, float blockageZ) const
+    {
+        // State the fact and where it is, and stop. No advice about switches or
+        // levers: we know something is in the shaft, not what would move it, and
+        // guessing would be exactly the confident-but-wrong speech that a
+        // speech-only interface cannot afford.
+        const float gap = blockageZ - playerZ;
+        char buf[160];
+        if (std::abs(gap) > kVerticalGapNotable)
+        {
+            std::snprintf(buf, sizeof(buf), "Shaft is blocked %.0f metres %s.", std::abs(gap) / 69.99f,
+                gap > 0.0f ? "up" : "down");
+        }
+        else
+        {
+            std::snprintf(buf, sizeof(buf), "Shaft is blocked here.");
+        }
+        speakQueued(buf);
+    }
+
     float AutoWalker::chooseRecoverySide(const MWWorld::Ptr& player, const osg::Vec3f& playerPos, float yaw,
         float fallbackDir) const
     {
@@ -922,6 +942,7 @@ namespace MWAccessibility
         mStepHopCooldown = 0.0f;
         mSeekingShaft = false;
         mShaftSearchTimer = 0.0f;
+        mReportedShaftBlocked = false;
         mProgressive = false;
         mTimeSinceCallout = 0.0f;
         mLastCalloutDist = std::numeric_limits<float>::max();
@@ -2674,8 +2695,29 @@ namespace MWAccessibility
                         bool haveSpot = false;
                         if (const VerticalShaft* shaft = shaftForJourney(player, playerPos, targetPos))
                         {
-                            mShaftSpot = osg::Vec3f(shaft->mX, shaft->mY, playerPos.z());
-                            haveSpot = true;
+                            // A Telvanni shaft is not always open: the stronghold kit
+                            // runs a rideable elevator platform up the same column, and
+                            // a platform parked on another floor seals it. Grinding into
+                            // its underside gives a speech-only player nothing at all to
+                            // go on, so check before committing and say so instead.
+                            const ShaftObstruction blockage
+                                = probeShaftObstruction(player, *shaft, playerPos.z(), targetPos.z());
+                            if (blockage.mBlocked)
+                            {
+                                if (!mReportedShaftBlocked)
+                                {
+                                    mReportedShaftBlocked = true;
+                                    announceShaftBlocked(playerPos.z(), blockage.mZ);
+                                }
+                                // Don't steer into it. Leave pitch alone so ordinary
+                                // waypoint following still gets a chance, and stuck
+                                // detection can report honestly if it doesn't.
+                            }
+                            else
+                            {
+                                mShaftSpot = osg::Vec3f(shaft->mX, shaft->mY, playerPos.z());
+                                haveSpot = true;
+                            }
                         }
                         osg::Vec3f spot;
                         if (!haveSpot && findDescentOpening(player, playerPos, targetPos, spot))

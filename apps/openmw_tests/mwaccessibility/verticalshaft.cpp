@@ -144,4 +144,46 @@ namespace
         // than inventing a floor.
         EXPECT_NEAR(nearestOpening(s, 321.f), 321.f, 0.01f);
     }
+
+    // --- Obstructions in the column (e.g. the stronghold's elevator platform) ---
+
+    TEST(MWAccessibilityVerticalShaft, PlatformParkedMidShaftBlocksDescent)
+    {
+        // Descending 1289 -> 197 with the elevator plug parked at its "second
+        // floor" rest height of 1000: squarely in the way.
+        EXPECT_TRUE(obstructionBlocksJourney(1000.f, 1289.f, 197.f));
+    }
+
+    TEST(MWAccessibilityVerticalShaft, FloorAtTheDestinationIsNotABlockage)
+    {
+        // The ray is bound to stop on the ground we intend to land on. That is
+        // arrival, not obstruction, or every descent would report itself blocked.
+        EXPECT_FALSE(obstructionBlocksJourney(197.f, 1289.f, 197.f));
+        EXPECT_FALSE(obstructionBlocksJourney(180.f, 1289.f, 197.f));
+    }
+
+    TEST(MWAccessibilityVerticalShaft, PlatformUnderfootBlocksRatherThanCountingAsArrival)
+    {
+        // Standing ON the plug at 490 and trying to reach the basement: the thing
+        // under our feet is the obstruction. The starting end gets no slack, or
+        // this case -- the one he can actually reproduce with the elevator -- would
+        // be silently excused.
+        EXPECT_TRUE(obstructionBlocksJourney(488.f, 490.f, -20.f));
+    }
+
+    TEST(MWAccessibilityVerticalShaft, ObstructionOutsideTheJourneyIsIgnored)
+    {
+        // The shaft cap far above us has no bearing on a descent.
+        EXPECT_FALSE(obstructionBlocksJourney(1280.f, 600.f, 197.f));
+        // Nor does something below the destination.
+        EXPECT_FALSE(obstructionBlocksJourney(-20.f, 600.f, 197.f));
+    }
+
+    TEST(MWAccessibilityVerticalShaft, BlockageDetectionWorksWhenAscending)
+    {
+        // Same reasoning mirrored: a platform above us blocks a climb, while the
+        // floor of the level we're rising into is the destination, not a blockage.
+        EXPECT_TRUE(obstructionBlocksJourney(1000.f, 197.f, 1289.f));
+        EXPECT_FALSE(obstructionBlocksJourney(1289.f, 197.f, 1289.f));
+    }
 }

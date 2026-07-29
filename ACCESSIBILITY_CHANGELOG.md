@@ -4,6 +4,17 @@ A running log of screen-reader accessibility features added to this OpenMW fork.
 Newest changes are listed first. (OpenMW's own engine changelog lives in
 `CHANGELOG.md`.)
 
+## 2026-07-29
+
+- **Auto-walk now notices when the shaft is blocked, and says so.** In player
+  strongholds the shaft doubles as an elevator, and a platform parked on another
+  floor seals it completely. Auto-walk used to fly into the shaft and grind
+  against the underside of the platform indefinitely, with nothing to hear.
+  It now checks the column first and tells you: "Shaft is blocked 4 metres down."
+- **Alt+L reports a blocked shaft too**, so you can tell whether the shaft is
+  usable before you set off: "Shaft, here. 4 floor openings, nearest 1 of 4.
+  Blocked, 4 metres down."
+
 ## 2026-07-28
 
 - **New: Alt+L finds the levitation shaft** in Telvanni towers (Tel Fyr, Tel

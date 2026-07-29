@@ -356,6 +356,13 @@ namespace MWAccessibility
         osg::Vec3f mShaftSpot;
         float mShaftSearchTimer = 0.0f;
 
+        // Latched once we've told the player the shaft is blocked, so a re-search
+        // twice a second doesn't repeat it. Reset per journey in start().
+        bool mReportedShaftBlocked = false;
+
+        /// Say that the shaft is obstructed, and where. Called once per journey.
+        void announceShaftBlocked(float playerZ, float blockageZ) const;
+
         /// The levitation shaft (if any) that spans a journey from \p playerPos to
         /// \p targetPos, read from the cell's architecture. Preferred over the blind
         /// ring probe in findDescentOpening because it knows the shaft's axis at any

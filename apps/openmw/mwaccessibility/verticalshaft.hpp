@@ -103,6 +103,42 @@ namespace MWAccessibility
     // the target's own height and try there).
     float nearestOpening(const VerticalShaft& shaft, float z);
 
+    // Something solid found in a shaft's column.
+    struct ShaftObstruction
+    {
+        bool mBlocked = false;
+        float mZ = 0.f; // height of the obstruction
+    };
+
+    // Does an obstruction at \p obstructionZ actually stand in the way of
+    // travelling from \p fromZ to \p toZ?
+    //
+    // The subtlety is which end gets the benefit of the doubt. At the
+    // DESTINATION end, solid ground is expected -- it's the floor you mean to
+    // land on -- so anything within \p slack of \p toZ is not a blockage. At the
+    // STARTING end there is no such grace: a platform parked directly under your
+    // feet is precisely the thing that stops you descending, and reporting it is
+    // the whole point.
+    //
+    // Works in both directions; ascending simply mirrors the reasoning (a ceiling
+    // right at the destination is the floor of the level you're rising into).
+    bool obstructionBlocksJourney(float obstructionZ, float fromZ, float toZ, float slack = 32.f);
+
+    // Look for something solid in \p shaft's column between \p fromZ and \p toZ.
+    //
+    // Telvanni shafts are not always open: the player-stronghold kit runs a
+    // rideable elevator platform up the same column, and a platform parked on
+    // another floor seals the shaft completely. Without this, auto-walk steers
+    // into the shaft and grinds against the underside of the platform forever --
+    // there is nothing to hear and nothing to see, which is the worst possible
+    // failure for a speech-only interface. Probing first lets callers say "the
+    // shaft is blocked" and stop, instead of failing mutely.
+    //
+    // Reports the FIRST obstruction from \p fromZ, so the reported height is the
+    // one that matters to a traveller starting there.
+    ShaftObstruction probeShaftObstruction(
+        const MWWorld::Ptr& player, const VerticalShaft& shaft, float fromZ, float toZ);
+
     // Detect the shafts in \p player's current cell. This is the one engine-facing
     // entry point in this module: it walks the cell's refs (shaft pieces are
     // STATICS, which the scanner's categories deliberately skip) and feeds them to

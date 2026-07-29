@@ -3147,6 +3147,20 @@ namespace MWAccessibility
         }
         line += ".";
 
+        // Whether the column is actually clear matters as much as where it is: the
+        // stronghold kit's elevator platform seals the shaft when parked elsewhere.
+        // Probe toward the far end of the shaft in whichever direction has more of
+        // it, so this answers "can I use it?" before the player commits.
+        const float upSpan = best->mTop - playerPos.z();
+        const float downSpan = playerPos.z() - best->mBottom;
+        const float toZ = (upSpan > downSpan) ? best->mTop : best->mBottom;
+        const ShaftObstruction blockage = probeShaftObstruction(player, *best, playerPos.z(), toZ);
+        if (blockage.mBlocked)
+        {
+            const std::string rel = formatElevation(blockage.mZ - playerPos.z());
+            line += rel.empty() ? " Blocked." : (" Blocked, " + rel + ".");
+        }
+
         speak(line);
     }
 
@@ -3169,6 +3183,12 @@ namespace MWAccessibility
         // Aim for the shaft's axis at our CURRENT height: the point is to get you
         // standing in the column, from where you fly up or down yourself. Going to
         // some other floor's height would fight the walk rather than help it.
+        //
+        // Deliberately NOT gated on probeShaftObstruction: when the stronghold's
+        // elevator platform is parked at our level, the "obstruction" is the floor
+        // we want to stand on -- boarding it is how you ride to a level the shaft
+        // alone can't reach (e.g. Tel Uvirith's secret lab). Blockage only matters
+        // when something must be flown PAST, which is the descent's problem.
         const osg::Vec3f spot(shaft.mX, shaft.mY, playerPos.z());
         if (!mAutoWalker.start(spot, "shaft"))
             speak("Cannot reach the shaft.");
