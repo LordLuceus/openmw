@@ -270,7 +270,7 @@ namespace
     // Low-volume log of every shaft decision (one line per search, ~2/sec while
     // descending, nothing at all when not). Safe to leave on in a test build:
     // unlike kLogStairDiag it does not fire during ordinary walking.
-    constexpr bool kLogShaftDiag = true;
+    constexpr bool kLogShaftDiag = false;
 
     // How far a target actor must have moved from where it stood when the walk
     // began before we treat it as a "moving target" (a wandering NPC). Past this
