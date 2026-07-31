@@ -4,6 +4,20 @@ A running log of screen-reader accessibility features added to this OpenMW fork.
 Newest changes are listed first. (OpenMW's own engine changelog lives in
 `CHANGELOG.md`.)
 
+## 2026-07-31
+
+- **Fixed: auto-walk sometimes flailed uselessly just after entering an area.**
+  On arriving somewhere new -- the Tel Uvirith dungeon coming in from the deep
+  tunnels was a reliable case -- auto-walk could bounce and jitter on the spot
+  without going anywhere, until it gave up with "Stuck". Saving and reloading
+  cleared it up. The cause was that the game builds its walkable-area map in the
+  background, and auto-walk was setting off before the map covered the ground
+  under your feet; with nothing to route along it fell back to walking in a
+  straight line into whatever was in the way. Auto-walk now waits the moment or
+  two for the map to be ready and then walks a proper route. If the map somehow
+  never turns up, it now tells you -- "Area map not ready" -- instead of
+  bouncing off the walls or claiming the target cannot be reached.
+
 ## 2026-07-29
 
 - **Auto-walk now notices when the shaft is blocked, and says so.** In player

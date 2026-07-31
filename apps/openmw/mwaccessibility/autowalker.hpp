@@ -77,6 +77,23 @@ namespace MWAccessibility
         };
 
         bool rebuildPath();
+        // Is the navmesh usable for routing from the player's CURRENT position?
+        //
+        // The navmesh is built ASYNCHRONOUSLY on worker threads. On entering a
+        // cell the engine only blocks for tiles within "wait until min distance
+        // to player" (default 5) of the player, so the mesh can still be
+        // incomplete -- or, right after a door transition, not yet cover the
+        // player's own tile at all. Pathing then produces no route and we fall
+        // through to the straight-line last resort, which bee-lines into walls
+        // and reads to the player as auto-walk "jumping around uselessly" until
+        // it reports stuck. Saving and reloading appears to fix it only because
+        // the extra seconds let the background jobs finish.
+        //
+        // Probing whether the navmesh can locate the player is the honest test:
+        // it asks the same structure the pathfinder will use, rather than
+        // guessing from a timer or a job count (jobs may be queued for distant
+        // tiles we don't care about, and zero jobs doesn't prove OUR tile is in).
+        bool navMeshReadyForPlayer() const;
         // Reset all progress / stuck / recovery state for a fresh walk.
         void resetProgress();
         // Scan the freshly-built path for hazards (deep water crossings and
@@ -188,6 +205,18 @@ namespace MWAccessibility
         std::string mTeleportName;
         MWMechanics::PathFinder mPathFinder;
         float mTimeSinceRepath = 0.0f;
+
+        // DEFERRED START: the navmesh wasn't ready when the walk was requested,
+        // so we're holding the intent and retrying each frame instead of setting
+        // off on a straight-line bee-line we know is wrong. Cleared as soon as a
+        // real route is built (or when we give up after kNavMeshWaitTimeout).
+        //
+        // Waiting is the right call rather than refusing outright: the mesh is
+        // usually only a fraction of a second away, and the player asked to go
+        // somewhere -- silently doing nothing, or bouncing off walls, are both
+        // worse than a brief pause followed by a correct route.
+        bool mAwaitingNavMesh = false;
+        float mNavMeshWaitTime = 0.0f;
 
         // Set when the current route came from the hand-authored pathgrid
         // fallback (rebuildPath adopted it because the navmesh route fell short

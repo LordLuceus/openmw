@@ -59,6 +59,20 @@ namespace
     constexpr float kWaypointTolerance = 32.0f;
     constexpr float kRepathInterval = 1.0f; // seconds
 
+    // How long to hold a walk request while the navmesh finishes building in the
+    // background before giving up (seconds). Generous: on a slow machine or a
+    // large modded cell the worker threads can take a while, and waiting is far
+    // better than bee-lining into scenery. If it really never arrives, the
+    // player gets an honest "the area map isn't ready" rather than silence.
+    constexpr float kNavMeshWaitTimeout = 10.0f;
+
+    // Half-extents of the box searched when probing whether the navmesh covers
+    // the player. Deliberately generous vertically: the player can stand a
+    // little above the mesh surface (on a step, a rug, mid-settle after a door
+    // transition) and we don't want that read as "no navmesh".
+    constexpr float kNavMeshProbeHoriz = 128.0f;
+    constexpr float kNavMeshProbeVert = 256.0f;
+
     // A vertical gap (player-to-target Z) larger than this is a genuine
     // elevation difference -- a different floor / balcony -- worth calling out
     // by ear ("N metres above you") rather than the generic "stopped short".
@@ -504,6 +518,14 @@ namespace MWAccessibility
         if (kLogShaftDiag)
             Log(Debug::Warning) << "[a11y] shaftdiag: BUILD archShaft=" << (kUseArchitectureShaft ? 1 : 0)
                                 << " walkTo=" << mTargetName;
+        // Hold the walk if the navmesh isn't ready yet (see navMeshReadyForPlayer).
+        // Starting now would build a straight-line route into the scenery.
+        if (!navMeshReadyForPlayer())
+        {
+            mAwaitingNavMesh = true;
+            mNavMeshWaitTime = 0.0f;
+            return true;
+        }
         if (!rebuildPath())
         {
             cancel();
@@ -526,6 +548,13 @@ namespace MWAccessibility
         if (kLogShaftDiag)
             Log(Debug::Warning) << "[a11y] shaftdiag: BUILD archShaft=" << (kUseArchitectureShaft ? 1 : 0)
                                 << " walkTo=" << name;
+        // Hold the walk if the navmesh isn't ready yet (see navMeshReadyForPlayer).
+        if (!navMeshReadyForPlayer())
+        {
+            mAwaitingNavMesh = true;
+            mNavMeshWaitTime = 0.0f;
+            return true;
+        }
         if (!rebuildPath())
         {
             cancel();
@@ -940,6 +969,10 @@ namespace MWAccessibility
     {
         mFinalApproach = false;
         mTimeSinceRepath = 0.0f;
+        // Clear any deferred-start hold: a fresh walk re-probes the navmesh
+        // itself, and a stale flag here would silently freeze the new walk.
+        mAwaitingNavMesh = false;
+        mNavMeshWaitTime = 0.0f;
         mBestDistToGoal = std::numeric_limits<float>::max();
         mBestPathRemaining = std::numeric_limits<float>::max();
         mTimeSinceProgress = 0.0f;
@@ -1010,6 +1043,8 @@ namespace MWAccessibility
         // walk end routes through cancel(), so restoring here covers every exit.
         restorePhasing();
         mActive = false;
+        mAwaitingNavMesh = false;
+        mNavMeshWaitTime = 0.0f;
         mTarget = MWWorld::Ptr();
         mHasPtrTarget = true;
         mTargetName.clear();
@@ -1040,6 +1075,34 @@ namespace MWAccessibility
         outName = mTeleportName;
         mTeleportArmed = false; // one-shot: a fresh failed walk must re-arm it
         return true;
+    }
+
+    bool AutoWalker::navMeshReadyForPlayer() const
+    {
+        MWBase::World* world = MWBase::Environment::get().getWorld();
+        if (world == nullptr)
+            return false;
+        DetourNavigator::Navigator* navigator = world->getNavigator();
+        // No navigator at all: nothing to wait for. Some interiors genuinely
+        // have no navmesh and rely on the pathgrid, so treat this as "ready"
+        // and let rebuildPath's normal fallbacks handle it. Waiting forever for
+        // a mesh that will never exist would break those cells entirely.
+        if (navigator == nullptr)
+            return true;
+
+        MWWorld::Ptr player = world->getPlayerPtr();
+        if (player.isEmpty())
+            return false;
+
+        const osg::Vec3f pos = player.getRefData().getPosition().asVec3();
+        const DetourNavigator::AgentBounds bounds = world->getPathfindingAgentBounds(player);
+        const DetourNavigator::Flags flags = playerNavigatorFlags();
+
+        // Can the navmesh place the player on it? If the tile under our feet
+        // hasn't been built yet this fails, which is precisely the condition
+        // that makes every subsequent path attempt collapse to a bee-line.
+        const osg::Vec3f halfExtents(kNavMeshProbeHoriz, kNavMeshProbeHoriz, kNavMeshProbeVert);
+        return DetourNavigator::findNearestNavMeshPosition(*navigator, bounds, pos, halfExtents, flags).has_value();
     }
 
     bool AutoWalker::rebuildPath()
@@ -1481,6 +1544,34 @@ namespace MWAccessibility
         {
             speakQueued("Lost target.");
             cancel();
+            return;
+        }
+
+        // DEFERRED START: we're holding this walk until the navmesh covers the
+        // player (see navMeshReadyForPlayer). Stand still and retry -- moving on
+        // a bogus route is what produced the "jumps around uselessly" symptom.
+        if (mAwaitingNavMesh)
+        {
+            mNavMeshWaitTime += dt;
+            if (navMeshReadyForPlayer())
+            {
+                mAwaitingNavMesh = false;
+                mNavMeshWaitTime = 0.0f;
+                if (!rebuildPath())
+                {
+                    speakQueued("Cannot reach " + mTargetName + ".");
+                    cancel();
+                }
+                return;
+            }
+            if (mNavMeshWaitTime >= kNavMeshWaitTimeout)
+            {
+                // Say WHY we're not moving. Silence here would be indistinguishable
+                // from the mod being broken, and "cannot reach" would be a lie --
+                // the route may well be fine once the area finishes loading.
+                speakQueued("Area map not ready. Cannot walk to " + mTargetName + " yet.");
+                cancel();
+            }
             return;
         }
 
