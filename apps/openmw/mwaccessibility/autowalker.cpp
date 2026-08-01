@@ -14,6 +14,7 @@
 #include <components/detournavigator/flags.hpp>
 #include <components/detournavigator/areatype.hpp>
 #include <components/detournavigator/navigatorutils.hpp>
+#include <components/detournavigator/stats.hpp>
 #include <components/esm/util.hpp>
 #include <components/esm3/loadcell.hpp>
 #include <components/esm3/loaddoor.hpp>
@@ -60,11 +61,11 @@ namespace
     constexpr float kRepathInterval = 1.0f; // seconds
 
     // How long to hold a walk request while the navmesh finishes building in the
-    // background before giving up (seconds). Generous: on a slow machine or a
-    // large modded cell the worker threads can take a while, and waiting is far
-    // better than bee-lining into scenery. If it really never arrives, the
-    // player gets an honest "the area map isn't ready" rather than silence.
-    constexpr float kNavMeshWaitTimeout = 10.0f;
+    // background (seconds). Kept SHORT: this gate only exists to dodge a
+    // known-bad bee-line, and on timeout we proceed with the ordinary route
+    // anyway, so a long stall would just feel like the mod ignoring the key.
+    // The race it targets resolves in well under a second in practice.
+    constexpr float kNavMeshWaitTimeout = 2.0f;
 
     // Half-extents of the box searched when probing whether the navmesh covers
     // the player. Deliberately generous vertically: the player can stand a
@@ -1094,6 +1095,29 @@ namespace MWAccessibility
         if (player.isEmpty())
             return false;
 
+        // FLYING / SWIMMING: the player is deliberately off the ground, so there
+        // is legitimately no navmesh beneath them -- a levitating approach from
+        // high in the air is a NORMAL way to travel, not a half-loaded cell.
+        // Gating on the mesh here would refuse the very journeys that need it
+        // most (long trips flown in from altitude, then handed to auto-walk to
+        // descend onto the target). The flying follower doesn't depend on the
+        // mesh existing under us anyway: it steers in 3D toward waypoints and
+        // falls back to a bee-line, which is correct in open air.
+        if (world->isFlying(player) || world->isSwimming(player))
+            return true;
+
+        // Nothing left to build? Then whatever the mesh looks like now is what
+        // we're going to get, so waiting cannot help. This distinguishes "the
+        // tile isn't built YET" (jobs outstanding -- worth waiting for) from
+        // "this spot simply has no navmesh" (no jobs -- waiting would hang).
+        // Checked BEFORE the position probe so a genuinely mesh-free spot never
+        // stalls the walk.
+        const DetourNavigator::Stats stats = navigator->getStats();
+        const std::size_t pending
+            = stats.mUpdater.mJobs + stats.mUpdater.mPushed + stats.mUpdater.mProcessing;
+        if (pending == 0)
+            return true;
+
         const osg::Vec3f pos = player.getRefData().getPosition().asVec3();
         const DetourNavigator::AgentBounds bounds = world->getPathfindingAgentBounds(player);
         const DetourNavigator::Flags flags = playerNavigatorFlags();
@@ -1566,11 +1590,19 @@ namespace MWAccessibility
             }
             if (mNavMeshWaitTime >= kNavMeshWaitTimeout)
             {
-                // Say WHY we're not moving. Silence here would be indistinguishable
-                // from the mod being broken, and "cannot reach" would be a lie --
-                // the route may well be fine once the area finishes loading.
-                speakQueued("Area map not ready. Cannot walk to " + mTargetName + " yet.");
-                cancel();
+                // Timed out. Do NOT refuse the walk: this gate is an optimisation
+                // to avoid a known-bad bee-line, and it must never leave the
+                // player worse off than before it existed. Fall through to the
+                // ordinary route-building and let the normal fallbacks (pathgrid,
+                // straight line) and stuck detection do their job, exactly as
+                // they did previously.
+                mAwaitingNavMesh = false;
+                mNavMeshWaitTime = 0.0f;
+                if (!rebuildPath())
+                {
+                    speakQueued("Cannot reach " + mTargetName + ".");
+                    cancel();
+                }
             }
             return;
         }

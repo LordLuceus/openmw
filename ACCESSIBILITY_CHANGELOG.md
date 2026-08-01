@@ -14,9 +14,13 @@ Newest changes are listed first. (OpenMW's own engine changelog lives in
   background, and auto-walk was setting off before the map covered the ground
   under your feet; with nothing to route along it fell back to walking in a
   straight line into whatever was in the way. Auto-walk now waits the moment or
-  two for the map to be ready and then walks a proper route. If the map somehow
-  never turns up, it now tells you -- "Area map not ready" -- instead of
-  bouncing off the walls or claiming the target cannot be reached.
+  two for the map to be ready and then walks a proper route. If the map is slow
+  to arrive it simply sets off as it always used to, so it can never leave you
+  worse off than before.
+- **Levitating approaches are unaffected.** Flying in high above the landscape
+  and then handing over to auto-walk to bring you down onto your destination
+  works exactly as it did -- being up in the air is a normal way to travel, not
+  a half-loaded area, so auto-walk sets off immediately as before.
 
 ## 2026-07-29
 
