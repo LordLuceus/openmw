@@ -4,6 +4,23 @@ A running log of screen-reader accessibility features added to this OpenMW fork.
 Newest changes are listed first. (OpenMW's own engine changelog lives in
 `CHANGELOG.md`.)
 
+## 2026-08-06
+
+- **Fixed: the console was impossible to type into while another window was open.**
+  Opening the console during a conversation (or any other screen-reader-driven
+  window) appeared to work -- it announced itself and showed up -- but every
+  keystroke was still being read as a command for the window underneath: D read
+  out the disposition, Enter pressed the Continue button, and the letters you
+  typed never reached the command line. The console now takes keyboard input for
+  as long as it is open, and the window beneath it goes quiet until you close it
+  again, at which point you are put back exactly where you were.
+  This matters for more than convenience: the console is the only way out of a
+  handful of situations the game cannot otherwise recover from. The one that
+  prompted this fix is a conversation topic that loops forever -- the Continue
+  button just returns you to the same line, with no option that ends it -- where
+  `TM` (which hides the menus) breaks the cycle. Saving and reloading does not
+  help there, so until now the only option was to abandon progress.
+
 ## 2026-07-31
 
 - **Fixed: auto-walk sometimes flailed uselessly just after entering an area.**

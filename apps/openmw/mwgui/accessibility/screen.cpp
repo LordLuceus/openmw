@@ -943,6 +943,22 @@ namespace MWGui::A11y
             mYieldedToModal = true;
             return;
         }
+
+        // The console is not a MyGUI modal, so the check above does not catch it:
+        // it simply takes key focus once when it opens. Any screen that re-pins
+        // focus every frame therefore steals it straight back, leaving the
+        // console visible but impossible to type into -- keystrokes go on being
+        // interpreted as screen commands (D reads disposition, Enter presses the
+        // focused button). That matters because the console is the only escape
+        // from a few otherwise unrecoverable situations, such as a dialogue topic
+        // that loops forever. While it is up, get out of its way completely: the
+        // same yield/reclaim path used for modals restores focus and re-announces
+        // where we were once it closes.
+        if (MWBase::Environment::get().getWindowManager()->isConsoleMode())
+        {
+            mYieldedToModal = true;
+            return;
+        }
         if (mYieldedToModal)
         {
             // Modal just closed: reclaim anchor focus and re-announce so the
