@@ -67,12 +67,11 @@ auto-walk, location announcements, and audio beacon (gameplay, not a screen).
       existing `transferItem`/`ItemTransfer::apply` path. `a11yStoreItem` +
       `onA11yCountStored` mirror the drop flow (unequip-if-needed, then follow the
       item). Closes the take/drop/store gap (could take + drop, not store).
-- [x] **Companion** (`GM_Companion`) — share/transfer items. The companion window
-      has NO accessibility yet (no `mA11y`), so it needs its own item list +
-      buildAccessibility first, then enrol as pane 0 (mirroring the container
-      work above) so the inventory's S-store path can target it too. Inventory
-      enrolment + S-store currently gated to `GM_Container`; extend to
-      `GM_Companion` once its pane exists.
+- [x] **Companion** (`GM_Companion`) — share/transfer items. Companion window has
+      its own `mA11y` item list + `buildAccessibility()` and is enrolled as pane 0
+      (`companionwindow.cpp`), so Tab switches to the player inventory; the
+      inventory's store path is gated on `GM_Container || GM_Companion`. E reads
+      the companion's encumbrance (and profit/loss for hired companions).
 - [x] **Quick keys menu** (`GM_QuickKeysMenu`) — 10 slots navigable as an
       A11y::Screen (virtual focus); each reads "Quick key N, <name>/None/Hand To
       Hand", live via describe(). Enter opens the assign chooser (Item/Magic/
@@ -142,9 +141,10 @@ auto-walk, location announcements, and audio beacon (gameplay, not a screen).
       waypoint-advance fix in the steering in onFrame).
 
 ### Targeting / combat (lock-on backbone landed)
-- [x] **Lock-on targeting** — press K to lock the scanner selection; player is
+- [x] **Lock-on targeting** — press X to lock the scanner selection; player is
       re-aimed (yaw + pitch, eye-to-centre) every frame so melee/spells/tools
-      connect. Releases on death, walk-away, or K again.
+      connect. Releases on death, walk-away, or X again. (K is the object *mark*
+      toggle; lock-on moved K -> X on 2026-06-16.)
 - [x] **Lockpicking / probes** — now use the locked target directly, so they work
       even when the camera ray is blocked by furniture in front of the container.
 - [x] **Touch-on-object spells** (e.g. Open) — same locked-target bypass.
@@ -276,18 +276,22 @@ P13 6, P14 7, P15 10, P16 1, P17 6, P18 4.
       formatElevation/letterForIndex/compassLabel) and `.../itembucket.cpp`
       (classifyItemType). Enabling them flips `BUILD_OPENMW_TESTS=ON` (was OFF);
       build the `openmw-tests` target and run `openmw-tests.exe
-      --gtest_filter=MWAccessibility*`. Remaining top units:
-      `bookMarkupToParagraphs` (booktext.cpp — the unmatched-`<` P7 case),
+      --gtest_filter=MWAccessibility*`. **As of 2026-08-09 there are five a11y
+      test files** — `spokenformat`, `itembucket`, `booktext`, `verticalshaft`,
+      `markremap` — and the whole suite is 552 green. Remaining top units:
       `editfield` diffSpan + hand-rolled UTF-8 encoder, `withPosition`
-      (screen.cpp:19-28), `formatSpellEffectLine`, `itemTooltipLines` dedup,
+      (screen.cpp), `formatSpellEffectLine`, `itemTooltipLines` dedup,
       screen nav math (moveSelection/jumpSection).
 - [~] **(P13) Extract a pure, injectable-seam layer** (speech sink, clock, state
       reads) so the above become testable without standing up MyGUI + the engine.
-      STARTED 2026-06-10: carved two engine-free TUs out of scanner.cpp —
+      STARTED 2026-06-10: carved four engine-free TUs out so far —
       `mwaccessibility/spokenformat.{hpp,cpp}` (formatDistance/formatElevation/
-      letterForIndex/compassLabel + shared kPi/kUnitsPerMetre) and
+      letterForIndex/compassLabel + shared kPi/kUnitsPerMetre),
       `mwaccessibility/itembucket.{hpp,cpp}` (classifyItemType, the Items
-      subcategory bucketing incl. the Misc catch-all). Both fully unit-tested.
+      subcategory bucketing incl. the Misc catch-all),
+      `mwaccessibility/verticalshaft.{hpp,cpp}` (Telvanni shaft piece
+      classification) and `mwaccessibility/markremap.{hpp,cpp}` (mark
+      content-file index remapping across load-order changes). All unit-tested.
       The scanner `is*` item predicates now delegate to classifyItemType.
       Decision logic is organizationally separated (good `Element`/`Screen`
       abstraction) but still physically fused to engine singletons; keep carving
@@ -300,7 +304,11 @@ P13 6, P14 7, P15 10, P16 1, P17 6, P18 4.
 - [~] **God-class decomposition.** `scanner.cpp` was 2545 lines / ~70 methods /
       ~8 responsibilities (the bigger offender); `screen.cpp` 1182 lines, 52
       methods, 28 members. STARTED 2026-06-10 on scanner, incremental, one
-      reviewable commit per cluster. Done so far (scanner now 2282 lines):
+      reviewable commit per cluster. **Status 2026-08-09: extraction is being
+      outpaced by new features — `scanner.cpp` is now 4558 lines and
+      `screen.cpp` 1260.** The pure modules below were carved out successfully,
+      but the remaining bulk (scan/collect, key dispatch, announcements,
+      marks/notes, shaft + teleport) still needs splitting. Done so far:
       `spokenformat` (pure distance/elevation/letter/compass helpers + tests),
       `itembucket` (pure item classification + tests), and the **Accessible HUD**
       lifted into its own `Hud` class (`hud.{hpp,cpp}`, 241 lines) talking back
@@ -318,8 +326,12 @@ P13 6, P14 7, P15 10, P16 1, P17 6, P18 4.
       127-135, and the magnitude switch 52-76 vs 142-170) — copy-pasted verbatim.
 
 ### Distribution hygiene (P15)
-- [ ] Add a `THIRD-PARTY-LICENSES` note for Prism's **MPL-2.0** to the beta ZIP
-      (currently ships GPLv3 `LICENSE.txt` only). MPL §3.2 wants the notice kept.
+- [x] Add a `THIRD-PARTY-LICENSES` note for Prism's **MPL-2.0** to the beta ZIP
+      (previously shipped GPLv3 `LICENSE` only). MPL §3.2 wants the notice kept.
+      DONE 2026-08-09: `THIRD-PARTY-LICENSES.md` at the repo root covers Prism
+      (MPL-2.0) and the components it bundles, incl. the NVDA Controller Client
+      (**LGPL-2.1**, dynamically loaded so it stays replaceable).
+      **Must be included in the release ZIP** alongside `LICENSE`.
 
 ## Notes
 - There are TWO repair windows: `GM_Repair` (own hammer) vs `GM_MerchantRepair`.
@@ -336,8 +348,7 @@ P13 6, P14 7, P15 10, P16 1, P17 6, P18 4.
   door-to-door routing TODO above. `findPath` returns `EndPolygonNotFound` when
   the destination isn't near loaded navmesh — the trigger for the straight-line
   fallback we replaced with the carrot.
-- Companion is the same two-pane inventory pattern as barter/container
-  (`A11y::PaneGroup`). The container store work (S key, inventory enrols as pane 1
-  in `GM_Container`) is the template; companion just needs its own accessible
-  pane 0 built first, then to be added to the gating in InventoryWindow::onOpen
-  and the S-key handler.
+- Companion uses the same two-pane inventory pattern as barter/container
+  (`A11y::PaneGroup`) and is DONE — it has its own accessible pane 0 and is in the
+  `GM_Container || GM_Companion` gating in InventoryWindow. Kept here only as the
+  reference example of the two-pane pattern for any future window.

@@ -6,6 +6,29 @@ Newest changes are listed first. (OpenMW's own engine changelog lives in
 
 ## 2026-08-09
 
+- **New: a complete key reference, `ACCESSIBILITY_KEYS.html`.** The readme lists
+  the keys for getting around the world, but a lot of others were only ever
+  mentioned in this changelog -- the keys for barter, the journal, alchemy,
+  spellmaking, editing text, and so on. They are now all in one document,
+  grouped by where you use them, with a final section on the handful of keys
+  that mean different things in different windows (Delete, Tab, T, E). Several
+  keys that were never documented anywhere are included: **Ctrl+Shift+Enter**
+  (teleport to a target auto-walk couldn't reach), **Alt+L** and **Ctrl+Alt+L**
+  (find and enter a Telvanni tower's levitation shaft), and **Ctrl+K** (attach a
+  note to an object).
+
+- **The readme has been corrected and brought up to date.** It described
+  auto-walk as stopping and telling you when a door leads to another area --
+  that behaviour was removed a month ago, so it now explains what actually
+  happens. It also now covers what to do when auto-walk genuinely cannot reach
+  something, how to get out of an endlessly looping conversation using the
+  console, and how your marks behave when you change your mod list.
+
+- **The audio cue reference was missing the two stealth cues.** The sounds for
+  being spotted while sneaking, and for slipping back out of sight, are now
+  documented along with the rest -- including the fact that they are currently
+  placeholder tones, so they aren't mistaken for a fault.
+
 - **Fixed: your object marks vanished after installing or removing mods.** Marks
   you had put on containers -- labelling which chest holds short blades, which
   holds light armour, and so on -- could all disappear at once, and the only way

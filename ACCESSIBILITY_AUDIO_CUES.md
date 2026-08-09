@@ -93,6 +93,26 @@ Notes:
 
 ---
 
+## Stealth
+
+2D notifications about whether you are currently seen while sneaking.
+
+| Cue | File | Kind | Meaning / when it fires |
+|-----|------|------|--------------------------|
+| **Spotted** | `sneak_detected.wav` | 2D | Someone nearby has noticed you while you are sneaking — your cover is blown. Fires on any transition into being detected, whether you were hidden a moment ago or started sneaking while already seen. |
+| **Hidden again** | `sneak_hidden.wav` | 2D | You have slipped back out of sight after having been spotted — safe to move again. A calmer sound than the spotted cue. |
+
+Notes:
+- Simply crouching when nobody has noticed you is **silent**. The "hidden again"
+  cue fires only when you were previously detected, so starting a sneak doesn't
+  beep every time.
+- Neither cue fires while a menu or dialogue is up, and opening a menu mid-sneak
+  won't re-fire them when you return to the game.
+- These are currently **placeholder tones** and are expected to be replaced with
+  better sounds later — so if they sound rough or out of place, that's known.
+
+---
+
 ## Quick reference
 
 | File | Kind | One-line meaning |
@@ -105,3 +125,5 @@ Notes:
 | `quest_update.wav` | 2D | Quest advanced. |
 | `quest_complete.wav` | 2D | Quest finished. |
 | `magic_expiring.wav` | 2D | A critical effect has ~5 seconds left. |
+| `sneak_detected.wav` | 2D | You've been spotted while sneaking. |
+| `sneak_hidden.wav` | 2D | You're out of sight again after being spotted. |

@@ -94,6 +94,11 @@ keys use keys that Morrowind itself leaves free (the number row with Ctrl, Page
 Up/Down, the arrow keys with Ctrl, etc.), so they don't clash with movement or
 combat.
 
+**This section covers the keys you need for getting around and interacting with
+the world.** For the complete list — including every menu, the journal, barter,
+alchemy, spellmaking and text editing — open **`ACCESSIBILITY_KEYS.html`**, which
+came with this package.
+
 ### Scanning and targets
 
 | Key | Action |
@@ -116,10 +121,12 @@ combat.
 | **Enter** | Face the target (turn to look directly at it) |
 | **Shift + Enter** | Auto-walk to the target |
 | **Ctrl + Enter** | Toggle the audio beacon on the target |
+| **Ctrl + Shift + Enter** | Teleport to the target — the escape hatch for somewhere auto-walk genuinely can't reach (see **When auto-walk can't get there** below) |
 | **Space** | Activate the target (open, take, talk, etc.) — falls back to normal Activate if nothing is selected |
 | **X** | Toggle combat / interaction lock-on to the target (keeps you aimed at it) |
 | **Shift + X** | Engage: jump to the nearest hostile and lock onto it in one press |
-| **K** | Mark / unmark the target as "already looked at" (it reads back as "marked"). Handy for keeping track when looting a room full of identical crates. Marks are permanent: they persist when you leave and return, and survive saving and reloading. Each save keeps its own marks (stored in a small companion file beside the save). Press K again on an object to unmark it |
+| **K** | Mark / unmark the target as "already looked at" (it reads back as "marked"). Handy for keeping track when looting a room full of identical crates. Marks are permanent: they persist when you leave and return, and survive saving and reloading. Each save keeps its own marks (stored in a small companion file beside the save). Press K again on an object to unmark it. Marks also survive installing, removing or reordering mods; if you uninstall the mod an object came from, its mark is dropped, since the object itself is gone (see **Marks and your mod list** below) |
+| **Ctrl + K** | Attach or edit a note on the target — a label of your own that reads back with it (e.g. naming a silt-strider caravaner). Marks the object if it wasn't already |
 | **Shift + K** | Cycle the marked-object view: show all objects (the default), then unmarked only (hides what you've checked, so you cycle only what's left), then marked only (focus on just the objects you've flagged), then back to all |
 
 ### Information and orientation
@@ -135,6 +142,8 @@ combat.
 | **L** | Announce your location (cell name) |
 | **Ctrl + L** | Announce which way you're facing (compass point) |
 | **Shift + L** | Announce your height above the ground, or depth underwater |
+| **Alt + L** | Find the levitation shaft in a Telvanni tower (Tel Fyr, Tel Aruhn, Tel Vos, strongholds like Tel Uvirith). These towers have no stairs — the central shaft is the only way between floors. Reports where it is, how many floor openings it has, which one is nearest, and whether it is blocked |
+| **Ctrl + Alt + L** | Walk into the shaft, so you're standing in the column ready to levitate up or down |
 | **Ctrl + Left / Right** | Snap your facing to the previous / next compass point |
 | **Ctrl + Down** | Turn around 180 degrees |
 | **Ctrl + Up** | Direction filter: narrow the scanner to only what lies the way you're facing (see Scanning and targets) |
@@ -158,6 +167,11 @@ still cycle targets, check health, and so on.
 ### The console
 
 Open the console with the default `` ` `` or `~` key. Typing and output are spoken.
+The console takes the keyboard for as long as it is open, even if another window
+is already up; the window underneath goes quiet and puts you back where you were
+when you close the console again. That matters because the console is the only
+way out of a few situations the game can't otherwise recover from — see
+**Getting unstuck with the console** under Troubleshooting.
 
 | Key | Action |
 | --- | --- |
@@ -172,10 +186,15 @@ Open the console with the default `` ` `` or `~` key. Typing and output are spok
 Auto-walk steers you to your selected target, routing around walls and other
 obstacles, opening ordinary closed doors in your way, and warning you up front
 about hazards (deep water, steep drops) on long cross-country routes. It opens
-only safe doors: if a door across your path is **locked**, **trapped**, or a
-**doorway to another area**, auto-walk stops and tells you which, rather than
-forcing it — so it never springs a trap on you or teleports you somewhere you
-didn't choose. Unlock or disarm it (or step through yourself) and walk on.
+only safe doors: if a door across your path is **locked** or **trapped**,
+auto-walk stops and tells you which, rather than forcing it — so it never springs
+a trap on you. Unlock or disarm it and walk on.
+
+A **door leading to another area** is never opened for you either, so you can't
+be teleported somewhere you didn't choose. Such a door is solid, so if one stands
+across your route auto-walk simply stops against it and reports that it can't
+reach the target — step through the door yourself and carry on from the other
+side.
 
 - **Start it** with **Shift + Enter** on a target.
 - **Cancel it** by pressing any of your movement keys, or by selecting a new
@@ -246,6 +265,34 @@ first one fixes it most of the time:
    single bad spot.
 6. **As a last resort, reload.** Reloading your save rebuilds the area fresh and
    clears a one-off bad state.
+
+### When auto-walk can't get there at all
+
+Some places simply cannot be walked to — a ledge you levitated up to, the far
+side of a gap, a spot the engine's route map doesn't connect. When auto-walk has
+tried and failed (it gives up, stops short, catches you from a fall, or says
+*"Can't reach …"*), press **Ctrl + Shift + Enter** to teleport straight to the
+target.
+
+This is deliberately not fast travel, and it is fenced in so it can't be misused:
+
+- It only works **after** an auto-walk to that target has actually failed. Press
+  it out of the blue and it says *"Nothing to teleport to. Try walking there
+  first."*
+- It only reaches about **58 metres**. Anything further says *"… is too far to
+  teleport to."*
+- Followers within range come with you, so you won't strand a companion.
+
+### Getting unstuck with the console
+
+Rarely, the game can put you somewhere it has no way out of. The console is the
+escape hatch, and it now works even with another window already open.
+
+The known case is a **conversation topic that loops forever** — every option
+returns you to the same line and none of them ends it. Open the console and type
+`TM` (then Enter) to hide the menus, which breaks the loop; `TM` again puts them
+back. Saving and reloading does *not* help here, so without this you would have
+to abandon your progress.
 
 A few things that are **not** the cause, so you don't waste time on them: where
 your mouse or camera is pointing has no effect on auto-walk (it controls your
@@ -318,6 +365,23 @@ onto people and creatures requires being on the same level, and arrival onto an
 object now requires being close enough to actually interact with it — so a coin on
 a high ledge directly above you no longer reads as "arrived". If you still see a
 false arrival, it's worth reporting.)
+
+### Marks and your mod list
+
+Marks you put on objects with **K** are stored per save and survive changing your
+mods: install, remove or reorder plugins and your marks stay on the objects they
+were put on.
+
+Two things are worth knowing:
+
+- If you **uninstall the mod an object came from**, its marks are dropped. The
+  object no longer exists, and keeping the mark would mean reading your label out
+  on some unrelated object instead.
+- Marks made with **builds before 9 August 2026** can't be protected
+  retrospectively — those older files didn't record the information needed to
+  identify the objects. They keep working as long as your load order stays as it
+  is, but if you change your mods they may disappear and have to be redone. Any
+  mark you make from this build onward is safe.
 
 ### The game crashes on startup with a "Resource not found" error
 
