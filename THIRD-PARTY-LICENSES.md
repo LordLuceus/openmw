@@ -50,8 +50,7 @@ which can be substituted by replacing that file in the installation folder.
 ## Sound cues
 
 The accessibility audio cues in `Data Files/sounds/a11y/` are original to this
-project and are covered by the same GPLv3 licence as the rest of the work. Some
-are currently placeholder tones and are expected to be replaced.
+project and are covered by the same GPLv3 licence as the rest of the work.
 
 ---
 

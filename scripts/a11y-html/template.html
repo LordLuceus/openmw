@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html lang="$lang$">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>$pagetitle$</title>
+<style>
+$styles$
+</style>
+</head>
+<body>
+<a class="skip-link" href="#main">Skip to main content</a>
+$if(toc)$
+<nav class="toc" aria-label="Contents">
+<h2 id="contents">Contents</h2>
+$toc$
+</nav>
+$endif$
+<main id="main">
+$body$
+</main>
+</body>
+</html>

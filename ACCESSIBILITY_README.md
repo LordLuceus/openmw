@@ -87,7 +87,8 @@ to navigate the last stretch yourself.
 
 Menus and dialogs are navigated with the **arrow keys**; **Enter** activates,
 **Escape** backs out. **R** re-reads the last spoken line (dialogue, book page,
-etc.) at any time.
+etc.) — in menus, conversations and books. Out in the world, **Home** repeats the
+last announcement instead, since R is Morrowind's own "ready / put away magic".
 
 The keys below are in addition to OpenMW's normal controls. The accessibility
 keys use keys that Morrowind itself leaves free (the number row with Ctrl, Page
@@ -134,7 +135,6 @@ came with this package.
 | Key | Action |
 | --- | --- |
 | **I** | Inspect the selected object's hidden state — reads out its script variables (e.g. whether a puzzle lever is "on" or "off"). Says "has no readable state" for objects with nothing to report |
-| **R** | Re-read the last spoken line (dialogue, book page, etc.) |
 | **Alt + H** | Read your health |
 | **Alt + M** | Read your magicka |
 | **Alt + F** | Read your fatigue |

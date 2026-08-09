@@ -1,0 +1,85 @@
+/* Styling for the generated Project Hortator accessibility documents.
+   Every choice here is an accessibility choice; see build_docs.ps1 for the
+   rationale. Sizes are in rem so browser zoom and the reader's own default font
+   size are respected, and colour is never the only carrier of meaning. */
+:root { color-scheme: light dark; }
+* { box-sizing: border-box; }
+body {
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  font-size: 1.05rem;
+  line-height: 1.6;
+  max-width: 60rem;
+  margin: 0 auto;
+  padding: 1.5rem 1.25rem 4rem;
+  color: #14171a;
+  background: #fff;
+}
+h1 { font-size: 2rem; line-height: 1.25; margin: 0 0 0.5rem; }
+h2 {
+  font-size: 1.5rem;
+  margin: 2.5rem 0 0.75rem;
+  padding-bottom: 0.3rem;
+  border-bottom: 2px solid #c8ced4;
+}
+h3 { font-size: 1.2rem; margin: 1.75rem 0 0.5rem; }
+h4 { font-size: 1.05rem; margin: 1.5rem 0 0.5rem; }
+p, li { max-width: 46rem; }
+a { color: #0b5fa5; }
+a:focus-visible, :focus-visible { outline: 3px solid #0b5fa5; outline-offset: 2px; }
+code {
+  font-family: ui-monospace, Consolas, "Courier New", monospace;
+  font-size: 0.95em;
+  background: #eef1f4;
+  padding: 0.1em 0.35em;
+  border-radius: 3px;
+}
+pre { background: #eef1f4; padding: 0.9rem 1rem; overflow-x: auto; border-radius: 4px; }
+pre code { background: none; padding: 0; }
+table { border-collapse: collapse; width: 100%; margin: 1rem 0 1.5rem; }
+caption { text-align: left; font-style: italic; padding-bottom: 0.5rem; }
+th, td {
+  border: 1px solid #b9c0c7;
+  padding: 0.55rem 0.7rem;
+  text-align: left;
+  vertical-align: top;
+}
+th { background: #eef1f4; font-weight: 600; }
+tbody tr:nth-child(even) td { background: #f7f9fa; }
+/* In the key tables the first column is always the keystroke; keep chords like
+   "Ctrl + Shift + Enter" from wrapping across lines. */
+td:first-child { white-space: nowrap; font-weight: 600; }
+hr { border: 0; border-top: 1px solid #c8ced4; margin: 2.5rem 0; }
+blockquote {
+  margin: 1rem 0;
+  padding: 0.5rem 1rem;
+  border-left: 4px solid #0b5fa5;
+  background: #f2f6fa;
+}
+nav.toc { margin-bottom: 2rem; }
+nav.toc ul { margin: 0.25rem 0; }
+.skip-link {
+  position: absolute;
+  left: -9999px;
+  top: 0;
+  background: #0b5fa5;
+  color: #fff;
+  padding: 0.6rem 1rem;
+  z-index: 10;
+}
+.skip-link:focus { left: 0; }
+@media (prefers-color-scheme: dark) {
+  body { color: #e8eaed; background: #16191c; }
+  h2 { border-bottom-color: #3a4249; }
+  a { color: #6db3f2; }
+  code, pre { background: #24292e; }
+  th { background: #22272b; }
+  tbody tr:nth-child(even) td { background: #1c2023; }
+  th, td { border-color: #3a4249; }
+  blockquote { background: #1c2329; }
+}
+@media print {
+  body { max-width: none; color: #000; background: #fff; font-size: 11pt; }
+  .skip-link, nav.toc { display: none; }
+  h2 { page-break-after: avoid; }
+  table, tr { page-break-inside: avoid; }
+}

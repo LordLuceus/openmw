@@ -108,8 +108,6 @@ Notes:
   beep every time.
 - Neither cue fires while a menu or dialogue is up, and opening a menu mid-sneak
   won't re-fire them when you return to the game.
-- These are currently **placeholder tones** and are expected to be replaced with
-  better sounds later — so if they sound rough or out of place, that's known.
 
 ---
 

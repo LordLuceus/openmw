@@ -101,3 +101,8 @@ run_prebuild.sh
 build_patch.bat
 package_beta.bat
 build_esmtool.bat
+# Accessibility docs: the Markdown files are the source of truth; the HTML that
+# ships in release packages is generated from them by scripts/build_docs.ps1 at
+# package time. Tracking the HTML too would just let it drift out of sync.
+/ACCESSIBILITY_*.html
+/THIRD-PARTY-LICENSES.html

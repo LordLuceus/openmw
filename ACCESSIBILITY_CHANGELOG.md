@@ -26,8 +26,12 @@ Newest changes are listed first. (OpenMW's own engine changelog lives in
 
 - **The audio cue reference was missing the two stealth cues.** The sounds for
   being spotted while sneaking, and for slipping back out of sight, are now
-  documented along with the rest -- including the fact that they are currently
-  placeholder tones, so they aren't mistaken for a fault.
+  documented along with the rest.
+
+- **All the documentation now comes as web pages.** The read-me, the key
+  reference, the audio cue list, the changelog and the licence notices are all
+  included as `.html` files you can open in a browser and read with headings,
+  proper tables and a contents list to jump around, instead of raw text files.
 
 - **Fixed: your object marks vanished after installing or removing mods.** Marks
   you had put on containers -- labelling which chest holds short blades, which
@@ -142,8 +146,7 @@ Newest changes are listed first. (OpenMW's own engine changelog lives in
   had no equivalent. There's now an audio cue when a nearby character detects
   you while sneaking (your cover is blown), and a distinct, calmer cue when you
   become unnoticed again after having been seen -- so you know when it's safe to
-  move. Simply crouching when nobody's looking stays silent. (The bundled sounds
-  are placeholder tones for now and can be replaced with nicer ones later.)
+  move. Simply crouching when nobody's looking stays silent.
 
 - **Spell-cast announcements no longer wrongly say "at you" for a
   self-only spell.** When another actor cast a spell that only affects

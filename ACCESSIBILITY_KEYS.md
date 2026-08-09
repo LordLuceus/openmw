@@ -42,7 +42,6 @@ Two things to know before the tables:
 
 | Key | Action |
 | --- | --- |
-| **R** | Re-read the last thing spoken (dialogue, a book page, an announcement) |
 | **H** | Open / close the accessible HUD (pauses the world) |
 | **Alt + H** | Read your health |
 | **Alt + M** | Read your magicka |
@@ -354,6 +353,10 @@ Most keys do one job everywhere. These don't, so they're worth knowing:
 
 The accessibility keys mostly use keys Morrowind leaves free — the number row
 with Ctrl, Page Up and Page Down, the arrow keys with Ctrl, and so on. A few are
-plain letters (**H**, **K**, **X**, **I**, **L**, **N**, **R**). If one of these
-clashes with something you've rebound, you can change your own binding in the
-game's controls settings; the accessibility keys themselves are fixed for now.
+plain letters (**H**, **K**, **X**, **I**, **L**, **N**). If one of these clashes
+with something you've rebound, you can change your own binding in the game's
+controls settings; the accessibility keys themselves are fixed for now.
+
+Note that **R** appears only in menus, conversations and books — in the world it
+stays Morrowind's own "ready / put away magic". To hear the last thing spoken
+again while you're playing, use **Home**.
