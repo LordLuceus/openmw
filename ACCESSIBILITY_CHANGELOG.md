@@ -4,6 +4,28 @@ A running log of screen-reader accessibility features added to this OpenMW fork.
 Newest changes are listed first. (OpenMW's own engine changelog lives in
 `CHANGELOG.md`.)
 
+## 2026-08-09
+
+- **Fixed: your object marks vanished after installing or removing mods.** Marks
+  you had put on containers -- labelling which chest holds short blades, which
+  holds light armour, and so on -- could all disappear at once, and the only way
+  back was to redo every one of them by hand. Installing new mods was enough to
+  trigger it even when nothing you installed had anything to do with the room the
+  marks were in, which made it look random.
+  The reason is that each mark recorded which mod its object came from as a
+  position in your load order rather than by name. Adding or removing any mod
+  ahead of that one shifted the position, so the mark went looking in the wrong
+  mod, found nothing there, and appeared deleted. Marks now record the mod's
+  name and find it again wherever it has moved to, so rearranging your load order
+  no longer disturbs them.
+  If a mark's mod is uninstalled altogether, that mark is now dropped
+  deliberately -- the object it labelled is genuinely gone, and keeping it would
+  have meant reading out your label on some unrelated object.
+  Marks made before this change cannot be rescued retrospectively, because the
+  older files never recorded the names needed to identify them; they will keep
+  working as long as your load order stays as it is, and any mark you make from
+  now on is protected.
+
 ## 2026-08-06
 
 - **Fixed: the console was impossible to type into while another window was open.**
@@ -23,17 +45,14 @@ Newest changes are listed first. (OpenMW's own engine changelog lives in
 
 ## 2026-07-31
 
-- **Fixed: auto-walk sometimes flailed uselessly just after entering an area.**
-  On arriving somewhere new -- the Tel Uvirith dungeon coming in from the deep
-  tunnels was a reliable case -- auto-walk could bounce and jitter on the spot
-  without going anywhere, until it gave up with "Stuck". Saving and reloading
-  cleared it up. The cause was that the game builds its walkable-area map in the
-  background, and auto-walk was setting off before the map covered the ground
-  under your feet; with nothing to route along it fell back to walking in a
-  straight line into whatever was in the way. Auto-walk now waits the moment or
-  two for the map to be ready and then walks a proper route. If the map is slow
-  to arrive it simply sets off as it always used to, so it can never leave you
-  worse off than before.
+- **Auto-walk waits a moment for the area map when you arrive somewhere new.**
+  If the game is still building its walkable-area map, auto-walk now holds for a
+  moment rather than setting off with no route to follow. If the map is slow to
+  arrive it simply sets off as it always used to, so it can never leave you
+  worse off than before. (This was originally written up as the cure for
+  auto-walk flailing on the spot just after entering an area; later evidence
+  disproved that, so it is described here only as what it actually does. That
+  bug turned out to be unrelated and is still open.)
 - **Levitating approaches are unaffected.** Flying in high above the landscape
   and then handing over to auto-walk to bring you down onto your destination
   works exactly as it did -- being up in the air is a normal way to travel, not

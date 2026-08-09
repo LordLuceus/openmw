@@ -1,6 +1,7 @@
 #include "scanner.hpp"
 
 #include "itembucket.hpp"
+#include "markremap.hpp"
 #include "spokenformat.hpp"
 
 #include <SDL_keycode.h>
@@ -14,7 +15,9 @@
 #include <filesystem>
 #include <fstream>
 #include <iterator>
+#include <map>
 #include <optional>
+#include <set>
 #include <sstream>
 #include <utility>
 #include <vector>
@@ -876,19 +879,49 @@ namespace MWAccessibility
             return;
         }
 
-        // Plain-text, one mark per line: "<category> <index> <contentFile> <note>".
-        // A RefNum (ESM::FormId) is just those two ints; category is the enum
-        // ordinal so a mark restores into the same per-category set it came from.
-        // The note is the REST OF THE LINE after the third field (may contain
-        // spaces; may be empty for a plain mark). A leading version line lets the
-        // format change be detected -- v2 adds the note; v1 (note-less) still
-        // loads (see loadMarks).
-        out << "a11ymarks 2\n";
+        // Plain-text, line-per-record, with a leading version line so format
+        // changes are detectable. Lines are tagged by kind:
+        //   "F <index> <pluginName>"                  -- load-order manifest
+        //   "M <category> <index> <contentFile> <note>" -- one mark
+        //
+        // A RefNum identifies an object as (index, contentFile), where
+        // contentFile is a position in the CURRENT load order -- so it is only
+        // meaningful relative to the plugin list that was active when the mark
+        // was made. Adding or removing any mod ahead of a plugin shifts its
+        // index, which silently repointed every mark past that point at the
+        // wrong plugin and made marks look deleted. So we record the plugin
+        // NAMES alongside the marks and translate indices back on load (see
+        // loadMarks), exactly as the engine does for saved refs in
+        // StateManager::buildContentFileIndexMap.
+        //
+        // The note is the REST OF THE LINE after the fourth field (may contain
+        // spaces; may be empty for a plain mark).
+        out << "a11ymarks 3\n";
+
+        // Only the plugins actually referenced by a mark need recording, which
+        // keeps the manifest small and means an unrelated mod being added or
+        // removed can't affect the marks at all.
+        std::set<int32_t> used;
+        for (const auto& s : mLists)
+            for (const auto& [ref, note] : s.mMarked)
+                if (ref.hasContentFile())
+                    used.insert(ref.mContentFile);
+
+        const std::vector<std::string>& contentFiles
+            = MWBase::Environment::get().getWorld()->getContentFiles();
+        for (const int32_t index : used)
+        {
+            // A mark whose index is outside the current list can't be named; it
+            // is written out below regardless, so nothing is lost.
+            if (index >= 0 && static_cast<size_t>(index) < contentFiles.size())
+                out << "F " << index << ' ' << contentFiles[index] << '\n';
+        }
+
         for (size_t c = 0; c < mLists.size(); ++c)
         {
             for (const auto& [ref, note] : mLists[c].mMarked)
             {
-                out << c << ' ' << ref.mIndex << ' ' << ref.mContentFile;
+                out << "M " << c << ' ' << ref.mIndex << ' ' << ref.mContentFile;
                 if (!note.empty())
                     out << ' ' << note; // rest-of-line; newlines can't occur (single-line prompt)
                 out << '\n';
@@ -923,22 +956,53 @@ namespace MWAccessibility
                 return;
             std::istringstream hs(line);
             hs >> header >> version;
-            // v1 = mark lines without notes; v2 adds an optional rest-of-line note.
-            // Accept both so old saves keep their marks.
-            if (header != "a11ymarks" || (version != 1 && version != 2))
+            // v1 = mark lines without notes; v2 adds an optional rest-of-line
+            // note; v3 tags lines by kind and adds the load-order manifest.
+            // Accept all three so existing saves keep their marks.
+            if (header != "a11ymarks" || (version != 1 && version != 2 && version != 3))
             {
                 Log(Debug::Warning) << "[a11y] Unrecognised marks sidecar header, ignoring: " << sidecar;
                 return;
             }
         }
 
+        // Plugin name as recorded when the marks were written, keyed by the
+        // content-file index it had back then. Empty for v1/v2 sidecars, which
+        // predate the manifest and therefore cannot be remapped.
+        std::map<int32_t, std::string> savedPlugins;
+
         std::string line;
         size_t restored = 0;
+        size_t remapped = 0;
+        size_t orphaned = 0;
         while (std::getline(in, line))
         {
             if (line.empty())
                 continue;
             std::istringstream ls(line);
+
+            if (version >= 3)
+            {
+                std::string kind;
+                if (!(ls >> kind))
+                    continue;
+                if (kind == "F")
+                {
+                    int32_t index = 0;
+                    std::string name;
+                    if ((ls >> index) && std::getline(ls, name))
+                    {
+                        if (!name.empty() && name.front() == ' ')
+                            name.erase(name.begin());
+                        if (!name.empty())
+                            savedPlugins.emplace(index, std::move(name));
+                    }
+                    continue;
+                }
+                if (kind != "M")
+                    continue; // unknown line kind (e.g. from a future build)
+            }
+
             size_t cat = 0;
             uint32_t index = 0;
             int32_t contentFile = 0;
@@ -946,12 +1010,37 @@ namespace MWAccessibility
                 continue; // skip malformed line rather than abort the whole load
             if (cat >= mLists.size())
                 continue; // category out of range (e.g. from a future build)
-            // The note (v2) is the rest of the line after the third field and a
-            // single separating space. It may be empty (plain mark) and may
-            // contain spaces. v1 lines have no note, so this is simply empty.
+            // The note (v2+) is the rest of the line after the last numeric
+            // field and a single separating space. It may be empty (plain mark)
+            // and may contain spaces. v1 lines have no note, so this is empty.
             std::string note;
             if (std::getline(ls, note) && !note.empty() && note.front() == ' ')
                 note.erase(note.begin()); // drop the one separator space
+
+            // Translate the stored index to wherever that same plugin sits in
+            // the CURRENT load order. Without this, adding or removing any mod
+            // ahead of it silently points the mark at a different plugin.
+            {
+                int32_t nowAt = contentFile;
+                switch (remapContentFileIndex(contentFile, savedPlugins,
+                    MWBase::Environment::get().getWorld()->getContentFiles(), nowAt))
+                {
+                    case RemapResult::Orphaned:
+                        // The plugin is no longer loaded, so the object it
+                        // marked does not exist in this game. Drop the mark
+                        // rather than let the index point at an unrelated
+                        // mod's object.
+                        ++orphaned;
+                        continue;
+                    case RemapResult::Remapped:
+                        contentFile = nowAt;
+                        ++remapped;
+                        break;
+                    case RemapResult::Unchanged:
+                        break;
+                }
+            }
+
             ESM::RefNum ref;
             ref.mIndex = index;
             ref.mContentFile = contentFile;
@@ -964,7 +1053,9 @@ namespace MWAccessibility
         for (auto& s : mLists)
             s.mDirty = true;
 
-        Log(Debug::Info) << "[a11y] Restored " << restored << " object mark(s) from " << sidecar;
+        Log(Debug::Info) << "[a11y] Restored " << restored << " object mark(s) from " << sidecar
+                         << " (remapped " << remapped << " for load-order changes, dropped " << orphaned
+                         << " whose plugin is no longer loaded)";
     }
 
     void Scanner::notifyJournalEntry(bool completed)
