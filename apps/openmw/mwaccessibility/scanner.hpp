@@ -613,6 +613,78 @@ namespace MWAccessibility
         /// rather than to Recall, Intervention or a scripted reposition.
         static bool isNearInternalTeleportDoor(const MWWorld::Ptr& player, const osg::Vec3f& pos);
 
+        // --- Activator outcome reporting -----------------------------------
+        // A sighted player sees what a lever/crank/valve DID: a grate sliding
+        // open, a bridge extending, something appearing. A blind player gets
+        // nothing -- and the raw script variables ("doOnce: 2, counter: 0")
+        // are honest but unreadable. So when the player activates a scripted
+        // object we snapshot the cell, then re-check shortly after and report
+        // what actually changed in plain language.
+        //
+        // This is deliberately data-driven rather than keyed to any specific
+        // mod: it observes real world state (what became visible or hidden,
+        // what moved, which doors opened), so it works for any script.
+        struct CellSnapshot
+        {
+            // Visible/enabled refs, and the positions of the ones that can move.
+            std::unordered_map<ESM::RefNum, osg::Vec3f> mPositions;
+            std::unordered_set<ESM::RefNum> mEnabled;
+            // Refs that are part of the architecture (doors, activators,
+            // containers) rather than loose items, actors or scenery. Only
+            // these count as "something opened" when they disappear: a potion
+            // vanishing because the player pocketed it, or a rat wandering off,
+            // says nothing about the lever they just pulled. Statics are
+            // excluded because mods animate them constantly for their own
+            // reasons -- ambient props shifting during a rest were being
+            // reported as the bed's doing.
+            std::unordered_set<ESM::RefNum> mStructural;
+        };
+
+        /// Capture the current cell's observable state for later comparison.
+        static CellSnapshot snapshotCell(const MWWorld::Ptr& player);
+
+        /// Compare \p before against the cell now and speak what changed.
+        /// Returns true (having spoken) only if something observable changed;
+        /// speaks nothing and returns false otherwise.
+        bool reportCellChanges(const CellSnapshot& before);
+
+        // Pending activation watch: set when the player activates a scripted
+        // object, checked once the timer expires. Scripts commonly take effect
+        // over several frames (the crank in Arvesa's Dagoth Ur runs a ~6 second
+        // timer before opening its grate), so we re-check for a while rather
+        // than only on the next frame.
+        CellSnapshot mActivationSnapshot;
+        bool mWatchingActivation = false;
+        float mActivationWatchTimer = 0.f;
+        // Name of the object whose effect we're waiting on, for the report.
+        std::string mActivationWatchName;
+        // Set once we have reported a change, so a long watch doesn't narrate
+        // the same outcome twice.
+        bool mActivationReported = false;
+        // The activated object, and a copy of its script's local variables as
+        // they were at the moment of activation. A mechanism that is going to
+        // act nearly always changes its OWN state first (setting a "doOnce"
+        // latch, starting a counter), so this tells us the activation was
+        // ACCEPTED even before the world visibly changes. If neither the
+        // variables nor the world have moved, the mechanism truly ignored the
+        // player and we can say so immediately rather than after a long wait.
+        MWWorld::Ptr mActivationTarget;
+        std::vector<int> mActivationLocalsBefore;
+        // In-game time (seconds) at the last watch tick, used to spot a rest,
+        // wait or travel mid-watch. Those run every ambient script in the cell,
+        // so anything that moves across the skip is the world's own churn, not
+        // the activated object's doing -- the watch is abandoned rather than
+        // blaming the mechanism for it.
+        double mActivationWatchGameTime = 0.0;
+
+        /// Flattened snapshot of \p ptr's script locals, or empty if it has no
+        /// script. Floats are scaled and truncated so a slowly-ticking timer
+        /// still registers as a change.
+        static std::vector<int> snapshotScriptLocals(const MWWorld::Ptr& ptr);
+
+        /// Tick the post-activation watch (see mWatchingActivation).
+        void updateActivationWatch(float dt);
+
         // Direction filter (Ctrl+Up). Unlike the per-category name filter, this
         // one is GLOBAL: it applies to every category at once, since a compass
         // direction isn't category-specific (a player following NPC directions

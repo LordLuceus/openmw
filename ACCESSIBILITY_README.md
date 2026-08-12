@@ -134,7 +134,7 @@ came with this package.
 
 | Key | Action |
 | --- | --- |
-| **I** | Inspect the selected object's hidden state — reads out its script variables (e.g. whether a puzzle lever is "on" or "off"). Says "has no readable state" for objects with nothing to report |
+| **I** | Inspect the selected object's hidden state — says whether a one-shot mechanism has "Already used" or is "Not used yet", then reads out its script variables (e.g. whether a puzzle lever is "on" or "off"). Says "has no readable state" for objects with nothing to report |
 | **Alt + H** | Read your health |
 | **Alt + M** | Read your magicka |
 | **Alt + F** | Read your fatigue |

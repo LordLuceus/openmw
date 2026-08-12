@@ -20,6 +20,26 @@ Newest changes are listed first. (OpenMW's own engine changelog lives in
   were simply somewhere else. You now hear how far you moved and in which
   direction, plus the way back to where you set off, and the spot you left is
   added to your waypoints as "Back" so you can walk to it.
+- **Mechanisms now tell you what they did.** Pulling a lever, turning a crank or
+  pressing a switch reports the result -- something opening nearby, a piece of
+  the room moving, or someone appearing -- rather than leaving you to guess from
+  a sound. If nothing at all happens you are told that too, so a mechanism that
+  is already spent, or purely decorative, is no longer indistinguishable from
+  one you failed to use. This applies only to levers, cranks, switches and the
+  like; picking things up and opening containers is unaffected.
+
+  Only things the game actually gives a name to are named. Anything else is
+  reported as "Something moved", never by its internal record name -- those are
+  developer labels that mean nothing to a player. Invisible helper objects (the
+  markers mods use for ambient sound and weather) are ignored entirely, as is
+  ordinary scenery, so a passing prop is never mistaken for a mechanism. And
+  because resting, waiting and travelling let hours of the world's own
+  background activity run at once, using a bed no longer reports whatever
+  happened to shift while you slept.
+- **Inspecting a mechanism says whether it has already been used.** The state
+  readout now begins with "Already used" or "Not used yet" where the script
+  records it, before the detailed values.
+
 - **Your own notes are now searchable.** A note attached with Ctrl + K is
   included in what the **/** search matches, so labelling a shipmaster "silt
   strider" lets you find them later by typing "silt". This makes notes a way to

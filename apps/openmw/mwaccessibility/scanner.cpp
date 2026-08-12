@@ -97,6 +97,7 @@
 #include "../mwworld/cellref.hpp"
 #include "../mwworld/cellstore.hpp"
 #include "../mwworld/class.hpp"
+#include "../mwworld/datetimemanager.hpp"
 #include "../mwworld/actionteleport.hpp"
 #include "../mwworld/doorstate.hpp"
 #include "../mwworld/esmstore.hpp"
@@ -186,6 +187,14 @@ using MWAccessibility::kPi;
     // whose entire duration is no longer than this never warn at all.
     constexpr float kExpiryWarnSeconds = 5.f;
 
+    // How long to keep watching for the effect of an activated mechanism (see
+    // Scanner::updateActivationWatch). Scripts often act over several frames or
+    // on a timer -- the dwarven crank in Arvesa's Dagoth Ur facility runs for
+    // about six seconds of turning before it opens its grate -- so a one-frame
+    // check would miss the outcome entirely. Long enough to catch those, short
+    // enough that an unrelated later change isn't blamed on the player's pull.
+    constexpr float kActivationWatchSeconds = 10.f;
+
     // The allowlist of magic effects worth an expiry warning: survival- and
     // navigation-critical ones whose sudden loss can strand, drown, or drop a
     // blind player, or blow their cover. Routine stat buffs (Fortify/Restore/
@@ -197,6 +206,20 @@ using MWAccessibility::kPi;
             || id == ESM::MagicEffect::WaterBreathing || id == ESM::MagicEffect::SlowFall
             || id == ESM::MagicEffect::Invisibility || id == ESM::MagicEffect::Chameleon
             || id == ESM::MagicEffect::Sanctuary;
+    }
+
+    // True for the invisible helper objects Morrowind and its mods scatter
+    // through the world: ambient sound emitters, weather and script triggers,
+    // teleport anchors. They are implemented as activators whose model is the
+    // editor-only "EditorMarker.NIF" mesh, which the engine hides in-game, and
+    // they are almost always nameless. A sighted player never knows they are
+    // there, so neither should we: they must not appear in a list, and their
+    // movement must never be announced. (Morrowind Acoustic Overhaul's
+    // "AO_Weather_act_Wood" is one of these -- it shifted when the player
+    // rested and was reported as a mechanism operating.)
+    bool isEditorMarker(const MWWorld::Ptr& ptr)
+    {
+        return Misc::StringUtils::ciEndsWith(ptr.getClass().getModel(ptr), "editormarker.nif");
     }
 
     // How close (world units) another actor must be for its spellcast to be
@@ -265,16 +288,7 @@ using MWAccessibility::kPi;
             {
                 if (!ptr.getClass().isActivator())
                     return false;
-                // Exclude ambient sound emitters and similar invisible
-                // helpers. Morrowind implements these as activators whose
-                // model is the editor-only "EditorMarker.NIF" mesh (which the
-                // engine hides in-game) plus a script that loops a sound, e.g.
-                // "Sound_Boat_Creak". Real interactables (silt strider, signs,
-                // levers) use genuine visible meshes, so filtering out the
-                // editor-marker model drops the decoration without a fragile
-                // name match.
-                std::string_view model = ptr.getClass().getModel(ptr);
-                return !Misc::StringUtils::ciEndsWith(model, "editormarker.nif");
+                return !isEditorMarker(ptr);
             }
             case MWAccessibility::Category::Count:
                 break;
@@ -1393,11 +1407,22 @@ namespace MWAccessibility
             // listed isn't mysterious. Only when something was actually cleared.
             if (clearedAnyFilter)
                 speak("Scanner filters cleared.");
+
             // Leaving the cell invalidates the remembered departure point: its
             // coordinates are no longer comparable to the player's, and the
             // ladder that produced it is behind us.
             mHaveInternalTeleportOrigin = false;
             mHavePlayerPos = false;
+
+            // Abandon any in-flight activation watch. Its snapshot describes the
+            // cell we just left, so every ref would read as "vanished", and the
+            // remembered target Ptr may no longer be valid. If the player walked
+            // out, they are no longer waiting on that mechanism anyway.
+            mWatchingActivation = false;
+            mActivationSnapshot = CellSnapshot();
+            mActivationWatchName.clear();
+            mActivationTarget = MWWorld::Ptr();
+            mActivationLocalsBefore.clear();
         }
 
         // Detect an INTERNAL teleport: a jump within the same cell, produced by
@@ -1430,6 +1455,11 @@ namespace MWAccessibility
                     s.mDirty = true;
             }
         }
+
+        // Report what a just-activated mechanism actually did (see
+        // updateActivationWatch). Runs before the other per-frame speech so a
+        // mechanism's outcome isn't queued behind routine chatter.
+        updateActivationWatch(dt);
 
         mAutoWalker.onFrame(dt);
         mProximityCue.onFrame(dt);
@@ -2929,6 +2959,44 @@ namespace MWAccessibility
         if (!target.getClass().hasToolTip(target))
             return false;
 
+        // If this MECHANISM runs a script, watch for what its activation
+        // actually DOES. A sighted player sees the grate slide open or the
+        // bridge extend; without this the blind player gets only the sound, and
+        // for a spent mechanism not even that. Snapshot BEFORE dispatching so
+        // the comparison captures the script's own effects.
+        //
+        // Restricted to activators deliberately. Plenty of ordinary things carry
+        // scripts -- quest items, artefacts, some containers and NPCs -- but
+        // their activation has an obvious, already-announced outcome (you picked
+        // it up, it opened, they started talking). Watching those produced two
+        // real misreports: picking up a scripted item announced "No visible
+        // effect" on top of the pickup, and a watch still running from an
+        // earlier activation blamed the player's own dropped item on a
+        // mechanism ("Dwemer Coherer moved, 0.2 metres away"). Only activators
+        // are opaque enough to need this.
+        //
+        // Editor markers are excluded too: they are invisible helpers (sound
+        // emitters, weather and script triggers) that the player cannot see or
+        // meaningfully "operate", so an activation landing on one is never a
+        // mechanism being worked.
+        const bool mechanism = target.getClass().isActivator() && !target.getClass().getScript(target).empty()
+            && !isEditorMarker(target);
+        if (mechanism)
+        {
+            mActivationSnapshot = snapshotCell(player);
+            mWatchingActivation = true;
+            mActivationReported = false;
+            mActivationWatchName = objectDisplayName(target);
+            mActivationTarget = target;
+            mActivationLocalsBefore = snapshotScriptLocals(target);
+            // Baseline for the time-skip check, so the first tick compares
+            // against the moment of activation rather than against zero.
+            mActivationWatchGameTime = MWBase::Environment::get().getWorld()->getTimeManager()->getGameTime();
+            // Long enough to cover slow mechanisms: the Dagoth Ur crank needs
+            // roughly six seconds of turning before its grate opens.
+            mActivationWatchTimer = kActivationWatchSeconds;
+        }
+
         MWBase::Environment::get().getLuaManager()->objectActivated(target, player);
         return true;
     }
@@ -3200,6 +3268,375 @@ namespace MWAccessibility
             speak("Unknown location.");
         else
             speak(std::string(name));
+    }
+
+    Scanner::CellSnapshot Scanner::snapshotCell(const MWWorld::Ptr& player)
+    {
+        CellSnapshot snap;
+        MWWorld::CellStore* cellStore = player.getCell();
+        if (!cellStore)
+            return snap;
+
+        // forEach visits only ENABLED refs, which is exactly what we want: an
+        // object vanishing from this set means it was disabled (a grate removed,
+        // a wall slid away), and one appearing means it was enabled or moved in.
+        cellStore->forEach([&](const MWWorld::Ptr& ptr) {
+            const ESM::RefNum ref = ptr.getCellRef().getRefNum();
+            if (!ref.isSet())
+                return true;
+            snap.mEnabled.insert(ref);
+            snap.mPositions.emplace(ref, ptr.getRefData().getPosition().asVec3());
+            // Structural = the things a mechanism actually operates on, and that
+            // the player could go and use afterwards: doors, other activators,
+            // containers. Loose items and actors are excluded so that pocketing
+            // a potion or a rat wandering off is never blamed on the lever.
+            //
+            // Statics are deliberately NOT structural. They are the bulk of a
+            // cell's scenery, and mods animate them constantly for reasons that
+            // have nothing to do with the player -- weather props, ambient
+            // machinery, lifts. Including them meant that resting in a bed, or
+            // riding the Tel Uvirith elevator, reported whatever piece of decor
+            // happened to shift. Nearly all are also nameless, so they could
+            // only ever be announced by their record id.
+            const auto type = ptr.getType();
+            if ((type == ESM::Door::sRecordId || type == ESM::Activator::sRecordId
+                    || type == ESM::Container::sRecordId)
+                && !isEditorMarker(ptr))
+                snap.mStructural.insert(ref);
+            return true;
+        });
+        return snap;
+    }
+
+    bool Scanner::reportCellChanges(const CellSnapshot& before)
+    {
+        MWBase::World* world = MWBase::Environment::get().getWorld();
+        MWWorld::Ptr player = world->getPlayerPtr();
+        if (player.isEmpty())
+            return false;
+        const osg::Vec3f playerPos = player.getRefData().getPosition().asVec3();
+
+        const CellSnapshot now = snapshotCell(player);
+
+        // What disappeared (disabled): the classic "a grate//wall/portcullis
+        // opened" outcome -- scripts almost always Disable the blocking object.
+        struct Change
+        {
+            std::string mName;
+            float mDist2;
+        };
+        std::vector<Change> vanished;
+        std::vector<Change> appeared;
+        std::vector<Change> moved;
+
+        MWWorld::CellStore* cellStore = player.getCell();
+        if (!cellStore)
+            return false;
+
+        // Appeared / moved: walk the current cell once.
+        cellStore->forEach([&](const MWWorld::Ptr& ptr) {
+            const ESM::RefNum ref = ptr.getCellRef().getRefNum();
+            if (!ref.isSet())
+                return true;
+            const osg::Vec3f pos = ptr.getRefData().getPosition().asVec3();
+            // NEVER speak a raw record id. objectDisplayName falls back to one
+            // for nameless objects, which is right for the scanner list but
+            // wrong here: resting in Tel Uvirith announced
+            // "AO_Weather_act_Wood moved, 2.1 metres away". A record id is
+            // developer text -- meaningless to a player and gibberish through a
+            // synthesiser. Nameless objects are still worth reporting (the
+            // Dagoth Ur grate has no name either), just anonymously, as
+            // "Something moved" -- what matters is that the way ahead changed,
+            // not what the modder called the mesh.
+            const std::string name(ptr.getClass().getName(ptr));
+            const float d2 = (pos - playerPos).length2();
+
+            if (!before.mEnabled.count(ref))
+            {
+                // Something newly enabled, or moved into the cell. Report
+                // actors (the Dagoth Ur crank releases a dwarven specter right
+                // next to you -- exactly the kind of thing a blind player must
+                // not learn about by being attacked) and structural pieces
+                // (a bridge or stair appearing). Skip loose items, which are
+                // usually just the player dropping something mid-watch.
+                const auto t = ptr.getType();
+                const bool structural = t == ESM::Door::sRecordId || t == ESM::Activator::sRecordId
+                    || t == ESM::Container::sRecordId;
+                if (!structural && !ptr.getClass().isActor())
+                    return true;
+                if (isEditorMarker(ptr))
+                    return true;
+                appeared.push_back({ name, d2 });
+                return true;
+            }
+            // Only STRUCTURAL things count as a mechanism moving (a door
+            // sliding, a bridge extending). Actors wander constantly, and loose
+            // items move because the PLAYER moved them -- dropping a scripted
+            // item during a watch was reported as "Dwemer Coherer moved, 0.2
+            // metres away", blaming the mechanism for the player's own action.
+            if (!before.mStructural.count(ref))
+                return true;
+            const auto it = before.mPositions.find(ref);
+            if (it != before.mPositions.end())
+            {
+                // Ignore jitter: only report a move big enough to be real.
+                constexpr float kMovedThreshold = 40.0f;
+                if ((pos - it->second).length2() > kMovedThreshold * kMovedThreshold)
+                    moved.push_back({ name, d2 });
+            }
+            return true;
+        });
+
+        // Vanished: refs present before that forEach no longer visits. Only
+        // STRUCTURAL ones count -- an item disappearing because the player
+        // picked it up, or an actor leaving, is not the mechanism's doing.
+        for (const ESM::RefNum& ref : before.mStructural)
+        {
+            if (now.mEnabled.count(ref))
+                continue;
+            // We only kept positions, not names, for the "before" state, so we
+            // can still give a direction even though the object is gone.
+            const auto it = before.mPositions.find(ref);
+            if (it == before.mPositions.end())
+                continue;
+            vanished.push_back({ std::string(), (it->second - playerPos).length2() });
+        }
+
+        auto nearestFirst = [](std::vector<Change>& v) {
+            std::sort(v.begin(), v.end(), [](const Change& a, const Change& b) { return a.mDist2 < b.mDist2; });
+        };
+        nearestFirst(appeared);
+        nearestFirst(moved);
+        nearestFirst(vanished);
+
+        std::string line;
+        auto append = [&](const std::string& text) {
+            if (!line.empty())
+                line += " ";
+            line += text;
+        };
+
+        // Phrase each outcome the way it matters to a player trying to proceed:
+        // something opening up is the point; the object's own name is secondary.
+        if (!vanished.empty())
+        {
+            const float dist = std::sqrt(vanished.front().mDist2);
+            append("Something opened, " + MWAccessibility::formatDistance(dist) + " away.");
+        }
+        // An unnamed object is announced as "Something", never by its record id.
+        auto subject = [](const std::string& name) -> std::string {
+            return name.empty() ? std::string("Something") : name;
+        };
+        if (!moved.empty())
+        {
+            append(subject(moved.front().mName) + " moved, "
+                + MWAccessibility::formatDistance(std::sqrt(moved.front().mDist2)) + " away.");
+        }
+        if (!appeared.empty())
+        {
+            append(subject(appeared.front().mName) + " appeared, "
+                + MWAccessibility::formatDistance(std::sqrt(appeared.front().mDist2)) + " away.");
+        }
+
+        if (line.empty())
+            return false;
+
+        speak(line);
+        // The world changed: cached lists no longer reflect it.
+        for (auto& s : mLists)
+            s.mDirty = true;
+        return true;
+    }
+
+    std::vector<int> Scanner::snapshotScriptLocals(const MWWorld::Ptr& ptr)
+    {
+        std::vector<int> out;
+        // A mechanism's own script can disable or delete it as part of firing,
+        // so the remembered Ptr may have gone stale mid-watch.
+        if (ptr.isEmpty() || !ptr.getRefData().isEnabled() || ptr.getClass().getScript(ptr).empty())
+            return out;
+
+        const MWScript::Locals& locals = ptr.getRefData().getLocals();
+        out.reserve(locals.mShorts.size() + locals.mLongs.size() + locals.mFloats.size());
+        for (const auto v : locals.mShorts)
+            out.push_back(static_cast<int>(v));
+        for (const auto v : locals.mLongs)
+            out.push_back(static_cast<int>(v));
+        // Scale before truncating so a slow timer (the Dagoth Ur crank counts
+        // up in fractions of a second) still shows movement between frames.
+        for (const auto v : locals.mFloats)
+            out.push_back(static_cast<int>(v * 100.f));
+        return out;
+    }
+
+    void Scanner::updateActivationWatch(float dt)
+    {
+        if (!mWatchingActivation)
+            return;
+
+        // Resting, waiting and travelling jump the clock by hours. Every
+        // ambient script in the cell runs during that skip, so whatever moved
+        // afterwards had nothing to do with the thing the player activated --
+        // and in a bed's case the player activated the bed precisely IN ORDER
+        // to skip time. Abandon the watch rather than attribute the world's
+        // background churn to it.
+        //
+        // getGameTime() is in-game SECONDS. The whole watch lasts ten real
+        // seconds, so even at a fast timescale normal play advances only a few
+        // game-minutes; a jump of a game-hour in a single frame can only be a
+        // rest, wait or travel.
+        const double gameTime = MWBase::Environment::get().getWorld()->getTimeManager()->getGameTime();
+        const double elapsedGameSeconds = gameTime - mActivationWatchGameTime;
+        mActivationWatchGameTime = gameTime;
+        constexpr double kTimeSkipSeconds = 3600.0; // one in-game hour in one frame
+        if (elapsedGameSeconds > kTimeSkipSeconds || elapsedGameSeconds < 0.0)
+        {
+            mWatchingActivation = false;
+            mActivationSnapshot = CellSnapshot();
+            mActivationWatchName.clear();
+            mActivationTarget = MWWorld::Ptr();
+            mActivationLocalsBefore.clear();
+            return;
+        }
+
+        mActivationWatchTimer -= dt;
+
+        // Re-check every frame rather than only at the end: a fast mechanism is
+        // reported promptly, while a slow one (the Dagoth Ur crank takes about
+        // six seconds of turning) is still caught before the window closes.
+        // Stop at the first reported change so one pull isn't narrated twice.
+        if (!mActivationReported && reportCellChanges(mActivationSnapshot))
+            mActivationReported = true;
+
+        // Decide "it did nothing" as soon as we can PROVE it, instead of always
+        // waiting out the full window. A mechanism that is going to act sets its
+        // own state first (a doOnce latch, a counter starting), so if its script
+        // variables are still untouched after a moment AND the world has not
+        // changed, it genuinely ignored the player. Reporting that promptly
+        // matters: a verdict arriving ten seconds later lands while the player
+        // is doing something else and reads as a random remark.
+        //
+        // If the variables DID move, the activation was accepted and an effect
+        // may still be pending, so we keep waiting for the world to change.
+        // Only usable when the mechanism actually HAS locals to compare: a
+        // scriptless-in-effect object gives us no early signal, and a mechanism
+        // that disabled itself as part of firing also reads as empty -- calling
+        // either "no effect" would be a confident lie, so we let those wait out
+        // the full window and be judged on world changes alone.
+        constexpr float kEarlyVerdictAfter = 0.75f;
+        const float elapsed = kActivationWatchSeconds - mActivationWatchTimer;
+        const std::vector<int> localsNow = snapshotScriptLocals(mActivationTarget);
+        if (!mActivationReported && elapsed >= kEarlyVerdictAfter && !mActivationLocalsBefore.empty()
+            && !localsNow.empty() && localsNow == mActivationLocalsBefore)
+        {
+            speak("No visible effect.");
+            mActivationReported = true;
+            mActivationWatchTimer = 0.f;
+        }
+
+        if (mActivationWatchTimer <= 0.f)
+        {
+            // Nothing observable happened at all. Say so rather than leaving the
+            // player wondering whether the mechanism worked -- silence here is
+            // indistinguishable from "the game ignored you".
+            if (!mActivationReported)
+                speak("No visible effect.");
+            mWatchingActivation = false;
+            mActivationSnapshot = CellSnapshot();
+            mActivationWatchName.clear();
+            mActivationTarget = MWWorld::Ptr();
+            mActivationLocalsBefore.clear();
+        }
+    }
+
+    void Scanner::detectInternalTeleport(const MWWorld::Ptr& player)
+    {
+        const osg::Vec3f pos = player.getRefData().getPosition().asVec3();
+
+        // First sample after a load or a cell change: seed the baseline only.
+        if (!mHavePlayerPos)
+        {
+            mLastPlayerPos = pos;
+            mHavePlayerPos = true;
+            return;
+        }
+
+        const osg::Vec3f delta = pos - mLastPlayerPos;
+        const osg::Vec3f origin = mLastPlayerPos;
+        mLastPlayerPos = pos;
+
+        // A teleport is an instantaneous jump far beyond anything a single frame
+        // of running, falling or levitating could cover. Morrowind's fastest
+        // legitimate movement is a few hundred units per second, i.e. a handful
+        // of units per frame; 400 units (~5.7 m) in one frame is unambiguous
+        // while staying well clear of a fast fall or a lag spike.
+        constexpr float kTeleportJump = 400.0f;
+        if (delta.length2() < kTeleportJump * kTeleportJump)
+            return;
+
+        // Only speak for jumps we can attribute to an internal teleport door.
+        // Other things move the player abruptly too -- Divine/Almsivi
+        // Intervention, Recall, a scripted PositionCell -- but those either
+        // change cell (handled by the cell-change path) or are deliberate acts
+        // whose destination the player already knows. Requiring a matching door
+        // nearby keeps us from narrating every scripted nudge.
+        if (!isNearInternalTeleportDoor(player, origin) && !isNearInternalTeleportDoor(player, pos))
+            return;
+
+        mInternalTeleportOrigin = origin;
+        mHaveInternalTeleportOrigin = true;
+
+        // Describe the move as the player experienced it: which way, how far,
+        // measured from where they were standing. This is the announcement that
+        // replaces the silence -- without it a ladder simply relocates you.
+        std::string line = "Moved ";
+        const std::string climb = MWAccessibility::formatElevationDirectionFirst(delta.z());
+        const float horiz = osg::Vec2f(delta.x(), delta.y()).length();
+        line += climb.empty() ? "across" : climb;
+        if (horiz > kUnitsPerMetre)
+        {
+            line += ", ";
+            line += MWAccessibility::compassLabel(std::atan2(delta.x(), delta.y()));
+        }
+        // Point back the way they came, so returning doesn't require guesswork.
+        // The departure point is also listed in Waypoints as "Back" (see
+        // collectWaypoints), which can be auto-walked to.
+        const osg::Vec3f back = origin - pos;
+        line += ". Back is ";
+        line += MWAccessibility::compassLabel(std::atan2(back.x(), back.y()));
+        line += ", ";
+        line += MWAccessibility::formatDistance(osg::Vec2f(back.x(), back.y()).length());
+        line += ".";
+        speak(line);
+
+        // The player is somewhere entirely new: every cached list is stale.
+        for (auto& s : mLists)
+            s.mDirty = true;
+    }
+
+    bool Scanner::isNearInternalTeleportDoor(const MWWorld::Ptr& player, const osg::Vec3f& pos)
+    {
+        const MWWorld::CellStore* cellStore = player.getCell();
+        if (!cellStore)
+            return false;
+
+        // Activating a door leaves the player standing right at it, and the
+        // destination end of the pair likewise sits close to where you land.
+        // Keep this generous enough for a large ladder mesh but tight enough
+        // that an unrelated door across the room can't excuse a jump.
+        constexpr float kDoorProximity = 400.0f;
+        bool found = false;
+        const_cast<MWWorld::CellStore*>(cellStore)->forEach([&](const MWWorld::Ptr& ptr) {
+            if (found || ptr.getType() != ESM::Door::sRecordId)
+                return true;
+            if (!isInternalTeleport(ptr))
+                return true;
+            const osg::Vec3f d = ptr.getRefData().getPosition().asVec3() - pos;
+            if (d.length2() <= kDoorProximity * kDoorProximity)
+                found = true;
+            return true;
+        });
+        return found;
     }
 
     void Scanner::announceCellChange()
@@ -3744,6 +4181,22 @@ namespace MWAccessibility
             return false;
         };
 
+        // A "do once" latch is the single most common way a Morrowind script
+        // records that a one-shot mechanism has already fired: the script guards
+        // its payload on the variable and bumps it when done. Reading it out
+        // literally ("doOnce: 2") is honest but tells the player nothing; what
+        // they actually need to know is whether pulling this thing again will do
+        // anything. Non-zero means the script has moved past its initial state.
+        //
+        // We report this as a LEADING summary and still read the raw variables
+        // afterwards, so nothing is hidden and a script using the name
+        // differently can't make us speak a confident falsehood.
+        auto isDoOnceLatch = [](std::string_view n) {
+            return Misc::StringUtils::ciFind(n, "doonce") != std::string_view::npos
+                || Misc::StringUtils::ciFind(n, "done") != std::string_view::npos;
+        };
+        std::string latchSummary;
+
         std::vector<std::string> parts;
 
         auto emitShortLong = [&](char type, auto readValue) {
@@ -3752,6 +4205,8 @@ namespace MWAccessibility
             {
                 const std::string& vn = names[i];
                 const int v = readValue(i);
+                if (latchSummary.empty() && isDoOnceLatch(vn))
+                    latchSummary = v != 0 ? "Already used." : "Not used yet.";
                 if (looksBoolean(vn) && (v == 0 || v == 1))
                     parts.push_back(vn + ": " + (v ? "on" : "off"));
                 else
@@ -3790,7 +4245,12 @@ namespace MWAccessibility
             return;
         }
 
+        // Lead with the plain-language verdict when we have one, so the player
+        // hears the answer to "will this still do anything?" before the raw
+        // variable dump they may not need.
         std::string out = name + ". ";
+        if (!latchSummary.empty())
+            out += latchSummary + " ";
         for (size_t i = 0; i < parts.size(); ++i)
         {
             out += parts[i];

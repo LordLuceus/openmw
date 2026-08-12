@@ -87,7 +87,7 @@ selected is your **target**.
 | **K** | Mark / unmark the target as "already looked at" |
 | **Ctrl + K** | Attach or edit a note on the target (e.g. labelling a caravaner). Notes are searchable with **/** |
 | **Shift + K** | Cycle which objects you see: all → unmarked only → marked only → all |
-| **I** | Inspect the target's hidden state — reads out script values such as whether a lever is on or off. Says "has no readable state" if there's nothing to report |
+| **I** | Inspect the target's hidden state — says whether a one-shot mechanism has "Already used" or is "Not used yet", then reads out script values such as whether a lever is on or off. Says "has no readable state" if there's nothing to report |
 
 Any movement key cancels auto-walk.
 
