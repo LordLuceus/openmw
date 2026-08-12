@@ -8,6 +8,15 @@ low-vision players can play Morrowind by ear.
 This is a **beta**. Things may be rough or incomplete. Please report problems —
 see **Reporting problems** at the bottom.
 
+### The other documents in this package
+
+- **`ACCESSIBILITY_KEYS.html`** — every keystroke, including the menus, journal,
+  barter, alchemy and spellmaking.
+- **`ACCESSIBILITY_AUDIO_CUES.html`** — what each sound the mod plays means.
+- **`ACCESSIBILITY_MODDING.html`** — optional. How to install Morrowind mods with
+  this build, plus a recommended mod list. Everything here works without mods.
+- **`ACCESSIBILITY_CHANGELOG.html`** — what changed in each release.
+
 ---
 
 ## What you need

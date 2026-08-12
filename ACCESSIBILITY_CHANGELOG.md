@@ -40,6 +40,14 @@ Newest changes are listed first. (OpenMW's own engine changelog lives in
   readout now begins with "Already used" or "Not used yet" where the script
   records it, before the detailed values.
 
+- **New document: a modding guide with a recommended mod list.** Morrowind's mods
+  work with this build, because the accessibility features are part of the engine
+  rather than a separate add-on. `ACCESSIBILITY_MODDING.html` explains how to
+  install a curated mod list and then customise it, and describes the mods used by
+  Project Hortator's own developer -- with honest notes on which ones are worth
+  your time. It is entirely optional; everything else in these documents works on
+  an unmodded game.
+
 - **Your own notes are now searchable.** A note attached with Ctrl + K is
   included in what the **/** search matches, so labelling a shipmaster "silt
   strider" lets you find them later by typing "silt". This makes notes a way to

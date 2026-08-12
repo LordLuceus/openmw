@@ -51,6 +51,7 @@ $docs = @(
     @{ Md = 'ACCESSIBILITY_README.md';    Html = 'ACCESSIBILITY_README.html';    Title = 'Project Hortator - Read Me First' }
     @{ Md = 'ACCESSIBILITY_KEYS.md';      Html = 'ACCESSIBILITY_KEYS.html';      Title = 'Project Hortator - Complete Key Reference' }
     @{ Md = 'ACCESSIBILITY_AUDIO_CUES.md'; Html = 'ACCESSIBILITY_AUDIO_CUES.html'; Title = 'Project Hortator - Audio Cue Reference' }
+    @{ Md = 'ACCESSIBILITY_MODDING.md';   Html = 'ACCESSIBILITY_MODDING.html';   Title = 'Project Hortator - Modding Guide and Recommended Mods' }
     @{ Md = 'ACCESSIBILITY_CHANGELOG.md'; Html = 'ACCESSIBILITY_CHANGELOG.html'; Title = 'Project Hortator - Changelog' }
     @{ Md = 'THIRD-PARTY-LICENSES.md';    Html = 'THIRD-PARTY-LICENSES.html';    Title = 'Project Hortator - Third-Party Licences' }
 )
