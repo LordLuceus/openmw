@@ -34,6 +34,20 @@ namespace MWAccessibility
         return buf;
     }
 
+    std::string formatElevationDirectionFirst(float dzUnits)
+    {
+        // Derive from formatElevation rather than re-formatting, so the number,
+        // the rounding and the dead-band are guaranteed identical to every
+        // other height the player hears.
+        const std::string base = formatElevation(dzUnits);
+        if (base.empty())
+            return base;
+        const std::size_t sep = base.rfind(' ');
+        if (sep == std::string::npos)
+            return base;
+        return base.substr(sep + 1) + " " + base.substr(0, sep);
+    }
+
     std::string letterForIndex(std::size_t i)
     {
         std::string out;

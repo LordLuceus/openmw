@@ -111,7 +111,7 @@ came with this package.
 | **Home** | Announce current target |
 | **Backspace** | Jump back to the first (nearest) target in the category |
 | **End** | Clear the current selection |
-| **/** (slash) | Search: filter the current category by name |
+| **/** (slash) | Search: filter the current category by name, a door's destination, or any note you've attached with Ctrl + K |
 | **Ctrl + /** | Clear an active search filter |
 | **Ctrl + Up** | Direction filter: show only things lying the way you're facing. Affects every category at once and follows you as you turn; press again to switch off. Handy when an NPC says something is "to the north" |
 
@@ -127,7 +127,7 @@ came with this package.
 | **X** | Toggle combat / interaction lock-on to the target (keeps you aimed at it) |
 | **Shift + X** | Engage: jump to the nearest hostile and lock onto it in one press |
 | **K** | Mark / unmark the target as "already looked at" (it reads back as "marked"). Handy for keeping track when looting a room full of identical crates. Marks are permanent: they persist when you leave and return, and survive saving and reloading. Each save keeps its own marks (stored in a small companion file beside the save). Press K again on an object to unmark it. Marks also survive installing, removing or reordering mods; if you uninstall the mod an object came from, its mark is dropped, since the object itself is gone (see **Marks and your mod list** below) |
-| **Ctrl + K** | Attach or edit a note on the target — a label of your own that reads back with it (e.g. naming a silt-strider caravaner). Marks the object if it wasn't already |
+| **Ctrl + K** | Attach or edit a note on the target — a label of your own that reads back with it (e.g. naming a silt-strider caravaner). Notes are searchable with **/**, so labelling someone "silt strider" lets you find them by typing "silt". Marks the object if it wasn't already |
 | **Shift + K** | Cycle the marked-object view: show all objects (the default), then unmarked only (hides what you've checked, so you cycle only what's left), then marked only (focus on just the objects you've flagged), then back to all |
 
 ### Information and orientation

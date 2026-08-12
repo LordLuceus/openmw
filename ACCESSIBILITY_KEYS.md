@@ -67,7 +67,7 @@ selected is your **target**.
 | **Home** | Announce the current target again |
 | **Backspace** | Back to the first (nearest) target in the category |
 | **End** | Clear the selection |
-| **/** | Search: filter the current category by name |
+| **/** | Search: filter the current category by name, a door's destination, or any note you've attached with Ctrl + K |
 | **Ctrl + /** | Clear the search filter |
 | **Ctrl + Up** | Direction filter: show only what lies the way you're facing, and keep following you as you turn. Press again to switch off |
 
@@ -85,7 +85,7 @@ selected is your **target**.
 | **X** | Toggle lock-on to the target, so you stay aimed at it |
 | **Shift + X** | Engage: jump to the nearest hostile and lock on, in one press |
 | **K** | Mark / unmark the target as "already looked at" |
-| **Ctrl + K** | Attach or edit a note on the target (e.g. labelling a caravaner) |
+| **Ctrl + K** | Attach or edit a note on the target (e.g. labelling a caravaner). Notes are searchable with **/** |
 | **Shift + K** | Cycle which objects you see: all → unmarked only → marked only → all |
 | **I** | Inspect the target's hidden state — reads out script values such as whether a lever is on or off. Says "has no readable state" if there's nothing to report |
 

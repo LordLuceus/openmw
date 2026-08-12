@@ -66,6 +66,48 @@ namespace MWAccessibility
             EXPECT_EQ(formatElevation(-15.f * kUnitsPerMetre), "15 metres down");
         }
 
+        // --- formatElevationDirectionFirst -----------------------------------
+        // Same measurement as formatElevation, with the direction moved to the
+        // front. Used where the direction is the point and must be heard first:
+        // where a ladder/shaft leads, and where one just moved the player.
+
+        TEST(MWAccessibilitySpokenFormat, formatElevationDirectionFirstPutsDirectionFirst)
+        {
+            EXPECT_EQ(formatElevationDirectionFirst(2.f * kUnitsPerMetre), "up 2.0 metres");
+            EXPECT_EQ(formatElevationDirectionFirst(-3.f * kUnitsPerMetre), "down 3.0 metres");
+        }
+
+        TEST(MWAccessibilitySpokenFormat, formatElevationDirectionFirstRoundsLikeFormatElevation)
+        {
+            EXPECT_EQ(formatElevationDirectionFirst(12.f * kUnitsPerMetre), "up 12 metres");
+            EXPECT_EQ(formatElevationDirectionFirst(-15.f * kUnitsPerMetre), "down 15 metres");
+        }
+
+        TEST(MWAccessibilitySpokenFormat, formatElevationDirectionFirstSharesTheDeadBand)
+        {
+            // Must stay silent exactly where formatElevation does, so a ladder
+            // that barely rises never claims a direction it can't justify.
+            EXPECT_EQ(formatElevationDirectionFirst(0.f), "");
+            EXPECT_EQ(formatElevationDirectionFirst(52.5f), "");
+            EXPECT_EQ(formatElevationDirectionFirst(-52.5f), "");
+        }
+
+        TEST(MWAccessibilitySpokenFormat, formatElevationDirectionFirstAgreesWithFormatElevation)
+        {
+            // The two phrasings must never disagree about the number: they
+            // describe the same height to the same player moments apart.
+            for (const float dz : { 60.f, -60.f, 200.f, -350.f, 1400.f, -2500.f })
+            {
+                const std::string plain = formatElevation(dz);
+                const std::string swapped = formatElevationDirectionFirst(dz);
+                ASSERT_FALSE(plain.empty());
+                const std::size_t sep = plain.rfind(' ');
+                ASSERT_NE(sep, std::string::npos);
+                // "<number> metres <dir>" -> "<dir> <number> metres"
+                EXPECT_EQ(swapped, plain.substr(sep + 1) + " " + plain.substr(0, sep));
+            }
+        }
+
         // --- letterForIndex --------------------------------------------------
         // Bijective base-26 (A=1): A..Z, then AA, AB, ... with no "A0" gap.
 

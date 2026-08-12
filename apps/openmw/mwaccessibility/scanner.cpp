@@ -500,6 +500,68 @@ using MWAccessibility::kPi;
         return sum / static_cast<float>(count);
     }
 
+    // True if \p ptr is a teleport door whose destination is the cell the door
+    // itself sits in -- an INTERNAL teleport. Mods use these heavily as ladders,
+    // shafts and hatches connecting parts of one big cell (OAAB's "Dwemer
+    // Ladder", placed by Arvesa's Dagoth Ur facility, is exactly this). Naming
+    // the destination cell is actively misleading for these: it speaks the cell
+    // the player is already standing in.
+    bool isInternalTeleport(const MWWorld::Ptr& ptr)
+    {
+        if (ptr.getType() != ESM::Door::sRecordId || !ptr.getCellRef().getTeleport())
+            return false;
+        const ESM::RefId destCell = ptr.getCellRef().getDestCell();
+        if (destCell.empty() || !ptr.isInCell())
+            return false;
+        const MWWorld::CellStore* here = ptr.getCell();
+        return here && here->getCell()->getId() == destCell;
+    }
+
+    // Where an internal teleport door actually puts you, phrased relative to the
+    // door: e.g. "leads up 4.5 metres, north" (no leading separator). Speaking
+    // the destination CELL (the normal behaviour) is useless here because it is
+    // the current cell, so instead we describe the move itself, computed from
+    // the door's authored destination -- the same data the engine uses to place
+    // the player. Height change comes first because these are overwhelmingly
+    // ladders/shafts and "up" or "down" is the part the player needs; the
+    // compass bearing follows for the ones that also move you sideways. Both
+    // parts are omitted when the move is negligible in that axis, so we never
+    // speak a fabricated direction. Empty for anything that isn't an internal
+    // teleport.
+    std::string internalTeleportLeadsLabel(const MWWorld::Ptr& ptr)
+    {
+        if (!isInternalTeleport(ptr))
+            return {};
+
+        const osg::Vec3f doorPos = ptr.getRefData().getPosition().asVec3();
+        const osg::Vec3f destPos = ptr.getCellRef().getDoorDest().asVec3();
+        const osg::Vec3f delta = destPos - doorPos;
+
+        // Reuse formatElevation's own dead-band so "up"/"down" here means the
+        // same thing it does everywhere else in the scanner.
+        const std::string climb = MWAccessibility::formatElevationDirectionFirst(delta.z());
+        const float horiz = osg::Vec2f(delta.x(), delta.y()).length();
+
+        // Goes essentially nowhere we can describe honestly. Say only that it
+        // stays in this area rather than inventing a direction.
+        // Capitalised because this fragment starts its own sentence at the end
+        // of the readout ("... 3 metres, north. Leads up 4 metres, north.").
+        if (climb.empty() && horiz <= kUnitsPerMetre)
+            return "Leads elsewhere in this area";
+
+        std::string out = "Leads ";
+        out += climb.empty() ? "across" : climb;
+
+        if (horiz > kUnitsPerMetre)
+        {
+            // atan2(x, y): 0 = north, +X = east -- the absolute-bearing
+            // convention used everywhere in the scanner.
+            out += ", ";
+            out += MWAccessibility::compassLabel(std::atan2(delta.x(), delta.y()));
+        }
+        return out;
+    }
+
     void appendDoorDestination(const MWWorld::Ptr& ptr, std::string& out)
     {
         if (ptr.getType() != ESM::Door::sRecordId)
@@ -516,6 +578,12 @@ using MWAccessibility::kPi;
             return;
         ESM::RefId destCell = ptr.getCellRef().getDestCell();
         if (destCell.empty())
+            return;
+        // An internal teleport leads back into this same cell, so naming the
+        // cell tells the player where they already are. Its "leads up 4 metres"
+        // description is appended at the END of the spoken line instead (see
+        // announceCurrent), after the distance -- so nothing is added here.
+        if (isInternalTeleport(ptr))
             return;
         // The door class formats its destination as "#{sCell=<name>}";
         // we look up the cell name directly via WorldModel.
@@ -695,10 +763,26 @@ using MWAccessibility::kPi;
     // all just named "Door") would be unsearchable; the useful, distinguishing
     // text is the destination. Any #{...} localisation tags are resolved so the
     // match works against the form the user actually hears.
-    std::string objectSearchText(const MWWorld::Ptr& ptr)
+    //
+    // \p marks is the current category's custom mark notes (Ctrl+K), included
+    // so a note the player wrote themselves is searchable. This turns marks into
+    // a general tagging system: label a shipmaster "silt strider" and a search
+    // for "silt" finds them, even though nothing in the game calls them that.
+    // It is the only search text the player controls, so it is the only way to
+    // find objects the game names unhelpfully (every guard is "Guard").
+    std::string objectSearchText(
+        const MWWorld::Ptr& ptr, const std::unordered_map<ESM::RefNum, std::string>& marks)
     {
         std::string text = objectDisplayName(ptr);
         appendDoorDestination(ptr, text);
+        // In-cell ladders/shafts say where they lead at the end of the spoken
+        // line rather than in their identity, but that text is still the only
+        // thing distinguishing several identically named ones, so keep it
+        // searchable ("up", "down", a bearing).
+        if (const std::string leads = internalTeleportLeadsLabel(ptr); !leads.empty())
+            text += ", " + leads;
+        if (const auto it = marks.find(ptr.getCellRef().getRefNum()); it != marks.end() && !it->second.empty())
+            text += ", " + it->second;
         return MyGUI::LanguageManager::getInstance().replaceTags(text).asUTF8();
     }
 
@@ -1309,7 +1393,18 @@ namespace MWAccessibility
             // listed isn't mysterious. Only when something was actually cleared.
             if (clearedAnyFilter)
                 speak("Scanner filters cleared.");
+            // Leaving the cell invalidates the remembered departure point: its
+            // coordinates are no longer comparable to the player's, and the
+            // ladder that produced it is behind us.
+            mHaveInternalTeleportOrigin = false;
+            mHavePlayerPos = false;
         }
+
+        // Detect an INTERNAL teleport: a jump within the same cell, produced by
+        // a teleport door whose destination is this cell (a ladder, shaft or
+        // hatch). No cell change fires for these, so without this the player is
+        // moved a long way in silence. See mLastPlayerPos.
+        detectInternalTeleport(player);
 
         // Prune objects that have left the world (e.g. an item the player just
         // picked up) from the active category's cached list, so they stop being
@@ -3945,7 +4040,7 @@ namespace MWAccessibility
             if (!state.mFilter.empty())
             {
                 std::erase_if(state.mObjects, [&](const MWWorld::Ptr& ptr) {
-                    return Misc::StringUtils::ciFind(objectSearchText(ptr), state.mFilter)
+                    return Misc::StringUtils::ciFind(objectSearchText(ptr, state.mMarked), state.mFilter)
                         == std::string_view::npos;
                 });
             }
@@ -4047,9 +4142,10 @@ namespace MWAccessibility
                 // Apply the active name filter (case-insensitive substring of
                 // the object's spoken identity -- name plus, for doors, their
                 // destination, so "guild" matches "Door, to ... Guild of
-                // Mages"). Empty filter matches everything.
+                // Mages", plus any custom mark note the player wrote). Empty
+                // filter matches everything.
                 if (!state.mFilter.empty()
-                    && Misc::StringUtils::ciFind(objectSearchText(ptr), state.mFilter)
+                    && Misc::StringUtils::ciFind(objectSearchText(ptr, state.mMarked), state.mFilter)
                         == std::string_view::npos)
                     return true;
                 // Global direction filter (Ctrl+Up): drop anything not lying in
@@ -4260,9 +4356,19 @@ namespace MWAccessibility
         // below us) follows the bearing; positional "N of M" stays at the very
         // end (project convention).
         std::string elevation = formatElevation(delta.z());
+
+        // Where an in-cell ladder/shaft/hatch leads goes at the END, after the
+        // distance to the door itself: the player wants to know how far away the
+        // thing is before hearing where it would take them. (Cross-cell doors
+        // keep naming their destination as part of the object's identity, up
+        // front -- that name is how you tell two doors apart, whereas these are
+        // all called the same thing and are distinguished by where they go.)
+        const std::string leads = internalTeleportLeadsLabel(target);
+
         std::string msg = name + ". " + formatDistance(dist)
             + ", " + compassLabel(targetYaw) + ". "
             + (elevation.empty() ? "" : elevation + ". ")
+            + (leads.empty() ? "" : leads + ". ")
             + std::to_string(state.mIndex + 1) + " of "
             + std::to_string(state.mObjects.size()) + ".";
 
@@ -4428,6 +4534,21 @@ namespace MWAccessibility
             wp.mReachable = markReachable;
             if (!markReachable)
                 wp.mAreaLabel = std::string(world->getCellName(markedCell));
+            out.push_back(std::move(wp));
+        }
+
+        // Where the last in-cell teleport (ladder/shaft/hatch) brought the
+        // player FROM. These doors relocate you within one cell with no cell
+        // change to announce, and mods often place several identically named
+        // ones, so without a way back the player is simply lost. Always in the
+        // current cell and worldspace by construction, hence reachable and
+        // auto-walkable. Cleared on any cell change (see onFrame).
+        if (mHaveInternalTeleportOrigin)
+        {
+            Waypoint wp;
+            wp.mName = "Back";
+            wp.mPosition = mInternalTeleportOrigin;
+            wp.mReachable = true;
             out.push_back(std::move(wp));
         }
 

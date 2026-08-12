@@ -580,6 +580,39 @@ namespace MWAccessibility
         // NOT on exterior-to-exterior walking where filters should persist.
         int mLastCellExterior = -1;
 
+        // --- Internal teleport (in-cell ladder/shaft/hatch) tracking --------
+        // Mods commonly connect parts of one large cell with teleport doors --
+        // OAAB's "Dwemer Ladder", used throughout Arvesa's Dagoth Ur facility,
+        // is one. These move the player a long way instantly WITHOUT a cell
+        // change, so the cell-change announcement above never fires and a blind
+        // player is silently relocated: no idea where they landed, or how to get
+        // back. Worse, several such doors in one cell all share a display name.
+        //
+        // We detect the jump geometrically (a position change far larger than
+        // any single frame of movement could produce, within the same cell),
+        // announce where it put the player, and remember the departure point so
+        // it can be listed as a waypoint to walk back to.
+        osg::Vec3f mLastPlayerPos;
+        // False until mLastPlayerPos holds a real sample, so the first frame in
+        // a cell (or after a load) is never mistaken for a teleport.
+        bool mHavePlayerPos = false;
+        // Where the player was standing before the most recent internal
+        // teleport, and whether it is still valid (cleared on a cell change,
+        // since the coordinates stop being comparable).
+        osg::Vec3f mInternalTeleportOrigin;
+        bool mHaveInternalTeleportOrigin = false;
+
+        /// Detect and announce an in-cell teleport (ladder/shaft/hatch) by
+        /// spotting a position jump too large for one frame of movement and
+        /// attributing it to a nearby internal teleport door. Records the
+        /// departure point so it can be offered as a "Back" waypoint.
+        void detectInternalTeleport(const MWWorld::Ptr& player);
+
+        /// True if an internal teleport door sits close to \p pos in the
+        /// player's current cell. Used to attribute a detected jump to a door
+        /// rather than to Recall, Intervention or a scripted reposition.
+        static bool isNearInternalTeleportDoor(const MWWorld::Ptr& player, const osg::Vec3f& pos);
+
         // Direction filter (Ctrl+Up). Unlike the per-category name filter, this
         // one is GLOBAL: it applies to every category at once, since a compass
         // direction isn't category-specific (a player following NPC directions

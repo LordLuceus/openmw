@@ -6,6 +6,26 @@ Newest changes are listed first. (OpenMW's own engine changelog lives in
 
 ## 2026-08-12
 
+- **Ladders and other doors that move you within the same area now say where
+  they go.** Some mods connect parts of one large area with doors that teleport
+  you -- Dwemer ladders, shafts and hatches are common examples. These used to
+  announce the name of the area you were already standing in, which told you
+  nothing, and several of them in one place often share the same name. They now
+  describe the trip instead, at the end of the line so you hear how far away the
+  ladder is first: "Dwemer Ladder. 3 metres, north. Leads up 4.5 metres, north."
+  (Doors leading to a different area are unchanged -- they still name their
+  destination up front.)
+- **You are told when one of those doors moves you, and how to get back.**
+  Because you never leave the area, nothing used to be announced at all: you
+  were simply somewhere else. You now hear how far you moved and in which
+  direction, plus the way back to where you set off, and the spot you left is
+  added to your waypoints as "Back" so you can walk to it.
+- **Your own notes are now searchable.** A note attached with Ctrl + K is
+  included in what the **/** search matches, so labelling a shipmaster "silt
+  strider" lets you find them later by typing "silt". This makes notes a way to
+  tag things the game names unhelpfully -- when every guard is called "Guard",
+  your label is the only thing that can tell them apart.
+
 - **Fixed: things you can reach now come first in the scanner list.** Indoors,
   the scanner groups objects by floor, so it reads out everything on your own
   level before moving to the next one. That works well in a building with

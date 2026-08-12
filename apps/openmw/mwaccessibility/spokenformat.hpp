@@ -34,6 +34,14 @@ namespace MWAccessibility
     // formatDistance.
     std::string formatElevation(float dzUnits);
 
+    // The same vertical offset with the DIRECTION first: "up 2.0 metres" /
+    // "down 3 metres", and "" within the same dead-band as formatElevation.
+    // Used where the direction of travel is the point and must be heard
+    // immediately -- describing where a ladder or shaft leads, and where one
+    // just moved the player -- rather than being tacked on after the number.
+    // Shares formatElevation's output so the two can never disagree.
+    std::string formatElevationDirectionFirst(float dzUnits);
+
     // Spoken disambiguation suffix for the i-th (0-based) duplicate among
     // same-named objects: A, B, ... Z, then AA, AB, ... for the (rare) case of
     // more than 26 same-named objects. Bijective base-26 (A=1), so there is no
