@@ -98,4 +98,15 @@ namespace MWAccessibility
         // far-but-flat one on the same storey).
         return aHorizDist2 < bHorizDist2;
     }
+
+    bool lessByReachThenLevelThenDistance(
+        bool aReachable, float aDz, float aHorizDist2, bool bReachable, float bDz, float bHorizDist2)
+    {
+        // Reachable-first: what the player can touch from here outranks
+        // everything they cannot, whatever band it lands in. Only when both
+        // sides agree does the level grouping decide.
+        if (aReachable != bReachable)
+            return aReachable;
+        return lessByLevelThenDistance(aDz, aHorizDist2, bDz, bHorizDist2);
+    }
 }

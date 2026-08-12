@@ -3834,10 +3834,21 @@ namespace MWAccessibility
     void Scanner::sortObjectsByLevelThenDistance(
         std::vector<MWWorld::Ptr>& objects, const osg::Vec3f& playerPos, bool levelGrouped)
     {
-        std::sort(objects.begin(), objects.end(),
-            [&playerPos, levelGrouped](const MWWorld::Ptr& a, const MWWorld::Ptr& b) {
-                const osg::Vec3f pa = a.getRefData().getPosition().asVec3();
-                const osg::Vec3f pb = b.getRefData().getPosition().asVec3();
+        // Reachability is a per-object property, not a pairwise one, and
+        // isWithinActivationReach() does real work (bounds maths, telekinesis
+        // lookup). Compute it ONCE per object here rather than inside the
+        // comparator, which std::sort calls O(n log n) times -- and which would
+        // also risk an inconsistent comparator if any input shifted mid-sort.
+        std::vector<std::pair<MWWorld::Ptr, bool>> keyed;
+        keyed.reserve(objects.size());
+        for (const MWWorld::Ptr& ptr : objects)
+            keyed.emplace_back(ptr, levelGrouped && isWithinActivationReach(ptr));
+
+        std::sort(keyed.begin(), keyed.end(),
+            [&playerPos, levelGrouped](
+                const std::pair<MWWorld::Ptr, bool>& a, const std::pair<MWWorld::Ptr, bool>& b) {
+                const osg::Vec3f pa = a.first.getRefData().getPosition().asVec3();
+                const osg::Vec3f pb = b.first.getRefData().getPosition().asVec3();
                 // Outside (exterior worldspace), floor-banding is meaningless --
                 // terrain height varies continuously, so there are no discrete
                 // storeys to group by and banding just scrambles the honest
@@ -3852,9 +3863,18 @@ namespace MWAccessibility
                     + (pa.y() - playerPos.y()) * (pa.y() - playerPos.y());
                 const float bHoriz2 = (pb.x() - playerPos.x()) * (pb.x() - playerPos.x())
                     + (pb.y() - playerPos.y()) * (pb.y() - playerPos.y());
-                return lessByLevelThenDistance(
-                    pa.z() - playerPos.z(), aHoriz2, pb.z() - playerPos.z(), bHoriz2);
+                // Reachable-first: something the player can touch from where they
+                // stand outranks anything they cannot, whichever band it lands
+                // in. Without this a door raised barely over half a storey (~1.6 m
+                // -- routine in ramped/interlocking dungeon geometry) sorted
+                // behind the entire current floor despite being openable from
+                // right here.
+                return lessByReachThenLevelThenDistance(
+                    a.second, pa.z() - playerPos.z(), aHoriz2, b.second, pb.z() - playerPos.z(), bHoriz2);
             });
+
+        for (size_t i = 0; i < keyed.size(); ++i)
+            objects[i] = keyed[i].first;
     }
 
     bool Scanner::lessWaypointByLevelThenDistance(

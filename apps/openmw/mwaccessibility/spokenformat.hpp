@@ -84,6 +84,27 @@ namespace MWAccessibility
     // object's signed height offset (objectZ - playerZ). A strict weak ordering,
     // suitable as a std::sort comparator.
     bool lessByLevelThenDistance(float aDz, float aHorizDist2, float bDz, float bHorizDist2);
+
+    // As lessByLevelThenDistance, but with a REACHABLE-FIRST override: an object
+    // the player can actually touch from where they stand outranks everything
+    // they cannot, regardless of which vertical band it falls in.
+    //
+    // WHY: floorBand() flips at only half a storey (~1.6 m), so a door raised a
+    // step or two above the player -- utterly common in dungeons, where floors
+    // are ramped and rooms interlock vertically -- was ranked a whole storey
+    // away and sorted behind every object on the player's own level, however
+    // distant. The player could reach out and open it, yet had to cycle past the
+    // entire room to find it. Level grouping is still the right model for a
+    // building with distinct storeys (its whole point is to sweep one floor at a
+    // time); it is only wrong about things that are, physically, right here.
+    //
+    // \p aReachable / \p bReachable are "within activation reach" as the engine
+    // computes it (including telekinesis and object bounds), so this mirrors what
+    // the player can actually interact with rather than a distance guess. Ties
+    // between two reachable (or two unreachable) objects fall through to the
+    // normal level-then-distance ordering, keeping a strict weak ordering.
+    bool lessByReachThenLevelThenDistance(bool aReachable, float aDz, float aHorizDist2, bool bReachable,
+        float bDz, float bHorizDist2);
 }
 
 #endif

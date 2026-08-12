@@ -4,6 +4,20 @@ A running log of screen-reader accessibility features added to this OpenMW fork.
 Newest changes are listed first. (OpenMW's own engine changelog lives in
 `CHANGELOG.md`.)
 
+## 2026-08-12
+
+- **Fixed: things you can reach now come first in the scanner list.** Indoors,
+  the scanner groups objects by floor, so it reads out everything on your own
+  level before moving to the next one. That works well in a building with
+  proper storeys, but it counted anything more than about a metre and a half
+  above or below you as being on a different floor. In dungeons, where the
+  ground ramps and rooms sit at odd heights, a door you were standing right
+  next to -- close enough to open without moving -- could be pushed to the far
+  end of the list behind everything else in the room, simply because it sat a
+  step or two up. Now anything close enough to actually touch is listed first,
+  whatever height it is at. Floor grouping still applies to everything beyond
+  arm's reach, so listing a guild hall or tower a storey at a time is unchanged.
+
 ## 2026-08-09
 
 - **New: a complete key reference, `ACCESSIBILITY_KEYS.html`.** The readme lists

@@ -233,5 +233,62 @@ namespace MWAccessibility
             EXPECT_TRUE(ab); // the lower (down) one comes first
             EXPECT_FALSE(ba);
         }
+
+        // --- lessByReachThenLevelThenDistance --------------------------------
+        // Reachable-first override. THE REGRESSION THIS FIXES (reported in a
+        // mod-overhauled dungeon): a door raised ~2 m sits in band +1, so plain
+        // level sorting pushed it behind every object on the player's own floor
+        // even though the player was standing close enough to open it.
+
+        TEST(MWAccessibilitySpokenFormat, reachSortRaisedDoorWithinReachComesFirst)
+        {
+            // The real case: a door 2 m up (dz 140 units => band +1) about a
+            // metre away, versus a crate on the player's own floor 10 m off.
+            // Plain level sorting puts the crate first; reach-aware does not.
+            const float raisedDz = 140.f; // ~2 m up: past the 115-unit band flip
+            const float doorHoriz2 = 70.f * 70.f; // ~1 m away, within reach
+            const float crateHoriz2 = 700.f * 700.f; // ~10 m away, same floor
+
+            // Confirm the OLD behaviour really was wrong (guards against the
+            // premise silently changing if kFloorHeight is ever retuned).
+            EXPECT_FALSE(lessByLevelThenDistance(raisedDz, doorHoriz2, 0.f, crateHoriz2));
+
+            // Reach-aware: the door the player can actually touch comes first.
+            EXPECT_TRUE(lessByReachThenLevelThenDistance(true, raisedDz, doorHoriz2, false, 0.f, crateHoriz2));
+            EXPECT_FALSE(lessByReachThenLevelThenDistance(false, 0.f, crateHoriz2, true, raisedDz, doorHoriz2));
+        }
+
+        TEST(MWAccessibilitySpokenFormat, reachSortPreservesLevelGroupingBeyondReach)
+        {
+            // Neither reachable => unchanged guild-hall behaviour: a far object
+            // on the player's own floor still precedes a closer one upstairs.
+            const float farSameFloor = 5000.f * 5000.f;
+            const float nearNextFloor = 100.f * 100.f;
+            EXPECT_TRUE(lessByReachThenLevelThenDistance(false, 0.f, farSameFloor, false, kFloorHeight, nearNextFloor));
+            EXPECT_FALSE(
+                lessByReachThenLevelThenDistance(false, kFloorHeight, nearNextFloor, false, 0.f, farSameFloor));
+        }
+
+        TEST(MWAccessibilitySpokenFormat, reachSortBothReachableFallsBackToLevelThenDistance)
+        {
+            // Two reachable objects tie on the override, so the usual ordering
+            // decides: same level beats another band, then nearest-first.
+            EXPECT_TRUE(lessByReachThenLevelThenDistance(true, 0.f, 400.f, true, kFloorHeight, 100.f));
+            EXPECT_TRUE(lessByReachThenLevelThenDistance(true, 0.f, 100.f, true, 0.f, 400.f));
+            EXPECT_FALSE(lessByReachThenLevelThenDistance(true, 0.f, 400.f, true, 0.f, 100.f));
+        }
+
+        TEST(MWAccessibilitySpokenFormat, reachSortIsStrictWeakOrdering)
+        {
+            // Irreflexive, and never reports both a<b and b<a for any mix of
+            // reachability -- required of a std::sort comparator.
+            EXPECT_FALSE(lessByReachThenLevelThenDistance(true, 0.f, 100.f, true, 0.f, 100.f));
+            EXPECT_FALSE(lessByReachThenLevelThenDistance(false, 0.f, 100.f, false, 0.f, 100.f));
+
+            const bool ab = lessByReachThenLevelThenDistance(true, 140.f, 100.f, false, 0.f, 100.f);
+            const bool ba = lessByReachThenLevelThenDistance(false, 0.f, 100.f, true, 140.f, 100.f);
+            EXPECT_TRUE(ab);
+            EXPECT_FALSE(ba);
+        }
     }
 }
