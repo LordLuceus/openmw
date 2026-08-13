@@ -61,6 +61,7 @@
 #include <components/esm3/loadskil.hpp>
 #include <components/esm3/loadspel.hpp>
 #include <components/esm3/loadweap.hpp>
+#include <components/settings/values.hpp>
 
 #include "../mwmechanics/activespells.hpp"
 #include "../mwmechanics/aisequence.hpp"
@@ -93,14 +94,15 @@
 
 #include "../mwinput/actions.hpp"
 
+#include "../mwworld/actionteleport.hpp"
 #include "../mwworld/cell.hpp"
 #include "../mwworld/cellref.hpp"
 #include "../mwworld/cellstore.hpp"
 #include "../mwworld/class.hpp"
 #include "../mwworld/datetimemanager.hpp"
-#include "../mwworld/actionteleport.hpp"
 #include "../mwworld/doorstate.hpp"
 #include "../mwworld/esmstore.hpp"
+#include "../mwworld/globals.hpp"
 #include "../mwworld/inventorystore.hpp"
 #include "../mwworld/player.hpp"
 #include "../mwworld/ptr.hpp"
@@ -932,6 +934,9 @@ namespace MWAccessibility
         mMeleeReachCooldown = 0.f;
         mPendingJournalCue = 0;
         mExpiryWarned.clear();
+        // A teleport requested in the old world must not fire into the new one:
+        // the target it referred to no longer exists.
+        mTeleportRequested = false;
 
         // Drop all AHUD state and lift our pause tag if held, so a HUD left open
         // when the world is torn down (e.g. the player loaded a save from the
@@ -1312,6 +1317,18 @@ namespace MWAccessibility
         if (player.isEmpty())
             return;
 
+        // Service a teleport requested from the key handler. Done here, outside
+        // SDL's event callback, because the confirmation is a blocking modal
+        // that pumps the event loop itself (see handleKey).
+        if (mTeleportRequested)
+        {
+            mTeleportRequested = false;
+            teleportToTarget();
+            // The teleport (and its modal) can move the player and invalidate
+            // the Ptrs gathered above, so don't keep using them this frame.
+            return;
+        }
+
         // While the HUD is open and parked on the target row, keep that row in
         // sync with whichever actor the player cycles the scanner to.
         mHud.followTarget();
@@ -1612,11 +1629,15 @@ namespace MWAccessibility
             case SDL_SCANCODE_KP_ENTER:
                 // Enter faces the target, Shift+Enter walks to it, Ctrl+Enter
                 // toggles the audio beacon, Ctrl+Shift+Enter teleports to it
-                // (the escape hatch, only after a walk has failed -- see
-                // teleportToTarget). Check the two-modifier combo FIRST so it
-                // isn't shadowed by the single-modifier cases.
+                // (the escape hatch -- warns first, see teleportToTarget).
+                // Check the two-modifier combo FIRST so it isn't shadowed by
+                // the single-modifier cases.
                 if (ctrl && shift)
-                    teleportToTarget();
+                    // Deferred to onFrame: the teleport can raise a modal
+                    // confirmation, and we are currently inside SDL's key-event
+                    // callback. A blocking modal here would pump the event loop
+                    // re-entrantly from within an event handler.
+                    mTeleportRequested = true;
                 else if (ctrl)
                     toggleBeacon();
                 else if (shift)
@@ -3062,28 +3083,123 @@ namespace MWAccessibility
         }
     }
 
+    bool Scanner::confirmTeleportRisk(const std::string& name)
+    {
+        // A modal, keyboard-navigable prompt: the interactive message box is
+        // already screen-reader aware (it announces the prompt, then each option
+        // as "<label>, button. N of M" as you arrow through it), so this needs
+        // no accessibility work of its own. Blocking means the answer comes back
+        // inline and the teleport stays a single, readable code path.
+        //
+        // The wording has to do real work. It is the only thing standing between
+        // a player who does not yet know the game's layout and a broken save, so
+        // it says what goes wrong (skipping the intended route), what to do
+        // instead (explore first), and when this is legitimate (nothing else
+        // works). It names the destination so it is never ambiguous which
+        // teleport is being confirmed.
+        const std::vector<std::string> buttons = {
+            "Cancel",
+            "Teleport",
+            "Teleport and stop warning me",
+        };
+        const std::string message = "Warning: teleporting to " + name
+            + " is a last resort.\n\n"
+              "It moves you straight there, ignoring whatever stands in the way -- "
+              "locked doors, walls, and routes the game expects you to find for yourself. "
+              "Used early, it can drop you somewhere you were never meant to reach yet "
+              "and break quests or scripted events, sometimes without any obvious sign.\n\n"
+              "Explore properly first and let auto-walk try. Only teleport when nothing else works.";
+
+        MWBase::WindowManager* wm = MWBase::Environment::get().getWindowManager();
+        // defaultFocus 0 = Cancel: the safe option is the one selected when the
+        // prompt opens, so a reflexive Enter does nothing destructive.
+        wm->interactiveMessageBox(message, buttons, /*block=*/true, /*defaultFocus=*/0);
+        const int pressed = wm->readPressedButton();
+
+        if (pressed == 2)
+        {
+            // "Stop warning me" is a considered choice, so persist it rather
+            // than keeping it for this session only. The engine writes
+            // settings.cfg on exit, so this survives a restart.
+            Settings::game().mAccessibilityTeleportWarned.set(true);
+            return true;
+        }
+        // Anything else (Cancel, Escape, or the box being dismissed) does not
+        // teleport. Only an explicit "Teleport" proceeds.
+        return pressed == 1;
+    }
+
     void Scanner::teleportToTarget()
     {
         // The escape hatch for when auto-walk physically can't route to a target
         // that is obviously there (you levitated up to a ledge; no walkable path
-        // leads back). Guardrails: (1) only fires if auto-walk previously FAILED
-        // to reach a target -- it arms a one-shot teleport on give-up/stop-short/
-        // fall-/hazard-arrest -- so you can't teleport somewhere you never tried
-        // to walk; (2) capped at kTeleportMaxDist, so it can't skip across the
-        // map. Followers within range come along (ActionTeleport handles them).
-        osg::Vec3f dest;
-        std::string name;
-        if (!mAutoWalker.consumeTeleportTarget(dest, name))
+        // leads back), or when you already KNOW from experience that a given
+        // route fails every time and would rather not sit through the attempt.
+        //
+        // It deliberately does NOT require a failed walk first. That gate was
+        // meant to stop casual use, but it did not: reaching a door auto-walk
+        // can't route to is exactly what a scripted, partly-blocked tutorial
+        // route looks like, so it armed there readily -- while still forcing an
+        // experienced player to trigger a pointless failure first. The real
+        // protection is (1) a hard block during character generation, where
+        // skipping ahead breaks the game's own scripting, (2) the distance cap,
+        // and (3) an explicit warning the player must confirm.
+        //
+        // Followers within range come along (ActionTeleport handles them).
+        MWBase::World* world = MWBase::Environment::get().getWorld();
+
+        // Character generation is scripted and order-dependent: the census
+        // office expects you to walk out through the door that Sellus Gravius
+        // unlocks, and vanilla's own CharGenDoorExitCaptain script only ends
+        // chargen once he has handed over the package. A tester teleported to
+        // that exit door early and broke the sequence. Blocking here matches
+        // what the engine already does with quick keys (see
+        // MWInput::ActionManager::quickKey), and the flag covers the whole
+        // opening sequence rather than a cell list we would have to maintain.
+        if (world->getGlobalFloat(MWWorld::Globals::sCharGenState) != -1)
         {
-            // Nothing armed: the player hasn't tried (and failed) to walk
-            // somewhere, so there's nothing to escape from. Say so plainly.
-            speak("Nothing to teleport to. Try walking there first.");
+            speak("Teleport is not available during character creation.");
             return;
         }
 
-        MWBase::World* world = MWBase::Environment::get().getWorld();
         MWWorld::Ptr player = world->getPlayerPtr();
         const osg::Vec3f playerPos = player.getRefData().getPosition().asVec3();
+
+        // Resolve the destination from the current selection, the same way
+        // walkToTarget does, so "teleport to it" always means the thing the
+        // scanner just read out.
+        osg::Vec3f dest;
+        std::string name;
+        if (isWaypointCategory())
+        {
+            const Waypoint* wp = currentWaypoint();
+            if (!wp)
+            {
+                speak("No target selected.");
+                return;
+            }
+            // A waypoint in another worldspace has no comparable position, so
+            // there is nothing meaningful to teleport to.
+            if (!wp->mReachable)
+            {
+                std::string where = wp->mAreaLabel.empty() ? std::string("a different area") : wp->mAreaLabel;
+                speak(wp->mName + " is in " + where + "; cannot teleport there from here.");
+                return;
+            }
+            dest = wp->mPosition;
+            name = wp->mName;
+        }
+        else
+        {
+            MWWorld::Ptr target = currentTarget();
+            if (target.isEmpty())
+            {
+                speak("No target selected.");
+                return;
+            }
+            dest = target.getRefData().getPosition().asVec3();
+            name = objectDisplayName(target);
+        }
 
         // 3D straight-line gap: the headline use case is vertical (a ledge above
         // us), so a horizontal-only distance would understate it and let through
@@ -3093,10 +3209,23 @@ namespace MWAccessibility
         if (dist > kTeleportMaxDist)
         {
             // Too far to be a "pathfinding couldn't manage a short gap" case.
-            // Refuse rather than become fast travel. (Re-running auto-walk will
-            // re-arm it, but the distance won't change -- this is a hard stop.)
+            // Refuse rather than become fast travel: this is a hard stop.
             speak(name + " is too far to teleport to.");
             return;
+        }
+
+        // Warn before the first teleport of the session-or-ever, and keep
+        // warning until the player says they have understood. Teleporting
+        // straight to a target skips whatever stood between you and it --
+        // locked doors, scripted triggers, an intended route -- so the honest
+        // framing is "last resort", not "convenient shortcut". A blind player
+        // has no way to notice they have ended up somewhere impossible until
+        // the game is already broken, which is exactly why this is a modal
+        // prompt rather than a spoken line they might talk over.
+        if (!Settings::game().mAccessibilityTeleportWarned)
+        {
+            if (!confirmTeleportRisk(name))
+                return;
         }
 
         // Keep the player's current facing/pitch; only the position changes.
@@ -3109,10 +3238,12 @@ namespace MWAccessibility
         destPos.rot[1] = curPos.rot[1];
         destPos.rot[2] = curPos.rot[2];
 
-        // Same cell as the player (auto-walk is single-worldspace, so an armed
-        // target is always in the current cell). Reuse the player's cell id and
-        // teleport via the engine's own ActionTeleport, which also brings nearby
-        // followers and handles water-walking / Lua notification correctly.
+        // Teleport via the engine's own ActionTeleport, which brings nearby
+        // followers and handles landing / water-walking / Lua notification
+        // correctly. The player's own cell id is the right destination: the
+        // scanner only ever lists objects in the current worldspace, and for an
+        // exterior the engine picks the actual cell from the position, so a
+        // target a cell boundary away still resolves correctly.
         const ESM::RefId cellId = player.getCell()->getCell()->getId();
         MWWorld::ActionTeleport action(cellId, destPos, /*teleportFollowers=*/true);
         action.execute(world->getPlayerPtr());

@@ -321,10 +321,21 @@ namespace MWAccessibility
         void focusCamera();
         void walkToTarget();
         // Teleport escape hatch: blink the player (and nearby followers) to the
-        // auto-walk target. Only fires when auto-walk previously failed to reach
-        // it (mAutoWalker armed the teleport) and the gap is within a sane cap,
-        // so it can't be abused as in-cell fast travel. Bound to Ctrl+Shift+Enter.
+        // selected target. Guarded by a hard block during character generation,
+        // a distance cap (so it can't be abused as fast travel), and a warning
+        // the player must confirm. Bound to Ctrl+Shift+Enter.
         void teleportToTarget();
+
+        /// Show the modal "this is a last resort" warning for teleporting to
+        /// \p name. Returns true if the player chose to go ahead. Also records
+        /// the acknowledgement when they ask not to be warned again.
+        bool confirmTeleportRisk(const std::string& name);
+
+        // Set by the Ctrl+Shift+Enter handler and serviced on the next frame.
+        // The teleport may raise a blocking modal, which pumps the event loop;
+        // doing that from inside SDL's key callback would re-enter event
+        // processing, so the request is deferred out of the handler.
+        bool mTeleportRequested = false;
 
         // --- Combat / interaction lock-on --------------------------------
         // Toggle a persistent "lock-on" to the currently-selected target. While

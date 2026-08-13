@@ -74,6 +74,12 @@ namespace Settings
         SettingValue<DetourNavigator::CollisionShapeType> mActorCollisionShapeType{ mIndex, "Game",
             "actor collision shape type" };
         SettingValue<bool> mPlayerMovementIgnoresAnimation{ mIndex, "Game", "player movement ignores animation" };
+        // Accessibility: set once the player ticks "don't warn me again" in the
+        // scanner teleport confirmation, so the warning is shown until they say
+        // they understand the risk. Written at runtime (the engine saves
+        // settings.cfg on exit), never edited by hand in practice.
+        SettingValue<bool> mAccessibilityTeleportWarned{ mIndex, "Game",
+            "accessibility teleport warning acknowledged" };
     };
 }
 

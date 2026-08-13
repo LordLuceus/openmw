@@ -4,6 +4,24 @@ A running log of screen-reader accessibility features added to this OpenMW fork.
 Newest changes are listed first. (OpenMW's own engine changelog lives in
 `CHANGELOG.md`.)
 
+## 2026-08-13
+
+- **Teleporting to a target now warns you first, and no longer makes you fail a
+  walk before you can use it.** **Ctrl + Shift + Enter** used to require an
+  auto-walk to the target to have failed first. That was meant to stop casual
+  use, but it did not work as intended: it still armed readily in places you
+  should not skip ahead in, while forcing anyone who already knew a route was
+  impassable to sit through a pointless failed attempt. It now teleports to the
+  selected target directly, and instead warns you plainly that it is a last
+  resort, that it ignores locked doors and walls, and that using it early can
+  break quests. Cancel is selected by default, so pressing Enter out of habit
+  does nothing. Once you have read the warning you can choose *"Teleport and
+  stop warning me"* and it will not ask again.
+- **Teleporting is no longer possible during character creation.** Jumping
+  straight to the census office exit door skipped the scripted opening and broke
+  the game. The keystroke now says it is unavailable until character creation is
+  finished. (The 58-metre limit and follower behaviour are unchanged.)
+
 ## 2026-08-12
 
 - **Ladders and other doors that move you within the same area now say where

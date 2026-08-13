@@ -131,7 +131,7 @@ came with this package.
 | **Enter** | Face the target (turn to look directly at it) |
 | **Shift + Enter** | Auto-walk to the target |
 | **Ctrl + Enter** | Toggle the audio beacon on the target |
-| **Ctrl + Shift + Enter** | Teleport to the target — the escape hatch for somewhere auto-walk genuinely can't reach (see **When auto-walk can't get there** below) |
+| **Ctrl + Shift + Enter** | Teleport to the target — a last resort for somewhere auto-walk genuinely can't reach. Warns before it acts, and is unavailable during character creation (see **When auto-walk can't get there** below) |
 | **Space** | Activate the target (open, take, talk, etc.) — falls back to normal Activate if nothing is selected |
 | **X** | Toggle combat / interaction lock-on to the target (keeps you aimed at it) |
 | **Shift + X** | Engage: jump to the nearest hostile and lock onto it in one press |
@@ -278,19 +278,30 @@ first one fixes it most of the time:
 ### When auto-walk can't get there at all
 
 Some places simply cannot be walked to — a ledge you levitated up to, the far
-side of a gap, a spot the engine's route map doesn't connect. When auto-walk has
-tried and failed (it gives up, stops short, catches you from a fall, or says
-*"Can't reach …"*), press **Ctrl + Shift + Enter** to teleport straight to the
-target.
+side of a gap, a spot the engine's route map doesn't connect. Press
+**Ctrl + Shift + Enter** to teleport straight to the selected target.
 
-This is deliberately not fast travel, and it is fenced in so it can't be misused:
+**Treat this as a genuine last resort.** It ignores whatever stands between you
+and the target: locked doors, walls, and routes the game expects you to find for
+yourself. Used too early it can drop you somewhere you were never meant to reach
+yet, which can break quests or scripted events — sometimes with no obvious sign
+that anything has gone wrong. Explore properly and let auto-walk try first.
 
-- It only works **after** an auto-walk to that target has actually failed. Press
-  it out of the blue and it says *"Nothing to teleport to. Try walking there
-  first."*
+Because of that, the first time you use it you get a warning asking you to
+confirm, with three choices: cancel, teleport this once, or teleport and stop
+warning you. Cancel is selected when the warning opens, so pressing Enter out of
+habit does nothing. If you pick *"Teleport and stop warning me"*, the warning
+stays off from then on (including after restarting); set `accessibility teleport
+warning acknowledged` back to `false` in `settings.cfg` to bring it back.
+
+It is not fast travel, and two limits are not negotiable:
+
 - It only reaches about **58 metres**. Anything further says *"… is too far to
   teleport to."*
-- Followers within range come with you, so you won't strand a companion.
+- It is **unavailable during character creation**, where jumping ahead would
+  break the game's own scripted opening. It says so if you try.
+
+Followers within range come with you, so you won't strand a companion.
 
 ### Getting unstuck with the console
 

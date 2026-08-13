@@ -80,7 +80,7 @@ selected is your **target**.
 | **Enter** | Face the target |
 | **Shift + Enter** | Auto-walk to the target |
 | **Ctrl + Enter** | Toggle the audio beacon on the target |
-| **Ctrl + Shift + Enter** | Teleport to the target. Only available after an auto-walk to it has actually failed, and only within about 58 metres — it's an escape hatch, not fast travel. Followers in range come with you |
+| **Ctrl + Shift + Enter** | Teleport to the target — a last resort, not fast travel. Warns you to explore properly first and asks you to confirm (you can turn the warning off once you've read it). Limited to about 58 metres, and unavailable during character creation. Followers in range come with you |
 | **Space** | Activate the target (open, take, talk). With nothing selected, works as normal Activate |
 | **X** | Toggle lock-on to the target, so you stay aimed at it |
 | **Shift + X** | Engage: jump to the nearest hostile and lock on, in one press |

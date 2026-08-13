@@ -511,7 +511,6 @@ namespace MWAccessibility
         mHasPtrTarget = true;
         mTargetName = std::string(target.getClass().getName(target));
         mActive = true;
-        mTeleportArmed = false; // fresh intent: disarm any stale escape hatch
         resetProgress();
         // Capture where the target stood at walk start, so onFrame can tell if
         // it's a wandering actor that has since moved (see mTargetMoving).
@@ -542,7 +541,6 @@ namespace MWAccessibility
         mHasPtrTarget = false;
         mTargetName = name;
         mActive = true;
-        mTeleportArmed = false; // fresh intent: disarm any stale escape hatch
         resetProgress();
         // A fixed waypoint never moves; record it anyway for symmetry.
         mTargetStartPos = target;
@@ -839,10 +837,6 @@ namespace MWAccessibility
         {
             speakQueued("Stuck. Cannot reach " + mTargetName + ".");
         }
-        // The walk failed to reach a target that is presumably right there. Arm
-        // the teleport escape hatch so the player can blink the gap (the scanner
-        // enforces the distance cap and only acts on an armed walk).
-        armTeleport();
         return true; // cancel the walk
     }
 
@@ -1051,31 +1045,6 @@ namespace MWAccessibility
         mTargetName.clear();
         mPathFinder.clearPath();
         resetProgress();
-    }
-
-    void AutoWalker::armTeleport()
-    {
-        // A Ptr target that has vanished (count 0 / cell unloaded) has no valid
-        // position -- don't arm a teleport to garbage. Position waypoints are
-        // always fine.
-        if (mHasPtrTarget && mTarget.isEmpty())
-            return;
-        // Snapshot the target's CURRENT position and name (the walk is about to
-        // be cancelled, which clears mTarget/mTargetName). For a wandering NPC
-        // this captures where it is right now -- the honest "go to it" spot.
-        mTeleportPos = targetPosition();
-        mTeleportName = mTargetName;
-        mTeleportArmed = true;
-    }
-
-    bool AutoWalker::consumeTeleportTarget(osg::Vec3f& outPos, std::string& outName)
-    {
-        if (!mTeleportArmed)
-            return false;
-        outPos = mTeleportPos;
-        outName = mTeleportName;
-        mTeleportArmed = false; // one-shot: a fresh failed walk must re-arm it
-        return true;
     }
 
     bool AutoWalker::navMeshReadyForPlayer() const
@@ -1869,7 +1838,6 @@ namespace MWAccessibility
                 // fall damage on the next grounded frame (land() resets it).
                 player.getClass().getCreatureStats(player).land(/*isPlayer=*/true);
                 speakQueued("Path drops off. Cannot reach " + mTargetName + " safely.");
-                armTeleport(); // unreachable on foot -> offer the escape hatch
                 cancel();
                 return;
                 }
@@ -1935,7 +1903,6 @@ namespace MWAccessibility
                     controls->mChanged = true;
                 }
                 speakQueued("Path crosses a hazard. Cannot reach " + mTargetName + " safely.");
-                armTeleport(); // unreachable on foot -> offer the escape hatch
                 cancel();
                 return;
             }
@@ -1982,7 +1949,6 @@ namespace MWAccessibility
             if (mMovingTargetStuckTime >= kMovingTargetStuckTimeout)
             {
                 speakQueued("Can't reach " + mTargetName + ".");
-                armTeleport(); // within-range escape hatch (scanner enforces the cap)
                 cancel();
                 return;
             }
@@ -2525,10 +2491,6 @@ namespace MWAccessibility
                 {
                     announceStoppedShort(player, targetPos, horizDistTo(targetPos));
                     // Arm the teleport escape hatch: a progressive walk that can
-                    // no longer build a path has failed to reach a target that's
-                    // presumably right there, same as handleGiveUp -- so offer
-                    // the blink-the-gap fallback rather than a dead end.
-                    armTeleport();
                     cancel();
                     return;
                 }
@@ -2620,11 +2582,9 @@ namespace MWAccessibility
                 // classically because it sits in a vertical gap the mesh can't
                 // model (a lever/hatch several metres above or below the walkable
                 // floor, e.g. a modded hidden dungeon entrance). This is exactly
-                // the case the teleport escape hatch exists for, yet this branch
-                // used to cancel WITHOUT arming it -- so the player heard
-                // "5 metres below" and had no way across. Arm it here too, at
-                // parity with handleGiveUp and the fall-/hazard-arrest paths.
-                armTeleport();
+                // the case the teleport escape hatch (Ctrl+Shift+Enter) exists
+                // for; announceStoppedShort has just told the player how far off
+                // it is, so they can decide to blink the gap.
                 cancel();
                 return;
             }
