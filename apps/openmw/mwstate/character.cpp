@@ -108,6 +108,14 @@ MWState::Character::Character(const std::filesystem::path& saves, const std::str
     {
         for (const auto& iter : std::filesystem::directory_iterator(mPath))
         {
+            // Only actual saves are slots. The accessibility scanner keeps a
+            // per-save sidecar of marked objects alongside each save
+            // ("Quicksave.omwsave.a11ymarks"), and any other stray file would
+            // likewise fail to parse -- so skip anything that isn't a save
+            // rather than attempting it and logging a scary "Not a valid
+            // Morrowind file" warning for a file that was never a save.
+            if (Misc::StringUtils::lowerCase(iter.path().extension().string()) != ".omwsave")
+                continue;
             try
             {
                 addSlot(iter, game);
