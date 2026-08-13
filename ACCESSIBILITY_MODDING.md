@@ -82,8 +82,14 @@ It comes down to two files:
 Both files are shared, so you can reproduce this setup exactly rather than
 assembling it by hand:
 
-- `luceus-custom-mods.json` — **[download link to be added]**
-- `momw-customizations.toml` — **[download link to be added]**
+- `luceus-custom-mods.json` —
+  **<https://www.dropbox.com/scl/fi/wc2yx0mqhzdd4767v33in/luceus-custom-mods.json?rlkey=8a7rtek3uwchxin5d92o206ce&dl=1>**
+- `momw-customizations.toml` —
+  **<https://www.dropbox.com/scl/fi/ntmhyv5e2v9943lzyhbb2/momw-customizations.toml?rlkey=a4ixxqwb05u9vsngjfwat8kjo&dl=1>**
+
+Both links download the file directly rather than opening a Dropbox preview
+page, so your browser should just save them. Keep the filenames as they are —
+`umo` takes the list's name from the filename.
 
 ### The commands
 
