@@ -281,6 +281,8 @@ using MWAccessibility::kPi;
                 return "Waypoints";
             case MWAccessibility::Category::Locations:
                 return "Locations";
+            case MWAccessibility::Category::Terrain:
+                return "Terrain";
             case MWAccessibility::Category::Count:
                 break;
         }
@@ -457,6 +459,16 @@ using MWAccessibility::kPi;
         { "Enchantments", nullptr },
     };
 
+    // Subcategories for the Terrain category. Like kDetectedSubs the predicates
+    // are null: Terrain's members are bare positions (not Ptrs), so the
+    // filtering happens in rebuildCurrentList's Terrain branch keyed on the
+    // subcategory index, in this order: 0 = All, 1 = Hazards, 2 = Shafts.
+    constexpr Subcategory kTerrainSubs[] = {
+        { "All", nullptr },
+        { "Hazards", nullptr },
+        { "Shafts", nullptr },
+    };
+
     // Returns the subcategory table for a category. Empty span (size 0) means
     // the category has no subcategories beyond the implicit "All".
     std::pair<const Subcategory*, size_t> subcategoriesFor(MWAccessibility::Category cat)
@@ -471,6 +483,8 @@ using MWAccessibility::kPi;
                 return { kContainerSubs, std::size(kContainerSubs) };
             case MWAccessibility::Category::Detected:
                 return { kDetectedSubs, std::size(kDetectedSubs) };
+            case MWAccessibility::Category::Terrain:
+                return { kTerrainSubs, std::size(kTerrainSubs) };
             default:
                 return { nullptr, 0 };
         }
@@ -1627,6 +1641,9 @@ namespace MWAccessibility
                 case SDL_SCANCODE_6: catIndex = static_cast<int>(Category::Detected); break;
                 case SDL_SCANCODE_7: catIndex = static_cast<int>(Category::Waypoints); break;
                 case SDL_SCANCODE_8: catIndex = static_cast<int>(Category::Locations); break;
+                case SDL_SCANCODE_9:
+                    catIndex = static_cast<int>(Category::Terrain);
+                    break;
                 default: break;
             }
             if (catIndex >= 0)
@@ -1691,18 +1708,16 @@ namespace MWAccessibility
                 // the arrow keys: Ctrl+L announces which way you're facing
                 // (compass point -- a horizontal heading), Shift+L announces your
                 // height above the ground / depth below the water (vertical).
-                // Alt+L finds the levitation shaft in a Telvanni-style tower,
-                // where there are no stairs between floors and the shaft is the
-                // only way up or down; Ctrl+Alt+L walks you into the shaft so you
-                // can then fly up or down it under your own control.
+                // Levitation shafts and damaging terrain used to hang off this
+                // key too (Alt+L / Ctrl+Alt+L / Shift+Alt+L). They are now the
+                // Terrain scanner category instead, where they can be cycled,
+                // faced and auto-walked to with the same keys as every other
+                // target -- which also means "walk me into the shaft" needs no
+                // binding of its own.
                 if (ctrl && !shift && !alt)
                     announceFacing();
                 else if (shift && !ctrl && !alt)
                     announceHeight();
-                else if (alt && !ctrl && !shift)
-                    announceVerticalShaft();
-                else if (alt && ctrl && !shift)
-                    walkToVerticalShaft();
                 else if (!ctrl && !shift && !alt)
                     announceLocation();
                 else
@@ -1881,6 +1896,17 @@ namespace MWAccessibility
             collectLocations(locs);
             return !locs.empty();
         }
+        if (cat == Category::Terrain)
+        {
+            // Available only in a room that actually has damaging terrain or a
+            // shaft, so it's skipped when cycling through an ordinary room --
+            // most rooms have neither. Queried with subIndex 0 (All) rather than
+            // the category's current subcategory, so the category doesn't vanish
+            // just because the player left it filtered to "Shafts".
+            std::vector<Waypoint> features;
+            collectTerrain(0, features);
+            return !features.empty();
+        }
         return true;
     }
 
@@ -1936,12 +1962,15 @@ namespace MWAccessibility
         // The active filter changed, so the cached list is stale.
         state.mDirty = true;
         rebuildCurrentList();
-        state.mIndex = state.mObjects.empty() ? -1 : 0;
+        // Counted via currentListSize(), NOT state.mObjects: the position-based
+        // Terrain category keeps its entries in mWaypoints, so counting mObjects
+        // would announce "0 in range" for a room full of lava.
+        const size_t listSize = currentListSize();
+        state.mIndex = listSize == 0 ? -1 : 0;
 
-        std::string msg = std::string(subs[state.mSubIndex].mName) + ". "
-            + std::to_string(state.mObjects.size()) + " in range.";
+        std::string msg = std::string(subs[state.mSubIndex].mName) + ". " + std::to_string(listSize) + " in range.";
         speak(msg);
-        if (!state.mObjects.empty())
+        if (listSize > 0)
             announceCurrent();
         updateProximityCue();
     }
@@ -3932,128 +3961,6 @@ namespace MWAccessibility
         }
     }
 
-    void Scanner::announceVerticalShaft()
-    {
-        MWBase::World* world = MWBase::Environment::get().getWorld();
-        MWWorld::Ptr player = world->getPlayerPtr();
-        if (player.isEmpty())
-            return;
-
-        const std::vector<VerticalShaft> shafts = collectCellShafts(player);
-        if (shafts.empty())
-        {
-            // Never fail silently: say why there's nothing to report.
-            speak("No levitation shaft here.");
-            return;
-        }
-
-        const osg::Vec3f playerPos = player.getRefData().getPosition().asVec3();
-        // The most substantial column is the one the player means in practice; ties
-        // are rare and the nearest is the more useful tiebreak.
-        const VerticalShaft* best = &shafts.front();
-        float bestDist = std::numeric_limits<float>::max();
-        for (const VerticalShaft& s : shafts)
-        {
-            if (s.mPieceCount < best->mPieceCount)
-                continue;
-            const float dx = s.mX - playerPos.x();
-            const float dy = s.mY - playerPos.y();
-            const float d = std::sqrt(dx * dx + dy * dy);
-            if (d < bestDist)
-            {
-                bestDist = d;
-                best = &s;
-            }
-        }
-
-        const osg::Vec3f delta(best->mX - playerPos.x(), best->mY - playerPos.y(), 0.f);
-        std::string line = "Shaft";
-        // Direction and distance, using the same vocabulary as every other target
-        // readout so it can't disagree with the scanner.
-        // Below about a body's width there's no meaningful direction to give.
-        constexpr float kShaftHereRadius = 52.5f;
-        if (bestDist > kShaftHereRadius)
-        {
-            line += ", " + formatDistance(bestDist) + " " + compassLabel(std::atan2(delta.x(), delta.y()));
-        }
-        else
-        {
-            line += ", here";
-        }
-
-        // Which of the shaft's floors you're on, and how many there are, so the
-        // spoken answer is "where can I go?" rather than a coordinate dump.
-        if (!best->mOpenings.empty())
-        {
-            std::size_t nearest = 0;
-            float nearestDist = std::numeric_limits<float>::max();
-            for (std::size_t i = 0; i < best->mOpenings.size(); ++i)
-            {
-                const float d = std::abs(best->mOpenings[i] - playerPos.z());
-                if (d < nearestDist)
-                {
-                    nearestDist = d;
-                    nearest = i;
-                }
-            }
-            line += ". " + std::to_string(best->mOpenings.size())
-                + (best->mOpenings.size() == 1 ? " floor opening" : " floor openings");
-            // Positional N-of-M at the END, per the announcement convention.
-            line += ", nearest " + std::to_string(nearest + 1) + " of "
-                + std::to_string(best->mOpenings.size());
-            const std::string rel = formatElevation(best->mOpenings[nearest] - playerPos.z());
-            if (!rel.empty())
-                line += ", " + rel;
-        }
-        line += ".";
-
-        // Whether the column is actually clear matters as much as where it is: the
-        // stronghold kit's elevator platform seals the shaft when parked elsewhere.
-        // Probe toward the far end of the shaft in whichever direction has more of
-        // it, so this answers "can I use it?" before the player commits.
-        const float upSpan = best->mTop - playerPos.z();
-        const float downSpan = playerPos.z() - best->mBottom;
-        const float toZ = (upSpan > downSpan) ? best->mTop : best->mBottom;
-        const ShaftObstruction blockage = probeShaftObstruction(player, *best, playerPos.z(), toZ);
-        if (blockage.mBlocked)
-        {
-            const std::string rel = formatElevation(blockage.mZ - playerPos.z());
-            line += rel.empty() ? " Blocked." : (" Blocked, " + rel + ".");
-        }
-
-        speak(line);
-    }
-
-    void Scanner::walkToVerticalShaft()
-    {
-        MWBase::World* world = MWBase::Environment::get().getWorld();
-        MWWorld::Ptr player = world->getPlayerPtr();
-        if (player.isEmpty())
-            return;
-
-        const std::vector<VerticalShaft> shafts = collectCellShafts(player);
-        if (shafts.empty())
-        {
-            speak("No levitation shaft here.");
-            return;
-        }
-
-        const osg::Vec3f playerPos = player.getRefData().getPosition().asVec3();
-        const VerticalShaft& shaft = shafts.front();
-        // Aim for the shaft's axis at our CURRENT height: the point is to get you
-        // standing in the column, from where you fly up or down yourself. Going to
-        // some other floor's height would fight the walk rather than help it.
-        //
-        // Deliberately NOT gated on probeShaftObstruction: when the stronghold's
-        // elevator platform is parked at our level, the "obstruction" is the floor
-        // we want to stand on -- boarding it is how you ride to a level the shaft
-        // alone can't reach (e.g. Tel Uvirith's secret lab). Blockage only matters
-        // when something must be flown PAST, which is the descent's problem.
-        const osg::Vec3f spot(shaft.mX, shaft.mY, playerPos.z());
-        if (!mAutoWalker.start(spot, "shaft"))
-            speak("Cannot reach the shaft.");
-    }
-
     void Scanner::announceHeight()
     {
         MWBase::World* world = MWBase::Environment::get().getWorld();
@@ -4712,6 +4619,16 @@ namespace MWAccessibility
             return;
         }
 
+        // Terrain is likewise position-based: room features (hazards, shafts)
+        // presented as ordinary scanner entries so they can be cycled, faced and
+        // auto-walked to with the standard keys.
+        if (mCategory == Category::Terrain)
+        {
+            collectTerrain(state.mSubIndex, state.mWaypoints);
+            filterWaypointsByDirection(state.mWaypoints);
+            return;
+        }
+
         // The Detected category doesn't scan loaded cells: its membership is
         // whatever the player's active Detect Creature/Key/Enchantment effects
         // currently reveal (which can be outside the loaded grid). Build it from
@@ -5267,6 +5184,91 @@ namespace MWAccessibility
             }
             return a.mName < b.mName;
         });
+    }
+
+    void Scanner::collectTerrain(int subIndex, std::vector<Waypoint>& out) const
+    {
+        MWBase::World* world = MWBase::Environment::get().getWorld();
+        const MWWorld::Ptr player = world->getPlayerPtr();
+        if (player.isEmpty())
+            return;
+        const osg::Vec3f playerPos = player.getRefData().getPosition().asVec3();
+
+        // Subcategory indices follow kTerrainSubs: 0 = All, 1 = Hazards,
+        // 2 = Shafts.
+        const bool wantHazards = (subIndex == 0 || subIndex == 1);
+        const bool wantShafts = (subIndex == 0 || subIndex == 2);
+
+        if (wantHazards)
+        {
+            // Reuse the same grouping the proximity warning uses, so a pool is
+            // one entry here exactly as it is one announcement there -- the
+            // player never sees two different notions of "a hazard".
+            const std::vector<HazardObject> objects = collectCellHazards(player);
+            for (const HazardGroup& g : groupHazards(objects, playerPos))
+            {
+                Waypoint wp;
+                wp.mName = g.mName;
+                // The nearest EDGE, not the pool's centre: that is the point the
+                // player must not cross, and the one worth facing or measuring.
+                wp.mPosition = g.mNearestPos;
+                wp.mReachable = true;
+                out.push_back(std::move(wp));
+            }
+        }
+
+        if (wantShafts)
+        {
+            for (const VerticalShaft& s : collectCellShafts(player))
+            {
+                Waypoint wp;
+                // Carry the floor-opening count in the name. It's the one fact
+                // about a shaft the generic waypoint readout (name, distance,
+                // bearing, elevation) can't express, and it tells the player
+                // whether this column actually serves other floors.
+                wp.mName = "Shaft";
+                if (!s.mOpenings.empty())
+                {
+                    wp.mName += ", " + std::to_string(s.mOpenings.size())
+                        + (s.mOpenings.size() == 1 ? " floor opening" : " floor openings");
+                }
+                // Target the shaft's column at the player's OWN height, which is
+                // what makes auto-walking to this entry equivalent to the old
+                // dedicated "walk into the shaft" key: you end up standing in the
+                // column, ready to levitate, rather than trying to walk to a
+                // point above or below you.
+                wp.mPosition = osg::Vec3f(s.mX, s.mY, playerPos.z());
+                wp.mReachable = true;
+                out.push_back(std::move(wp));
+            }
+        }
+
+        // Nearest-first, matching every other category's ordering. All terrain
+        // entries are in the player's own cell, so they are always reachable and
+        // there is no unreachable group to sort after.
+        std::sort(out.begin(), out.end(), [&playerPos](const Waypoint& a, const Waypoint& b) {
+            return (a.mPosition - playerPos).length2() < (b.mPosition - playerPos).length2();
+        });
+
+        // Disambiguate same-named entries ("Lava", "Lava", ...) the way the
+        // object lists do, so the player can tell which one is being announced.
+        if (out.size() > 1)
+        {
+            std::map<std::string, int> counts;
+            for (const Waypoint& wp : out)
+                ++counts[wp.mName];
+            std::map<std::string, int> seen;
+            for (Waypoint& wp : out)
+            {
+                // Look both counters up under the ORIGINAL name and only then
+                // rename, or the suffixed name ("Lava A") would be treated as a
+                // different, unique name on the next lookup and the numbering
+                // would restart.
+                const std::string base = wp.mName;
+                if (counts[base] > 1)
+                    wp.mName = base + " " + letterForIndex(static_cast<std::size_t>(seen[base]++));
+            }
+        }
     }
 
     void Scanner::collectLocations(std::vector<Waypoint>& out) const

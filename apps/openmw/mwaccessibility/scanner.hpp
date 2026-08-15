@@ -401,18 +401,6 @@ namespace MWAccessibility
         // mouse gives no other sense of altitude or depth.
         void announceHeight();
 
-        /// Announce the levitation shaft in the current cell (Alt+L): its direction
-        /// and distance, how many floors open onto it, and which of those you are
-        /// nearest. In a Telvanni tower there are no stairs between most levels, so
-        /// the shaft is the only way up or down and nothing in the game points to
-        /// it. Says so plainly when there is no shaft here.
-        void announceVerticalShaft();
-
-        /// Auto-walk into the levitation shaft's column at the player's current
-        /// height (Ctrl+Alt+L), so the player can then fly up or down it under their
-        /// own control rather than relying on auto-walk to cross floors.
-        void walkToVerticalShaft();
-
         /// Warn when the player is walking toward damaging terrain, called each
         /// frame. Speaks at most one warning per hazard per approach (see
         /// mHazardWarned), so it can't chatter while the player edges along a pool.
@@ -513,13 +501,15 @@ namespace MWAccessibility
         };
 
         // --- Position-based category helpers -----------------------------
-        // Two categories (Waypoints and Locations) navigate bare world
-        // positions rather than world objects, so they share the position-based
-        // AutoWalker / ProximityCue paths and the mWaypoints list. The Ptr-based
-        // action paths must defer to the waypoint equivalents for either.
+        // Three categories (Waypoints, Locations and Terrain) navigate bare
+        // world positions rather than world objects, so they share the
+        // position-based AutoWalker / ProximityCue paths and the mWaypoints
+        // list. The Ptr-based action paths must defer to the waypoint
+        // equivalents for any of them.
         bool isWaypointCategory() const
         {
-            return mCategory == Category::Waypoints || mCategory == Category::Locations;
+            return mCategory == Category::Waypoints || mCategory == Category::Locations
+                || mCategory == Category::Terrain;
         }
         // Size of the active category's list (objects or waypoints).
         size_t currentListSize() const;
@@ -547,6 +537,13 @@ namespace MWAccessibility
         // dropped while the filter is engaged, since "this direction" can't be
         // meaningfully decided for them.
         void filterWaypointsByDirection(std::vector<Waypoint>& waypoints) const;
+
+        /// Build the Terrain category's list for subcategory \p subIndex
+        /// (0 = All, 1 = Hazards, 2 = Shafts) as position waypoints, nearest
+        /// first. Presenting room features as ordinary scanner entries is what
+        /// lets the player cycle them, face them and auto-walk to them with the
+        /// keys they already use, instead of each needing a bespoke binding.
+        void collectTerrain(int subIndex, std::vector<Waypoint>& out) const;
         // Announce the currently-selected waypoint (name, distance, bearing,
         // N of M) -- the position-based analogue of announceCurrent().
         void announceCurrentWaypoint();

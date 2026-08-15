@@ -34,6 +34,15 @@ namespace MWAccessibility
         // discovered yet).
         Locations,
 
+        // Features of the room itself rather than objects in it: damaging
+        // terrain (lava and the like) and levitation shafts, split by
+        // subcategory. Like Waypoints/Locations these are bare world positions,
+        // so they reuse the position-based AutoWalker / ProximityCue paths --
+        // which is the point: "walk me to the shaft" is then just auto-walking
+        // to the selected entry, exactly as for any other target, instead of a
+        // bespoke key. Skipped when cycling while the current cell has neither.
+        Terrain,
+
         Count
     };
 }

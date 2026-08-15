@@ -116,7 +116,7 @@ came with this package.
 | **Page Down / Page Up** | Cycle to the next / previous target in the current category |
 | **Ctrl + Page Down / Page Up** | Switch to the next / previous category |
 | **Shift + Page Down / Page Up** | Cycle the subcategory filter (e.g. Plants / Storage within Containers) |
-| **Ctrl + 1 … 8** | Jump straight to a category: 1 Actors, 2 Doors, 3 Containers, 4 Items, 5 Activators, 6 Detected, 7 Waypoints, 8 Locations |
+| **Ctrl + 1 … 9** | Jump straight to a category: 1 Actors, 2 Doors, 3 Containers, 4 Items, 5 Activators, 6 Detected, 7 Waypoints, 8 Locations, 9 Terrain |
 | **Home** | Announce current target |
 | **Backspace** | Jump back to the first (nearest) target in the category |
 | **End** | Clear the current selection |
@@ -151,8 +151,6 @@ came with this package.
 | **L** | Announce your location (cell name) |
 | **Ctrl + L** | Announce which way you're facing (compass point) |
 | **Shift + L** | Announce your height above the ground, or depth underwater |
-| **Alt + L** | Find the levitation shaft in a Telvanni tower (Tel Fyr, Tel Aruhn, Tel Vos, strongholds like Tel Uvirith). These towers have no stairs — the central shaft is the only way between floors. Reports where it is, how many floor openings it has, which one is nearest, and whether it is blocked |
-| **Ctrl + Alt + L** | Walk into the shaft, so you're standing in the column ready to levitate up or down |
 | **Ctrl + Left / Right** | Snap your facing to the previous / next compass point |
 | **Ctrl + Down** | Turn around 180 degrees |
 | **Ctrl + Up** | Direction filter: narrow the scanner to only what lies the way you're facing (see Scanning and targets) |
@@ -187,6 +185,70 @@ way out of a few situations the game can't otherwise recover from — see
 | **Up / Down** | Recall previous commands |
 | **Ctrl + Up / Down** | Re-hear previous output, line by line |
 | **Ctrl + T** | Make the scanner's selected object the console target (the keyboard replacement for clicking an object). Press with nothing selected to clear the target |
+
+---
+
+## Terrain: hazards and shafts
+
+Some things that matter are features of the room itself rather than objects in
+it — a lava pool, or the open shaft that is the only way between floors of a
+Telvanni tower. These live in the scanner's **Terrain** category
+(**Ctrl + 9**), with subcategories **All**, **Hazards** and **Shafts** you can
+move between using the usual subcategory keys.
+
+Putting them in the scanner means they behave like every other target: cycle
+through them nearest first, hear what each one is with its distance and bearing,
+face one, put the audio beacon on it, or **auto-walk to it**. That last one
+matters for shafts in particular — walking into the shaft is now just
+auto-walking to the selected entry, the same keystroke you'd use to walk to a
+door, and it puts you in the column ready to levitate up or down.
+
+The category is skipped when you cycle past it in a room that has neither, so it
+only shows up where there is something to report.
+
+### Damaging terrain
+
+Some places try to kill you just for standing in them. Lava is the worst offender
+— it deals heavy damage every second, so a wrong step in a Dwemer ruin can end a
+character in a few seconds, and it burns your followers too. A sighted player
+simply sees the glowing pool and walks around it.
+
+Two things now give you the same information.
+
+**You are warned as you approach.** Walk within about four metres of damaging
+terrain and you'll hear what it is and where, for example *"Lava, 3.4 metres
+north."* You get one warning per pool as you come near it rather than a
+repeating alarm, and you'll be warned again if you leave and come back. Terrain
+more than a storey above or below you is ignored, so a lava cave under a walkway
+won't nag you while you cross it.
+
+**You can find it with the scanner**, under Terrain's **Hazards** subcategory,
+as described above. Where a room holds several, they're lettered — "Lava A",
+"Lava B" — so you can tell which one is being announced as you cycle.
+
+A few details worth knowing:
+
+- **Large pools are announced as one thing.** A big lava lake is built out of
+  many separate pieces in the game data; they're merged and reported by their
+  nearest edge, which is the part that can actually burn you.
+- **It works in mods, not just the original game.** Nothing here looks for
+  "lava" by name. It looks for terrain whose script does damage to whoever
+  stands on or touches it, which is how the game itself makes lava dangerous.
+  Any mod's acid pit, fire trap or poison pool is picked up the same way,
+  including in Tamriel Rebuilt and other landmass mods.
+- **Decorative lava is correctly ignored.** Lava-textured rock and cave walls
+  are scenery and can't hurt you, so they are not announced. In one vanilla cave
+  only 8 of its 136 lava-named objects are actually dangerous.
+- **Unnamed hazards get a sensible name.** Most damaging terrain has no name in
+  the game data at all. Where the substance can be recognised you'll hear
+  "Lava", "Acid", "Fire" and so on; where it can't, you'll hear "Hazard" rather
+  than a meaningless internal id.
+
+This is a warning system, not a barrier: nothing stops you walking into lava if
+you choose to. Auto-walk doesn't plan around damaging terrain either, but it does
+notice when it has walked you into some — it stops, pulls you back to safe
+ground, and says *"Path crosses a hazard"* — so the warnings above are your
+advance notice, and that is the safety net behind them.
 
 ---
 

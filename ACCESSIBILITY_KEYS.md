@@ -63,7 +63,7 @@ selected is your **target**.
 | **Page Down / Page Up** | Next / previous target in the current category |
 | **Ctrl + Page Down / Page Up** | Next / previous category |
 | **Shift + Page Down / Page Up** | Cycle the subcategory filter (e.g. Plants / Storage within Containers) |
-| **Ctrl + 1 … 8** | Jump straight to a category: 1 Actors, 2 Doors, 3 Containers, 4 Items, 5 Activators, 6 Detected, 7 Waypoints, 8 Locations |
+| **Ctrl + 1 … 9** | Jump straight to a category: 1 Actors, 2 Doors, 3 Containers, 4 Items, 5 Activators, 6 Detected, 7 Waypoints, 8 Locations, 9 Terrain |
 | **Home** | Announce the current target again |
 | **Backspace** | Back to the first (nearest) target in the category |
 | **End** | Clear the selection |
@@ -100,8 +100,6 @@ Any movement key cancels auto-walk.
 | **L** | Announce your location (cell name) |
 | **Ctrl + L** | Announce which way you're facing |
 | **Shift + L** | Announce your height above the ground, or depth underwater |
-| **Alt + L** | Find the levitation shaft in a Telvanni tower — where it is, how many floor openings it has, which is nearest, and whether it's blocked |
-| **Ctrl + Alt + L** | Walk into the shaft, ready to levitate up or down |
 | **Ctrl + Left / Right** | Snap your facing to the previous / next compass point |
 | **Ctrl + Down** | Turn around 180 degrees |
 | **Shift + Up / Down** | Aim your view up / down a step, through five fixed stops (straight up, up, level, down, straight down). Use it to fly with Levitation, or surface and dive while swimming |

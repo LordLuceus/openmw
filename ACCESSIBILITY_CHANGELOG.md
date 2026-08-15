@@ -15,6 +15,26 @@ Newest changes are listed first. (OpenMW's own engine changelog lives in
   walkway won't nag you. Previously nothing announced damaging terrain at all: a
   wrong step in a Dwemer ruin took heavy damage every second, with no way to know
   it was there, and it burned any followers with you.
+- **New scanner category: Terrain (Ctrl + 9), with Hazards and Shafts
+  subcategories.** Features of the room itself — damaging terrain, and the
+  levitation shafts in Telvanni towers — are now scanner entries like anything
+  else, instead of each having its own key. So you cycle through them nearest
+  first, hear what each one is with its distance and bearing, face one, put the
+  audio beacon on it, or auto-walk to it with the keys you already use. Where a
+  room has several of a kind they're lettered ("Lava A", "Lava B"). The category
+  is skipped when you cycle past it in a room that has neither.
+  - **Walking into a shaft no longer needs its own key.** It's just auto-walking
+    to the selected Terrain entry, which puts you in the column ready to
+    levitate. Auto-walk still tells you if the shaft is blocked.
+  - Large pools are one entry, reported by their nearest edge, rather than a
+    string of separate announcements. Detection works in mods as well as the
+    original game: it recognises terrain by what its script does to you, not by
+    what it's called, so a mod's own hazards are covered without needing to know
+    about that mod. Lava-textured rock and cave walls are correctly ignored as
+    scenery.
+  - **Removed: Alt + L, Ctrl + Alt + L and Shift + Alt + L.** Everything they did
+    is in the Terrain category now, and shaft details (how many floor openings it
+    has) are spoken with the entry.
 
 ## 2026-08-13
 
