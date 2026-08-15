@@ -35,6 +35,14 @@ Newest changes are listed first. (OpenMW's own engine changelog lives in
   - **Removed: Alt + L, Ctrl + Alt + L and Shift + Alt + L.** Everything they did
     is in the Terrain category now, and shaft details (how many floor openings it
     has) are spoken with the entry.
+- **The Locations category can now be searched.** Late in a game the discovered-
+  places list runs to hundreds of entries, and pressing the search key there used
+  to say *"Waypoints cannot be filtered"* — leaving no way to reach a particular
+  town except cycling past every other one. Search now works there as it does for
+  objects: type part of a name and only the matching places are listed. Unlike
+  other categories the filter isn't cleared when you go indoors or outdoors,
+  since the list is the same everywhere — so you can look a place up inside, then
+  step out and walk to it.
 
 ## 2026-08-13
 

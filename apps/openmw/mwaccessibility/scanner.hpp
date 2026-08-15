@@ -538,6 +538,11 @@ namespace MWAccessibility
         // meaningfully decided for them.
         void filterWaypointsByDirection(std::vector<Waypoint>& waypoints) const;
 
+        /// Drop waypoints whose name doesn't contain the active search filter
+        /// (case-insensitive substring), mirroring the object search. Used by the
+        /// Locations category, whose list grows to hundreds of discovered places.
+        void filterWaypointsByName(std::vector<Waypoint>& waypoints) const;
+
         /// Build the Terrain category's list for subcategory \p subIndex
         /// (0 = All, 1 = Hazards, 2 = Shafts) as position waypoints, nearest
         /// first. Presenting room features as ordinary scanner entries is what

@@ -1431,7 +1431,14 @@ namespace MWAccessibility
                 // (Contrast mLabels, the disambiguation letters, which ARE
                 // per-cell and get reassigned by rebuildCurrentList.)
 
-                if (crossedInOut)
+                // EXCEPTION: the Locations list is global (every discovered place
+                // on the map), not a scan of the room you're in, so a filter on
+                // it is just as valid outdoors as indoors. Clearing it here would
+                // wipe the search at the worst moment -- you look up a distant
+                // town while inside, then step out to travel there and lose it.
+                const bool filterIsGlobal = (&s == &mLists[static_cast<size_t>(Category::Locations)]);
+
+                if (crossedInOut && !filterIsGlobal)
                 {
                     if (!s.mFilter.empty())
                     {
@@ -3313,10 +3320,14 @@ namespace MWAccessibility
 
     void Scanner::openSearch()
     {
-        // The Waypoints category isn't name-filterable (its members are the
-        // handful of map notes / Mark in the current cell), so don't open the
-        // filter prompt there.
-        if (isWaypointCategory())
+        // Waypoints are a handful of map notes / Mark in the current cell, so a
+        // filter would be more work than just cycling them.
+        //
+        // Locations are the opposite case and MUST be filterable: late in a game
+        // the discovered-places list runs to hundreds of entries, and without a
+        // filter the only way to reach one is to cycle past every other. That is
+        // exactly the situation a search box exists for.
+        if (mCategory == Category::Waypoints)
         {
             speak("Waypoints cannot be filtered.");
             return;
@@ -3346,24 +3357,27 @@ namespace MWAccessibility
         state.mDirty = true;
         state.mSelectedRef = ESM::RefNum{};
         rebuildCurrentList();
-        state.mIndex = state.mObjects.empty() ? -1 : 0;
+        // Count via currentListSize(), NOT state.mObjects: position-based
+        // categories (Locations) keep their entries in mWaypoints, so counting
+        // mObjects would report "no matches" for every successful search.
+        const size_t matches = currentListSize();
+        state.mIndex = matches == 0 ? -1 : 0;
 
         if (trimmed.empty())
         {
-            speak(std::string("Filter cleared. ") + std::to_string(state.mObjects.size())
-                + " " + categoryName(mCategory) + " in range.");
+            speak(std::string("Filter cleared. ") + std::to_string(matches) + " " + categoryName(mCategory)
+                + " in range.");
         }
-        else if (state.mObjects.empty())
+        else if (matches == 0)
         {
             speak(std::string("No ") + categoryName(mCategory) + " matching " + trimmed + ".");
         }
         else
         {
-            speak(std::string("Filter: ") + trimmed + ". " + std::to_string(state.mObjects.size())
-                + " matching.");
+            speak(std::string("Filter: ") + trimmed + ". " + std::to_string(matches) + " matching.");
         }
 
-        if (!state.mObjects.empty())
+        if (matches > 0)
             announceCurrent();
         updateProximityCue();
     }
@@ -3372,7 +3386,10 @@ namespace MWAccessibility
     {
         // The prompt closed without applying a change. Re-announce the current
         // selection (if any) so the user knows focus is back on the scanner.
-        if (!currentTarget().isEmpty())
+        // Checked via currentListSize() rather than currentTarget(), which is
+        // always empty in position-based categories (their selection lives in
+        // mWaypoints) and would leave a cancelled Locations search silent.
+        if (currentListSize() > 0)
             announceCurrent();
     }
 
@@ -4226,6 +4243,19 @@ namespace MWAccessibility
         });
     }
 
+    void Scanner::filterWaypointsByName(std::vector<Waypoint>& waypoints) const
+    {
+        const auto& state = mLists[static_cast<size_t>(mCategory)];
+        if (state.mFilter.empty())
+            return;
+        // Substring, case-insensitive, on the spoken name only -- the same rule
+        // the object search uses, so "balm" finds "Balmora" and the behaviour is
+        // predictable across categories.
+        std::erase_if(waypoints, [&](const Waypoint& wp) {
+            return Misc::StringUtils::ciFind(wp.mName, state.mFilter) == std::string::npos;
+        });
+    }
+
     std::string Scanner::playerStatText(int index, const char* label) const
     {
         MWWorld::Ptr player = MWBase::Environment::get().getWorld()->getPlayerPtr();
@@ -4616,6 +4646,10 @@ namespace MWAccessibility
         {
             collectLocations(state.mWaypoints);
             filterWaypointsByDirection(state.mWaypoints);
+            // Late in a game this list runs to hundreds of entries, so the name
+            // filter is what makes a specific place reachable without cycling
+            // past everything else.
+            filterWaypointsByName(state.mWaypoints);
             return;
         }
 
