@@ -42,7 +42,7 @@ foundation.
 Follow the official installation guide, which is kept up to date and covers
 everything from the tools you need to the final launch:
 
-**<https://modding-openmw.com/guides/auto/i-heart-vanilla-directors-cut/windows#selected-mod-list>**
+**[I Heart Vanilla: Director's Cut — Windows installation guide](https://modding-openmw.com/guides/auto/i-heart-vanilla-directors-cut/windows#selected-mod-list)**
 
 Work through that guide to the end. When you have finished, you should be able
 to launch the game and play. **Confirm that before going any further** — if
@@ -70,7 +70,7 @@ guide's OpenMW and this one read the same configuration folder
 
 Modding OpenMW documents the general method here:
 
-**<https://modding-openmw.com/tips/customizing-modlists/>**
+**[Customizing mod lists — Modding OpenMW](https://modding-openmw.com/tips/customizing-modlists/)**
 
 It comes down to two files:
 
@@ -83,9 +83,9 @@ Both files are shared, so you can reproduce this setup exactly rather than
 assembling it by hand:
 
 - `luceus-custom-mods.json` —
-  **<https://www.dropbox.com/scl/fi/wc2yx0mqhzdd4767v33in/luceus-custom-mods.json?rlkey=8a7rtek3uwchxin5d92o206ce&dl=1>**
+  **[download the mod list](https://www.dropbox.com/scl/fi/wc2yx0mqhzdd4767v33in/luceus-custom-mods.json?rlkey=8a7rtek3uwchxin5d92o206ce&dl=1)**
 - `momw-customizations.toml` —
-  **<https://www.dropbox.com/scl/fi/ntmhyv5e2v9943lzyhbb2/momw-customizations.toml?rlkey=a4ixxqwb05u9vsngjfwat8kjo&dl=1>**
+  **[download the configurator instructions](https://www.dropbox.com/scl/fi/ntmhyv5e2v9943lzyhbb2/momw-customizations.toml?rlkey=a4ixxqwb05u9vsngjfwat8kjo&dl=1)**
 
 Both links download the file directly rather than opening a Dropbox preview
 page, so your browser should just save them. Keep the filenames as they are —

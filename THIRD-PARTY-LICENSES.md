@@ -13,7 +13,7 @@ licences require.
 ## Prism — screen-reader / text-to-speech output
 
 **Licence: Mozilla Public License 2.0 (MPL-2.0)**
-Source: <https://github.com/ethindp/prism>
+Source: [ethindp/prism on GitHub](https://github.com/ethindp/prism)
 
 Prism ("Platform-agnostic Reader Interface for Speech and Messages") is the
 library that speaks text through your screen reader or the system speech engine.
