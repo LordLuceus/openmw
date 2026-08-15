@@ -233,6 +233,26 @@ using MWAccessibility::kPi;
     // Scanner::announceActorSpellCast.
     constexpr float kSpellCastNearbyRange = 28.f * kUnitsPerMetre;
 
+    // HAZARD PROXIMITY tuning (damaging terrain: lava, acid, fire fields).
+    //
+    // How near damaging terrain has to be before it is announced unprompted.
+    // ~4 m is far enough to stop before stepping in at a walk, and near enough
+    // that a room with a pool along one wall doesn't warn the moment you enter.
+    // Lava deals 20 HP/sec, so being late here is measured in dead characters,
+    // but being early makes the warning noise the player learns to ignore.
+    constexpr float kHazardWarnRadius = 4.f * kUnitsPerMetre;
+    // Extra distance the player must retreat before the same hazard can warn
+    // again. Prevents a warning stutter while standing at the boundary.
+    constexpr float kHazardRearmMargin = 2.f * kUnitsPerMetre;
+    // Height difference beyond which a hazard is treated as "not on my floor"
+    // and left unannounced. One storey (kFloorHeight) is the natural unit: a
+    // lava cave below a walkway cannot burn someone on the walkway, and warning
+    // about it would be both wrong and constant.
+    constexpr float kHazardWarnVertical = MWAccessibility::kFloorHeight;
+    // Below this, a bearing is meaningless and the honest phrasing is "at your
+    // feet". Matches the shaft readout's kShaftHereRadius (~0.75 m).
+    constexpr float kHazardHereRadius = 52.5f;
+
     // Player position-vector "forward" is along +Y in OpenMW's coordinate
     // system, and yaw rotates around Z. A target bearing relative to the
     // player is computed as the angle between (target - player) and the
@@ -937,6 +957,12 @@ namespace MWAccessibility
         // A teleport requested in the old world must not fire into the new one:
         // the target it referred to no longer exists.
         mTeleportRequested = false;
+        // The hazard cache holds positions from the old world, and its cell tag
+        // is a freed pointer -- which a new cell could coincidentally reuse,
+        // leaving us confident about hazards that aren't there. Drop both.
+        mCellHazards.clear();
+        mHazardCellId = nullptr;
+        mHazardWarned.clear();
 
         // Drop all AHUD state and lift our pause tag if held, so a HUD left open
         // when the world is torn down (e.g. the player loaded a save from the
@@ -1328,6 +1354,11 @@ namespace MWAccessibility
             // the Ptrs gathered above, so don't keep using them this frame.
             return;
         }
+
+        // Warn about damaging terrain the player is walking toward. Done every
+        // frame regardless of how the player is moving (walking, auto-walk or
+        // being pushed), because the hazard doesn't care how you arrived.
+        updateHazardProximity();
 
         // While the HUD is open and parked on the target row, keep that row in
         // sync with whichever actor the player cycles the scanner to.
@@ -3824,6 +3855,81 @@ namespace MWAccessibility
         // -- the same vocabulary used for target bearings.
         const float yaw = player.getRefData().getPosition().rot[2];
         speak(std::string("Facing ") + compassLabel(yaw) + ".");
+    }
+
+    void Scanner::refreshCellHazards(const MWWorld::Ptr& player)
+    {
+        // Collecting hazards walks every ref in the cell and parses each distinct
+        // script, so it is done once per cell rather than per frame.
+        const void* cellId = static_cast<const void*>(player.getCell());
+        if (cellId == mHazardCellId)
+            return;
+        mHazardCellId = cellId;
+        mCellHazards = collectCellHazards(player);
+        // A new cell is a new set of hazards, so nothing has been warned about
+        // yet. (Without this, walking back into a cell would stay silent about a
+        // pool the player has since forgotten.)
+        mHazardWarned.clear();
+    }
+
+    void Scanner::updateHazardProximity()
+    {
+        MWBase::World* world = MWBase::Environment::get().getWorld();
+        MWWorld::Ptr player = world->getPlayerPtr();
+        if (player.isEmpty())
+            return;
+
+        refreshCellHazards(player);
+        if (mCellHazards.empty())
+            return;
+
+        const osg::Vec3f playerPos = player.getRefData().getPosition().asVec3();
+        const std::vector<HazardGroup> groups = groupHazards(mCellHazards, playerPos);
+
+        // Drop any warning latch whose hazard the player has walked away from, so
+        // a genuine second approach warns again. Re-arming uses a WIDER radius
+        // than the warning itself, or a player standing right on the boundary
+        // would re-trigger it every time they shifted a few units.
+        //
+        // NOTE the latch is keyed on the hazard's own nearest PIECE position,
+        // which is stable as the player moves. Keying it on HazardGroup's
+        // mNearestPos would be a bug: that field is "nearest piece to the
+        // player", so it changes as you walk along a big pool, and every change
+        // would read as a brand-new hazard and warn again.
+        for (auto it = mHazardWarned.begin(); it != mHazardWarned.end();)
+        {
+            const bool stillNear = std::any_of(groups.begin(), groups.end(), [&](const HazardGroup& g) {
+                return hazardGroupContains(g, *it) && g.mNearestDistance <= kHazardWarnRadius + kHazardRearmMargin;
+            });
+            it = stillNear ? it + 1 : mHazardWarned.erase(it);
+        }
+
+        for (const HazardGroup& g : groups)
+        {
+            if (g.mNearestDistance > kHazardWarnRadius)
+                continue;
+            // A hazard on another floor is not a threat to someone walking on
+            // this one. Without this, standing above a lava cave warns about
+            // terrain you cannot touch.
+            if (std::abs(g.mNearestPos.z() - playerPos.z()) > kHazardWarnVertical)
+                continue;
+            const bool warned = std::any_of(mHazardWarned.begin(), mHazardWarned.end(),
+                [&](const osg::Vec3f& p) { return hazardGroupContains(g, p); });
+            if (warned)
+                continue;
+            // Latch on the group's IDENTITY (its first piece), not on whichever
+            // piece happens to be nearest right now -- see the note above.
+            mHazardWarned.push_back(g.mIdentityPos);
+
+            const osg::Vec3f delta = g.mNearestPos - playerPos;
+            std::string line = g.mName;
+            if (g.mNearestDistance > kHazardHereRadius)
+                line
+                    += ", " + formatDistance(g.mNearestDistance) + " " + compassLabel(std::atan2(delta.x(), delta.y()));
+            else
+                line += ", at your feet";
+            speak(line + ".");
+        }
     }
 
     void Scanner::announceVerticalShaft()

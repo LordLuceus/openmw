@@ -20,6 +20,7 @@
 
 #include "autowalker.hpp"
 #include "category.hpp"
+#include "hazard.hpp"
 #include "hud.hpp"
 #include "proximitycue.hpp"
 #include "verticalshaft.hpp"
@@ -331,6 +332,22 @@ namespace MWAccessibility
         /// the acknowledgement when they ask not to be warned again.
         bool confirmTeleportRisk(const std::string& name);
 
+        // HAZARD PROXIMITY state. Unlike the shaft readout (recomputed on each
+        // key press, which is cheap because it is rare), the proximity warning
+        // runs every frame, and collecting hazards walks every ref in the cell
+        // and parses scripts -- far too expensive per frame. So the cell's
+        // hazards are collected once per cell and cached here.
+        std::vector<HazardObject> mCellHazards;
+        // Which cell mCellHazards was collected for, so we know when it is
+        // stale. Compared as an opaque pointer, exactly like mLastCellId.
+        const void* mHazardCellId = nullptr;
+        // Nearest-position of each hazard group we have already warned about on
+        // this approach, so the player hears "Lava, 3 metres ahead" once rather
+        // than every frame. An entry is dropped once the player leaves the
+        // hazard's neighbourhood, which re-arms the warning for a genuine second
+        // approach.
+        std::vector<osg::Vec3f> mHazardWarned;
+
         // Set by the Ctrl+Shift+Enter handler and serviced on the next frame.
         // The teleport may raise a blocking modal, which pumps the event loop;
         // doing that from inside SDL's key callback would re-enter event
@@ -395,6 +412,16 @@ namespace MWAccessibility
         /// height (Ctrl+Alt+L), so the player can then fly up or down it under their
         /// own control rather than relying on auto-walk to cross floors.
         void walkToVerticalShaft();
+
+        /// Warn when the player is walking toward damaging terrain, called each
+        /// frame. Speaks at most one warning per hazard per approach (see
+        /// mHazardWarned), so it can't chatter while the player edges along a pool.
+        void updateHazardProximity();
+
+        /// Collect the current cell's hazards into mCellHazards if they aren't
+        /// already cached for this cell. Shared by the readout and the per-frame
+        /// proximity warning so the two can never disagree about what is here.
+        void refreshCellHazards(const MWWorld::Ptr& player);
         // Snap the player's facing to the previous/next of the eight compass
         // points (Ctrl+A = counter-clockwise, Ctrl+D = clockwise). Levels the
         // pitch and announces the new heading. A keyboard-friendly way to aim

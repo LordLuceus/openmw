@@ -22,6 +22,7 @@ file(GLOB UNITTEST_SRC_FILES
     mwaccessibility/booktext.cpp
     mwaccessibility/verticalshaft.cpp
     mwaccessibility/markremap.cpp
+    mwaccessibility/hazard.cpp
 
     mwscript/testscripts.cpp
 )

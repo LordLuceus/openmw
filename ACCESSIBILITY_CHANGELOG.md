@@ -4,6 +4,18 @@ A running log of screen-reader accessibility features added to this OpenMW fork.
 Newest changes are listed first. (OpenMW's own engine changelog lives in
 `CHANGELOG.md`.)
 
+## 2026-08-14
+
+- **You are now warned about lava and other damaging terrain before you step in
+  it.** Walk within about four metres of a lava pool (or an acid pit, fire trap
+  or anything else that hurts you for standing on or touching it) and you'll hear
+  what it is and where — for example *"Lava, 3.4 metres north."* You get one
+  warning per pool as you approach rather than a repeating alarm, and terrain
+  more than a storey above or below you is ignored so a lava cave beneath a
+  walkway won't nag you. Previously nothing announced damaging terrain at all: a
+  wrong step in a Dwemer ruin took heavy damage every second, with no way to know
+  it was there, and it burned any followers with you.
+
 ## 2026-08-13
 
 - **Teleporting to a target now warns you first, and no longer makes you fail a
