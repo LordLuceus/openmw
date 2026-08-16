@@ -198,6 +198,17 @@ province.
 order a certain centurion to stay in a specific place or patrol the area instead
 of following you around everywhere."*
 
+**Friendlier Fire** *(Sosnoviy Bor)* — Stops followers turning on you, and on
+each other, after an accidental hit. Friendly blows miss or do reduced damage,
+and neither you nor your companions can hurt each other with spells. This is
+worth more to a blind player than to a sighted one: you cannot see exactly where
+a companion is standing when you swing a weapon or place an area spell, and in
+vanilla a stray hit can turn a long-running companion hostile with no warning.
+
+**Follower Detection Util** *(Sosnoviy Bor)* — A library, not content. It does
+nothing on its own; Friendlier Fire needs it. **It must load before Friendlier
+Fire** — the customisations file already puts it in the right place.
+
 ### Quests and content
 
 **AFFiliates — Guild of Mages** *(AFFA)* — *"Fun little quest mod for Mages
@@ -218,6 +229,27 @@ like there should have been more to this."*
 
 **Solstheim — Tomb of the Snow Prince** *(TOTSP Team)* — A large overhaul of
 Solstheim. Recommended by the Tamriel Rebuilt team.
+
+**Vegtabill's Threads of the Webspinner** *(vegtabill)* — Makes the Morag Tong's
+Sanguine item hunt completable from inside the game. In vanilla, only two of the
+27 items are ever pointed out to you; the rest are carried by NPCs the game never
+mentions, so the quest is effectively unfinishable without consulting a wiki or
+killing people at random. This fleshes out existing dialogue topics and adds new
+ones so the leads exist in-game. That matters here for a specific reason: a
+sighted player can at least alt-tab to a wiki and cross-reference a map, which is
+a far more awkward thing to do with a screen reader.
+
+The mod ships four alternative plugins and only one may be active. This setup
+uses `veg-TotW-books-MSrestored.esp`, the fullest of them: the dialogue changes,
+plus in-world journals and letters, plus Mephala's Skill restored to its original
+form (it fortified Short Blade as well, before Bethesda changed it).
+
+**The Popular Plague** *(AFFA, Greatness7, Melchior Dahrk, Seelof)* — A strange
+disease reaches Pelagiad, and its victims cannot stop dancing. Written by Douglas
+Goodall, who wrote much of the original game's dialogue. Start it by talking to
+Prupius Danulus in Pelagiad. It leads somewhere considerably odder than it first
+appears, and ends with a home of your own in Oblivion that you can teleport to
+and from at will. Needs OAAB_Data, which is already on this list.
 
 ### Rise of House Telvanni — read this one carefully
 
@@ -284,6 +316,11 @@ them. *"A must-have in my opinion."*
 
 **Speechcraft Rebalance** *(Aphain)* — *"A nice little mod making speechcraft a
 little more usable than in vanilla."*
+
+**Pickpocket Rebalance** *(Aphain)* — By the same author. Vanilla pickpocketing
+caps your success chance below 100% no matter how skilled you are, and weights
+heavily against anything valuable; this raises the cap and relaxes the weighting,
+so a thief character can actually steal things worth stealing.
 
 ### World and integration
 
