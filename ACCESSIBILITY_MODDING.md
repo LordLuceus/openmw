@@ -169,9 +169,7 @@ attached to its distinctive sound design, this will change a lot of it.
 
 **Maxar's Dynamic Footsteps Sounds** *(maxar)* — Footstep sounds that respond to
 what you are walking on, how fast you are moving, your race, and your armour,
-including water depth. *"The first mod I ever installed, simple but very good."*
-For a blind player this is not only atmosphere: the surface underfoot is real
-navigational information.
+including water depth.
 
 **Custom Music** *(LordLuceus)* — A handful of extra music tracks, taken from
 Morrowind-adjacent projects: ESO Morrowind and Skywind.
@@ -190,7 +188,7 @@ that runs alongside the main quest.
 the Tamriel Rebuilt landmass.
 
 **Attend Me** *(urm)* — Makes your followers teleport with you when you use
-Recall or Intervention. *"Really good"* — and it prevents the common and
+Recall or Intervention, and it prevents the common and
 maddening situation where a companion is stranded on the other side of the
 province.
 
@@ -211,21 +209,19 @@ Fire** — the customisations file already puts it in the right place.
 
 ### Quests and content
 
-**AFFiliates — Guild of Mages** *(AFFA)* — *"Fun little quest mod for Mages
-Guild players."*
+**AFFiliates — Guild of Mages** *(AFFA)* — *"Fun and at times absurd quest mod written by AFFA AKA Douglas Goodall, one of the original writers of Morrowind. You finally get to play both sides of the Ajira vs Galbedir war."*
 
 **Barristers Guild — Old Ebonheart Questline** *(levanesque)* — Lets you join
-the Old Ebonheart Barristers Guild. *"Haven't played this one yet but it should
+the Old Ebonheart Barristers Guild. *"Haven't played through this one yet but it should
 be a lot of fun."*
 
 **OAAB Brother Juniper's Twin Lamps** *(Brother Juniper, updated by Lucevar)* —
 Quests for the abolitionist underground. *"For the abolitionists. Haven't
-actually played through these quests yet myself."*
+actually played through most of these quests yet myself."*
 
 **Red Wisdom — An Ashlander Prophecy** *(AFFA, Greatness7, Melchior Dahrk)* —
 *"I was a bit disappointed with this one. Unlike Rise of House Telvanni, it's
-not that the writing was bad, it's that I felt like there wasn't enough. I felt
-like there should have been more to this."*
+not that the writing was bad, it's that I felt like there wasn't enough. I expected something a bit more substantial."*
 
 **Solstheim — Tomb of the Snow Prince** *(TOTSP Team)* — A large overhaul of
 Solstheim. Recommended by the Tamriel Rebuilt team.
@@ -235,9 +231,7 @@ Sanguine item hunt completable from inside the game. In vanilla, only two of the
 27 items are ever pointed out to you; the rest are carried by NPCs the game never
 mentions, so the quest is effectively unfinishable without consulting a wiki or
 killing people at random. This fleshes out existing dialogue topics and adds new
-ones so the leads exist in-game. That matters here for a specific reason: a
-sighted player can at least alt-tab to a wiki and cross-reference a map, which is
-a far more awkward thing to do with a screen reader.
+ones so the leads exist in-game.
 
 The mod ships four alternative plugins and only one may be active. This setup
 uses `veg-TotW-books-MSrestored.esp`, the fullest of them: the dialogue changes,
@@ -262,7 +256,7 @@ because the decision is yours:
 > *"I have mixed feelings on this one. The best way I can describe it is that it
 > feels very 'fanfiction-like', in a bad way, and as someone who really
 > appreciates lore and writing, this really bothers me. On the other hand, it
-> introduces some ridiculously overpowered items (also debatable whether that's a
+> introduces some ridiculously overpowered items and spells (also debatable whether that's a
 > good thing — these really are insanely overpowered) and some fun combat
 > encounters. So your mileage may vary; dropping it would be a totally valid
 > choice."*
@@ -287,7 +281,7 @@ unaffected and can stay.
 ### Uvirith's Legacy and the Telvanni stronghold
 
 **Uvirith's Legacy** *(Stuporstar)* — A vast expansion of the Telvanni player
-stronghold, Tel Uvirith. *"Excellent mod. Still holds up ten years after its
+stronghold, Tel Uvirith. *"Just an excellent mod. Still holds up ten years after its
 last update. The tower can be a bit difficult to navigate for blind players at
 times, but it's worth it."*
 
