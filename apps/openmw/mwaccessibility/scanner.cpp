@@ -35,6 +35,7 @@
 #include <components/debug/debuglog.hpp>
 #include <components/misc/constants.hpp>
 #include <components/misc/strings/algorithm.hpp>
+#include <components/misc/strings/format.hpp>
 #include <components/vfs/pathutil.hpp>
 
 #include <components/accessibility/accessibilitymanager.hpp>
@@ -1720,11 +1721,15 @@ namespace MWAccessibility
                 // Terrain scanner category instead, where they can be cycled,
                 // faced and auto-walked to with the same keys as every other
                 // target -- which also means "walk me into the shaft" needs no
-                // binding of its own.
+                // binding of its own. Alt+L, freed by that move, now reports
+                // the time of day: the fourth orientation question (when),
+                // alongside where / which way / how high.
                 if (ctrl && !shift && !alt)
                     announceFacing();
                 else if (shift && !ctrl && !alt)
                     announceHeight();
+                else if (alt && !ctrl && !shift)
+                    announceTimeOfDay();
                 else if (!ctrl && !shift && !alt)
                     announceLocation();
                 else
@@ -3476,6 +3481,40 @@ namespace MWAccessibility
             speak("Unknown location.");
         else
             speak(std::string(name));
+    }
+
+    void Scanner::announceTimeOfDay()
+    {
+        MWBase::World* world = MWBase::Environment::get().getWorld();
+        if (!world)
+            return;
+        const MWWorld::DateTimeManager* timeMgr = world->getTimeManager();
+        if (!timeMgr)
+            return;
+
+        // Mirror WaitDialog::onOpen's conversion EXACTLY -- same truncation to
+        // whole hours, same 12-hour wrap, same localized tokens. The Rest
+        // dialog is what the player hears today via the escape-back-out
+        // workaround, so any divergence here would read as a bug. In
+        // particular getHour() is fractional (9.97 is still "9 a.m."), and
+        // static_cast truncates rather than rounds, which is what we want.
+        int hour = static_cast<int>(timeMgr->getTimeStamp().getHour());
+        const bool pm = hour >= 12;
+        if (hour >= 13)
+            hour -= 12;
+        if (hour == 0)
+            hour = 12; // midnight and noon both read as 12, not 0
+        const std::string_view meridiem(pm ? "#{Calendar:pm}" : "#{Calendar:am}");
+
+        // Date: day-of-month plus the localized month name. We drop the
+        // dialog's "(Day N)" days-since-start counter -- it's bookkeeping
+        // rather than orientation, and the question being answered here is
+        // "are the shops open / is it dark out", not "how long have I played".
+        const ESM::EpochTimeStamp date = timeMgr->getEpochTimeStamp();
+        const std::string_view month = timeMgr->getMonthName();
+
+        speak(Misc::StringUtils::format(
+            "%i %s, %i %s.", hour, meridiem, date.mDay, month));
     }
 
     Scanner::CellSnapshot Scanner::snapshotCell(const MWWorld::Ptr& player)

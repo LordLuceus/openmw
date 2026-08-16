@@ -4,6 +4,18 @@ A running log of screen-reader accessibility features added to this OpenMW fork.
 Newest changes are listed first. (OpenMW's own engine changelog lives in
 `CHANGELOG.md`.)
 
+## 2026-08-16
+
+- **Alt + L announces the time of day and date**, for example *"9 a.m., 16 Last
+  Seed."* Knowing the hour tells you whether shops are open, whether it's safe to
+  rest, and what's abroad on the roads after dark — things a sighted player reads
+  straight off the light and shadows. Until now the only way to check was to open
+  the Rest and Wait dialog, listen to the hour and press Escape without resting,
+  which doesn't work at all while levitating, underwater, or with enemies nearby.
+  The hour is reported exactly as the Rest dialog gives it, in whole hours, so the
+  two can never disagree. Alt + L joins the rest of the L family: where you are
+  (L), which way you're facing (Ctrl + L) and how high you are (Shift + L).
+
 ## 2026-08-14
 
 - **You are now warned about lava and other damaging terrain before you step in

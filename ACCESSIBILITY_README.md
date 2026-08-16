@@ -151,6 +151,7 @@ came with this package.
 | **L** | Announce your location (cell name) |
 | **Ctrl + L** | Announce which way you're facing (compass point) |
 | **Shift + L** | Announce your height above the ground, or depth underwater |
+| **Alt + L** | Announce the time of day and date |
 | **Ctrl + Left / Right** | Snap your facing to the previous / next compass point |
 | **Ctrl + Down** | Turn around 180 degrees |
 | **Ctrl + Up** | Direction filter: narrow the scanner to only what lies the way you're facing (see Scanning and targets) |

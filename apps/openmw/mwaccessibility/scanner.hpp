@@ -400,6 +400,16 @@ namespace MWAccessibility
         // matching the arrow-key cluster). Needed because flying/diving without a
         // mouse gives no other sense of altitude or depth.
         void announceHeight();
+        // Announce the in-game time of day and date, e.g. "9 a.m., 16 Last
+        // Seed". Bound to Alt+L, joining the L family of orientation readouts
+        // (where am I / which way / how high / when). A sighted player reads
+        // the hour off the light and shadows; by ear there is no equivalent,
+        // and the only workaround was to open the Rest dialog and escape back
+        // out -- which fails while levitating, underwater, or with enemies
+        // nearby. Deliberately mirrors the Rest dialog's own formatting
+        // (whole hours, localized a.m./p.m. and month) so the two can never
+        // disagree.
+        void announceTimeOfDay();
 
         /// Warn when the player is walking toward damaging terrain, called each
         /// frame. Speaks at most one warning per hazard per approach (see
