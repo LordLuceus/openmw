@@ -38,7 +38,18 @@ namespace MWAccessibility
         /// scanner waypoints -- map notes and the Mark spot -- which are bare
         /// positions with no backing object). \p name is spoken in arrival/
         /// failure messages. Returns false if a path could not be built.
-        bool start(const osg::Vec3f& target, const std::string& name);
+        ///
+        /// \p exactArrival demands that the player actually reach \p target
+        /// itself, rather than the navmesh-snapped proxy we path to. Normally
+        /// arriving at the proxy is CORRECT -- a door embedded in a wall has an
+        /// unreachable true position, so "arrived" has to mean "standing on the
+        /// walkable spot in front of it". A levitation shaft is the opposite
+        /// case: its interior is an open hole with no floor, so it is never on
+        /// the navmesh and the snap drags the goal out to the shaft's RIM (up
+        /// "arrived" while the player stands beside the hole rather than in it,
+        /// and then levitating just presses them into the ceiling. Set this
+        /// only for targets whose exact spot is the whole point.
+        bool start(const osg::Vec3f& target, const std::string& name, bool exactArrival = false);
 
         /// Stops auto-walk and zeroes the player's forward-movement
         /// setting. Safe to call when not active.
@@ -170,6 +181,10 @@ namespace MWAccessibility
         MWWorld::Ptr mTarget;
         osg::Vec3f mTargetPos;
         bool mHasPtrTarget = true;
+        // Set by start(pos, name, exactArrival) for targets whose exact spot is
+        // the point of the walk (levitation shafts). Suppresses accepting the
+        // navmesh-snapped proxy as arrival; see the start() overload's comment.
+        bool mExactArrival = false;
         // The destination actually fed to the pathfinder: the requested target
         // position snapped to the nearest walkable navmesh point (see
         // kNavMeshSnapRadius). Refreshed every rebuildPath(). Falls back to the

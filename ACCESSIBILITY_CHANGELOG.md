@@ -4,6 +4,18 @@ A running log of screen-reader accessibility features added to this OpenMW fork.
 Newest changes are listed first. (OpenMW's own engine changelog lives in
 `CHANGELOG.md`.)
 
+## 2026-08-18
+
+- **Auto-walking to a levitation shaft now puts you in the shaft, not beside it.**
+  Since shafts became ordinary scanner targets they used the same arrival rule as
+  everything else, which is happy to stop you at the nearest spot the game
+  considers walkable. A shaft's interior is an open hole with no floor, so that
+  spot is its rim — you would hear *"Arrived at Shaft"* while standing at the
+  edge, and levitating from there took you up into the ceiling instead of the
+  column. Walking to a shaft now finishes on the shaft's centre itself. Other
+  targets are unchanged: stopping in front of a door, rather than inside it, is
+  still the correct behaviour.
+
 ## 2026-08-16
 
 - **Alt + L announces the time of day and date**, for example *"9 a.m., 16 Last

@@ -3122,7 +3122,7 @@ namespace MWAccessibility
                 speak(wp->mName + " is in " + where + "; cannot walk there from here.");
                 return;
             }
-            if (mAutoWalker.start(wp->mPosition, wp->mName))
+            if (mAutoWalker.start(wp->mPosition, wp->mName, wp->mExactArrival))
             {
                 // Horizontal distance, matching the scanner/auto-walk convention.
                 osg::Vec3f d = wp->mPosition - playerPos;
@@ -5312,6 +5312,9 @@ namespace MWAccessibility
                 // point above or below you.
                 wp.mPosition = osg::Vec3f(s.mX, s.mY, playerPos.z());
                 wp.mReachable = true;
+                // Standing at the rim is not good enough here: levitating from
+                // beside the shaft just presses the player into the ceiling.
+                wp.mExactArrival = true;
                 out.push_back(std::move(wp));
             }
         }

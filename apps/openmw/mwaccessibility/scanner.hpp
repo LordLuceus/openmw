@@ -508,6 +508,13 @@ namespace MWAccessibility
             // cell/region name, e.g. "Balmora" or "Ascadian Isles"). Empty for
             // reachable ones (which announce a real distance/bearing instead).
             std::string mAreaLabel;
+            // True when the player must end up ON this exact spot rather than
+            // merely beside it -- currently only levitation shafts, where the
+            // whole point is to be standing in the column before levitating.
+            // Auto-walk normally accepts arrival at the navmesh-snapped proxy,
+            // which for a shaft is its rim (the open interior is never on the
+            // mesh); see AutoWalker::start's exactArrival parameter.
+            bool mExactArrival = false;
         };
 
         // --- Position-based category helpers -----------------------------

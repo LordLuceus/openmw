@@ -509,6 +509,7 @@ namespace MWAccessibility
             return false;
         mTarget = target;
         mHasPtrTarget = true;
+        mExactArrival = false; // object targets always accept the snapped proxy
         mTargetName = std::string(target.getClass().getName(target));
         mActive = true;
         resetProgress();
@@ -534,11 +535,12 @@ namespace MWAccessibility
         return true;
     }
 
-    bool AutoWalker::start(const osg::Vec3f& target, const std::string& name)
+    bool AutoWalker::start(const osg::Vec3f& target, const std::string& name, bool exactArrival)
     {
         mTarget = MWWorld::Ptr();
         mTargetPos = target;
         mHasPtrTarget = false;
+        mExactArrival = exactArrival;
         mTargetName = name;
         mActive = true;
         resetProgress();
@@ -1042,6 +1044,7 @@ namespace MWAccessibility
         mNavMeshWaitTime = 0.0f;
         mTarget = MWWorld::Ptr();
         mHasPtrTarget = true;
+        mExactArrival = false;
         mTargetName.clear();
         mPathFinder.clearPath();
         resetProgress();
@@ -1666,7 +1669,13 @@ namespace MWAccessibility
         // target only -- otherwise reaching the carrot would falsely announce
         // "arrived". In normal mode we accept arrival at either the true target
         // or its snapped navmesh proxy (a door embedded in a wall).
-        bool arrived = arrivedAt(targetPos) || (!mProgressive && arrivedAt(mEffectiveTarget));
+        // mExactArrival targets (levitation shafts) must reach the TRUE spot.
+        // Their interior is an open hole, so it is never on the navmesh and
+        // "arrived" while the player stands beside the shaft, and levitating
+        // from there just presses them into the ceiling. We still PATH to the
+        // snapped rim (that part is correct: it's the walkable way in); we just
+        // refuse to call the rim "arrived".
+        bool arrived = arrivedAt(targetPos) || (!mProgressive && !mExactArrival && arrivedAt(mEffectiveTarget));
 
         // For a NON-ACTOR object target, a horizontal arrival isn't enough when
         // the object is meaningfully above or below us: require that we can
@@ -1694,8 +1703,14 @@ namespace MWAccessibility
             cancel();
             return;
         }
-        const float horizDist
-            = mProgressive ? horizDistTo(targetPos) : std::min(horizDistTo(targetPos), horizDistTo(mEffectiveTarget));
+        // Distance remaining. For mExactArrival targets measure to the TRUE
+        // spot only: taking the min with the snapped rim would report ~0 while
+        // the player still has the last stretch onto the shaft axis to walk,
+        // which both understates progress and would let no-progress detection
+        // mistake "standing at the rim" for "as close as we can get".
+        const float horizDist = (mProgressive || mExactArrival)
+            ? horizDistTo(targetPos)
+            : std::min(horizDistTo(targetPos), horizDistTo(mEffectiveTarget));
 
         // Periodic progress callout on a long progressive walk: every so often,
         // if we've actually closed distance since the last callout, announce
@@ -2523,7 +2538,11 @@ namespace MWAccessibility
             // 3D-to-bounds might edge just past activation distance) still counts.
             // A balcony NPC genuinely 3-4 m up fails BOTH (out of reach, big
             // vertical gap), so the original false-arrival guard is preserved.
-            bool reachOk = trueDist <= reachDist;
+            // An mExactArrival target (a levitation shaft) is not something we
+            // "reach" from arm's length: standing within activation distance of
+            // the axis still leaves us beside the hole, so hold it to the same
+            // tight positional threshold the primary arrival check uses.
+            bool reachOk = mExactArrival ? (trueDist <= arrivalDist) : (trueDist <= reachDist);
             if (reachOk && mHasPtrTarget && !mTarget.isEmpty())
             {
                 if (mTarget.getClass().isActor())
@@ -2566,7 +2585,12 @@ namespace MWAccessibility
             {
                 mFinalApproach = true;
                 mPathFinder.clearPath();
-                mPathFinder.buildStraightPath(mEffectiveTarget);
+                // For an mExactArrival target the snapped spot is the shaft's
+                // RIM, which is where we already are -- bee-lining at it would
+                // travel nowhere and immediately wedge. The last stretch onto
+                // the axis is a short walk across open floor, so aim at the
+                // true target instead.
+                mPathFinder.buildStraightPath(mExactArrival ? targetPos : mEffectiveTarget);
                 // Fresh progress budget for the straight-line leg.
                 mBestDistToGoal = std::numeric_limits<float>::max();
                 mBestPathRemaining = std::numeric_limits<float>::max();
