@@ -46,6 +46,7 @@ namespace MWAccessibility
         /// walkable spot in front of it". A levitation shaft is the opposite
         /// case: its interior is an open hole with no floor, so it is never on
         /// the navmesh and the snap drags the goal out to the shaft's RIM (up
+        /// to kNavMeshSnapRadius away). Accepting that proxy would announce
         /// "arrived" while the player stands beside the hole rather than in it,
         /// and then levitating just presses them into the ceiling. Set this
         /// only for targets whose exact spot is the whole point.
@@ -143,8 +144,21 @@ namespace MWAccessibility
         // keeps walking), DoorProbe::Blocked (a door we must not open is in the
         // way; caller announces via the give-up path and stops), or
         // DoorProbe::None (no closed door ahead; caller continues as before).
-        // \p yaw is the player's current facing.
-        DoorProbe tryOpenBlockingDoor(const MWWorld::Ptr& player, const osg::Vec3f& playerPos, float yaw);
+        //
+        // \p yaw is the heading to probe along. Prefer the PATH bearing
+        // (getZAngleToNext) over the player's facing: once a recovery wiggle is
+        // running the body is sliding sideways, so a facing-aligned ray skims
+        // past the very door that is blocking us and reports None -- which is
+        // how a shut door used to survive several wiggles (the "circling at the
+        // door" bug). \p probeLen lets the approach check reach further ahead
+        // than the contact check. \p announce is false for a routine door opened
+        // cleanly on approach; the unsafe cases still speak regardless.
+        DoorProbe tryOpenBlockingDoor(const MWWorld::Ptr& player, const osg::Vec3f& playerPos, float yaw,
+            float probeLen, bool announce);
+
+        /// Heading to probe along: the current path bearing when we have a route,
+        /// else the player's facing. See tryOpenBlockingDoor's \p yaw note.
+        float pathBearingOrFacing(const MWWorld::Ptr& player, const osg::Vec3f& playerPos) const;
         // Handle a give-up condition. Probes ahead for a blocking NPC: if one is
         // found and we're not already phasing, disables that NPC's collision so
         // the player slips past, announces "X is blocking the way. Moving past.",
@@ -407,6 +421,19 @@ namespace MWAccessibility
         // backward and suppress stuck/recovery logic (we are deliberately not
         // progressing). 0 == not backing off.
         float mDoorBackoffTimer = 0.0f;
+        // Throttle for the proactive on-approach door probe (a raycast every
+        // frame is wasteful, and re-activating a door that is already swinging
+        // would toggle it shut again). Counts down; the probe runs at 0.
+        float mDoorScanCooldown = 0.0f;
+        // The door we most recently auto-opened, and how long it stays exempt
+        // from re-activation. Guards against toggling a door shut again while it
+        // is still swinging: getDoorState only reports motion once the engine
+        // starts moving it, which is not the same frame we request it, so an
+        // immediate second probe could slam it closed. The guard EXPIRES rather
+        // than lasting the whole walk, so a door that genuinely failed to open
+        // (an NPC stood in its arc, say) is retried instead of being written off.
+        MWWorld::Ptr mLastOpenedDoor;
+        float mLastOpenedDoorTimer = 0.0f;
 
         // True once we've switched from navmesh following to the final
         // straight-line approach at the target (after the navmesh path ran out

@@ -392,6 +392,48 @@ namespace
     // need a little extra reach to register the hit. ~150u (~2 m).
     constexpr float kDoorProbeLen = 150.0f;
 
+    // How far ahead the PROACTIVE (on-approach) door probe looks. Longer than
+    // the contact probe so the door is opened and swinging before we reach it,
+    // rather than after we have already wedged against it. ~3.4 m, chosen from
+    // the 2026-08-21 census-office log rather than guessed: see the fan comment
+    // below for why 180 units was too short to ever reach the door.
+    constexpr float kDoorApproachProbeLen = 240.0f;
+
+    // Seconds between proactive door probes. A raycast per frame is wasteful and,
+    // worse, could re-activate a door on the frame after we opened it (before the
+    // engine reports it as moving), toggling it shut again.
+    constexpr float kDoorScanInterval = 0.25f;
+
+    // The approach scan casts a FAN of rays, not one. A single ray -- along the
+    // facing OR along the path bearing -- assumes we are pointed at whatever is
+    // blocking us, and that assumption fails exactly when it matters. Measured
+    // 2026-08-21 in the census office: the walk orbited a waypoint (a ~55-unit
+    // circle) with the shut door 164 units outside the circle, so of 27 probes,
+    // the 5 aimed within 25 degrees of the door were all 208+ units away (beyond
+    // the probe), while the 13 within probe range averaged 112 degrees of aim
+    // error. Never both at once, so the door was never seen. A door blocking you
+    // is a fact about geometry, not about your heading; sweeping a fan removes the
+    // dependency on being aimed correctly.
+    //
+    // Width and length are taken FROM that log, not guessed. Replaying the 24
+    // orbit probes against candidate settings: +/-60 degrees at the original
+    // 180-unit length would have caught ZERO of them, because the orbit's closest
+    // approach to the door was 110 units but its FAR side sat 220 units away --
+    // length, not width, was the binding constraint. 240 units clears the whole
+    // orbit with margin; +/-90 degrees then sees the door on 15 of 24 probes
+    // (~0.25 s to first detection, versus the 7.4 s it actually took). 7 rays
+    // keeps the spacing at 30 degrees, comfortably finer than a doorway's angular
+    // width at these ranges.
+    constexpr int kDoorFanRays = 7;
+    constexpr float kDoorFanHalfWidthDeg = 90.0f;
+    constexpr float kDoorFanDeg2Rad = 0.0174532925f;
+
+    // How long a door we just opened is exempt from being probed again. Long enough
+    // to cover a full swing (so we never toggle it shut mid-open), short enough that
+    // a door which failed to open -- e.g. an NPC standing in its arc -- gets retried
+    // rather than written off for the rest of the walk.
+    constexpr float kDoorReopenGuard = 2.0f; // seconds
+
     // After opening a blocking door, walk BACKWARD for this long so the door has
     // room to swing (the engine won't rotate a door into the player's body, so a
     // door we're flush against never opens). A short reverse-step is enough to
@@ -699,8 +741,22 @@ namespace MWAccessibility
         return MWWorld::Ptr();
     }
 
+    float AutoWalker::pathBearingOrFacing(const MWWorld::Ptr& player, const osg::Vec3f& playerPos) const
+    {
+        // Probe along the ROUTE, not the body's current facing. Once a recovery
+        // wiggle is running the player is strafing hard sideways
+        // (kRecoverySideStrength with only 0.2 forward), so a facing-aligned ray
+        // sweeps past the door instead of into it and the probe reports "no door
+        // here" -- which is exactly how a shut door survived wiggle after wiggle
+        // while the player circled in front of it. The path bearing keeps
+        // pointing at the doorway we are trying to get through.
+        if (mPathFinder.isPathConstructed() && !mPathFinder.getPath().empty())
+            return mPathFinder.getZAngleToNext(playerPos.x(), playerPos.y());
+        return player.getRefData().getPosition().rot[2];
+    }
+
     AutoWalker::DoorProbe AutoWalker::tryOpenBlockingDoor(
-        const MWWorld::Ptr& player, const osg::Vec3f& playerPos, float yaw)
+        const MWWorld::Ptr& player, const osg::Vec3f& playerPos, float yaw, float probeLen, bool announce)
     {
         MWBase::World* world = MWBase::Environment::get().getWorld();
         const MWPhysics::RayCastingInterface* rayCasting = world ? world->getRayCasting() : nullptr;
@@ -710,7 +766,7 @@ namespace MWAccessibility
         // Cast straight ahead from chest height, hit-testing ONLY doors.
         const osg::Vec3f forward(std::sin(yaw), std::cos(yaw), 0.0f);
         const osg::Vec3f chest = playerPos + osg::Vec3f(0.0f, 0.0f, 32.0f);
-        const osg::Vec3f to = chest + forward * kDoorProbeLen;
+        const osg::Vec3f to = chest + forward * probeLen;
         const std::vector<MWWorld::ConstPtr> ignore{ player };
         const MWPhysics::RayCastingResult res
             = rayCasting->castRay(chest, to, ignore, {}, MWPhysics::CollisionType_Door);
@@ -739,10 +795,22 @@ namespace MWAccessibility
         // an already-open door isn't in our way regardless of its flags.)
         if (door.getClass().getDoorState(door) != MWWorld::DoorState::Idle)
             return DoorProbe::None;
+        // Don't re-activate the door we just opened: getDoorState still reports
+        // Idle on the frame we request the swing, so a second probe would toggle
+        // it straight back shut.
+        if (!mLastOpenedDoor.isEmpty() && mLastOpenedDoorTimer > 0.0f && door == mLastOpenedDoor)
+            return DoorProbe::None;
         const float doorRot
             = door.getRefData().getPosition().rot[2] - door.getCellRef().getPosition().rot[2];
-        if (doorRot != 0.0f)
-            return DoorProbe::None; // open and idle: not our blocker
+        // Use a TOLERANCE, not an exact comparison. A door nudged fractionally
+        // off its authored angle -- by an NPC brushing it, by physics settling,
+        // or by a previous failed attempt -- is still solidly across the doorway,
+        // but an exact `!= 0` test classified it as "open and idle: not our
+        // blocker" and silently refused to open it. ~1.7 degrees: far below any
+        // real swing, far above float noise.
+        constexpr float kDoorAjarTolerance = 0.03f; // radians
+        if (std::abs(doorRot) > kDoorAjarTolerance)
+            return DoorProbe::None; // genuinely open and idle: not our blocker
 
         const std::string doorName = std::string(door.getClass().getName(door));
         const std::string spoken = doorName.empty() ? std::string("the door") : doorName;
@@ -782,7 +850,15 @@ namespace MWAccessibility
         // plays the open SOUND and runs the proper door semantics (calling
         // activateDoor straight just rotates it silently).
         MWBase::Environment::get().getLuaManager()->objectActivated(door, player);
-        speakQueued((doorName.empty() ? std::string("A door") : doorName) + ". Opening.");
+        mLastOpenedDoor = door;
+        mLastOpenedDoorTimer = kDoorReopenGuard;
+        // Routine doors opened cleanly on approach are silent: on a corridor of
+        // doors the announcement was pure chatter, and speech time is contended
+        // with things the player actually needs to hear. The unsafe cases above
+        // (locked/trapped) always speak, and the caller still announces when it
+        // had to recover first -- i.e. when something actually went wrong.
+        if (announce)
+            speakQueued((doorName.empty() ? std::string("A door") : doorName) + ". Opening.");
         return DoorProbe::Opened;
     }
 
@@ -1045,6 +1121,9 @@ namespace MWAccessibility
         mTarget = MWWorld::Ptr();
         mHasPtrTarget = true;
         mExactArrival = false;
+        mDoorScanCooldown = 0.0f;
+        mLastOpenedDoor = MWWorld::Ptr();
+        mLastOpenedDoorTimer = 0.0f;
         mTargetName.clear();
         mPathFinder.clearPath();
         resetProgress();
@@ -1671,6 +1750,7 @@ namespace MWAccessibility
         // or its snapped navmesh proxy (a door embedded in a wall).
         // mExactArrival targets (levitation shafts) must reach the TRUE spot.
         // Their interior is an open hole, so it is never on the navmesh and
+        // mEffectiveTarget is the shaft's rim -- accepting it would announce
         // "arrived" while the player stands beside the shaft, and levitating
         // from there just presses them into the ceiling. We still PATH to the
         // snapped rim (that part is correct: it's the walkable way in); we just
@@ -1998,6 +2078,72 @@ namespace MWAccessibility
             return;
         }
 
+        // --- Proactive door opening ------------------------------------------
+        // Open a closed door BEFORE we walk into it. Door handling used to be
+        // purely reactive: the probes lived inside the stall handlers, so the
+        // only way to open a door was to first fail against it -- wedge or stop
+        // progressing -- and those thresholds are 1 s (wedge), 6 s (oscillation)
+        // and 10 s (no-progress). In practice the recovery wiggle kept the body
+        // moving enough to hold the wedge timer down, so a shut door typically
+        // cost several seconds of sidestepping ("circling the door") before
+        // anything tried the handle, and often the facing-aligned probe missed
+        // the door entirely and we just wiggled again.
+        //
+        // Probing on approach removes the failure from the common path
+        // altogether: by the time we reach the doorway the door is already
+        // swinging. The reactive probes below stay as the safety net for doors
+        // this misses (opened from an odd angle, or revealed mid-recovery).
+        //
+        // Throttled, and skipped while backing off or recovering (those drive
+        // deliberate motion; re-probing there would fight them).
+        if (mDoorScanCooldown > 0.0f)
+            mDoorScanCooldown -= dt;
+        if (mLastOpenedDoorTimer > 0.0f)
+            mLastOpenedDoorTimer -= dt;
+        if (mDoorScanCooldown <= 0.0f && mRecoveryTimer <= 0.0f && !mAwaitingNavMesh)
+        {
+            mDoorScanCooldown = kDoorScanInterval;
+            const float scanYaw = pathBearingOrFacing(player, playerPos);
+            // Sweep a fan centred on the route bearing rather than trusting a
+            // single ray (see kDoorFanRays). Stop at the first ray that
+            // resolves: Opened means we're done, Blocked means locked/trapped
+            // and the walk must stop. Rays are ordered centre-outwards so the
+            // door most likely to be ours -- the one straight ahead -- wins
+            // when several are in the fan.
+            DoorProbe approachDoor = DoorProbe::None;
+            for (int i = 0; i < kDoorFanRays && approachDoor == DoorProbe::None; ++i)
+            {
+                // 0, +1, -1, +2, -2, ... in units of the ray spacing.
+                const int step = (i + 1) / 2 * ((i % 2 == 0) ? 1 : -1);
+                const float spacingDeg = (kDoorFanRays > 1)
+                    ? (2.0f * kDoorFanHalfWidthDeg / static_cast<float>(kDoorFanRays - 1))
+                    : 0.0f;
+                const float offsetRad = static_cast<float>(step) * spacingDeg * kDoorFanDeg2Rad;
+                // Silent for routine doors: this is the path where nothing has
+                // gone wrong, so there is nothing the player needs told.
+                // Locked/trapped doors still announce from inside the probe.
+                approachDoor = tryOpenBlockingDoor(
+                    player, playerPos, scanYaw + offsetRad, kDoorApproachProbeLen, /*announce=*/false);
+            }
+            if (approachDoor == DoorProbe::Blocked)
+            {
+                cancel(); // locked / trapped: already announced
+                return;
+            }
+            if (approachDoor == DoorProbe::Opened)
+            {
+                // Opened from a distance, so we are NOT flush against it and do
+                // not need the reverse-step that the contact path uses -- the
+                // door has room to swing and we can keep walking straight in.
+                // Refresh the progress budgets: the moment spent waiting for the
+                // swing must not count against stuck detection.
+                mTimeSinceMove = 0.0f;
+                mTimeSinceProgress = 0.0f;
+                mBestDistToGoal = std::numeric_limits<float>::max();
+                mBestPathRemaining = std::numeric_limits<float>::max();
+            }
+        }
+
         // --- Step-charge maneuver --------------------------------------------
         // Mount a step the physics stepper won't auto-climb by backing off for a
         // run-up, then charging (see header StepCharge). Runs before stuck
@@ -2268,8 +2414,8 @@ namespace MWAccessibility
             // Confined too long while trying to move: treat exactly like a
             // physical wedge -- try the door/blocker/recovery escalation, and if
             // that's exhausted, give up honestly rather than circle in silence.
-            const float oscYaw = player.getRefData().getPosition().rot[2];
-            const DoorProbe oscDoor = tryOpenBlockingDoor(player, playerPos, oscYaw);
+            const float oscYaw = pathBearingOrFacing(player, playerPos);
+            const DoorProbe oscDoor = tryOpenBlockingDoor(player, playerPos, oscYaw, kDoorProbeLen, true);
             if (oscDoor == DoorProbe::Blocked)
             {
                 // Locked / trapped / teleport door across the path: it already
@@ -2328,8 +2474,8 @@ namespace MWAccessibility
             // doors assuming they open, but auto-walk never actuated them, so a
             // shut door stalls progress just like a wall. If we open one, refresh
             // the budgets and let normal steering carry us through.
-            const float doorYaw = player.getRefData().getPosition().rot[2];
-            const DoorProbe progressDoor = tryOpenBlockingDoor(player, playerPos, doorYaw);
+            const float doorYaw = pathBearingOrFacing(player, playerPos);
+            const DoorProbe progressDoor = tryOpenBlockingDoor(player, playerPos, doorYaw, kDoorProbeLen, true);
             if (progressDoor == DoorProbe::Blocked)
             {
                 cancel(); // locked / trapped / teleport: already announced, stop
@@ -2366,8 +2512,8 @@ namespace MWAccessibility
             // door looks exactly like a wall to the wiggle. If we open one, give
             // the walk a fresh budget and let normal steering carry us through
             // the now-swinging doorway -- no wiggle needed.
-            const float doorYaw = player.getRefData().getPosition().rot[2];
-            const DoorProbe wedgeDoor = tryOpenBlockingDoor(player, playerPos, doorYaw);
+            const float doorYaw = pathBearingOrFacing(player, playerPos);
+            const DoorProbe wedgeDoor = tryOpenBlockingDoor(player, playerPos, doorYaw, kDoorProbeLen, true);
             if (wedgeDoor == DoorProbe::Blocked)
             {
                 cancel(); // locked / trapped / teleport: already announced, stop

@@ -4,6 +4,22 @@ A running log of screen-reader accessibility features added to this OpenMW fork.
 Newest changes are listed first. (OpenMW's own engine changelog lives in
 `CHANGELOG.md`.)
 
+## 2026-08-21
+
+- **Auto-walk now opens doors on the way in, instead of bumping into them first.**
+  Doors were only ever tried *after* the walk had already failed against them, so
+  a closed door usually meant several seconds of sidestepping back and forth in
+  front of it — and often the walk gave up without ever trying the handle. The
+  walk now watches for a closed door ahead and opens it before reaching it, so
+  you simply walk through. It sweeps a wide arc rather than looking straight
+  ahead, so a door still gets opened when the walk is approaching it at an angle
+  or has been knocked off course — previously the door was missed in exactly the
+  cases where it mattered most. Two related fixes: a door left very slightly ajar
+  counts as closed (it still blocks the doorway, but was previously treated as
+  already open and left alone), and the check no longer loses track of the door
+  while sidestepping. Routine doors are opened silently — locked and trapped
+  doors still say so and stop the walk, as before.
+
 ## 2026-08-18
 
 - **Auto-walking to a levitation shaft now puts you in the shaft, not beside it.**
