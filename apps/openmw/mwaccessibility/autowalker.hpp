@@ -145,16 +145,27 @@ namespace MWAccessibility
         // way; caller announces via the give-up path and stops), or
         // DoorProbe::None (no closed door ahead; caller continues as before).
         //
-        // \p yaw is the heading to probe along. Prefer the PATH bearing
-        // (getZAngleToNext) over the player's facing: once a recovery wiggle is
-        // running the body is sliding sideways, so a facing-aligned ray skims
-        // past the very door that is blocking us and reports None -- which is
-        // how a shut door used to survive several wiggles (the "circling at the
-        // door" bug). \p probeLen lets the approach check reach further ahead
-        // than the contact check. \p announce is false for a routine door opened
-        // cleanly on approach; the unsafe cases still speak regardless.
+        // \p yaw is the heading to probe along -- but note that NO single heading
+        // is reliable on its own. The facing skims past the door once a recovery
+        // wiggle starts sliding the body sideways, and the path bearing fails the
+        // same way whenever the route itself is what has gone wrong (measured
+        // 2026-08-21: the walk orbited a waypoint, so the bearing tracked the
+        // orbit centre while the door sat outside the circle). The approach caller
+        // therefore sweeps a FAN of headings; see kDoorFanRays.
+        //
+        // \p probeLen lets the approach check reach further ahead than the contact
+        // check. \p announce is false for a routine door opened cleanly on
+        // approach; the unsafe cases still speak when they stop the walk.
+        //
+        // \p blockOnUnopenable decides what a LOCKED or TRAPPED door means. Such a
+        // door is never auto-opened either way -- this only chooses whether to
+        // also stop the walk. True for the contact probes, which fire only when we
+        // are already wedged (so the door really is in our way, and naming it
+        // beats a generic "Stuck"). False for the approach fan, which deliberately
+        // looks wide and far and so also sees doors we are merely walking past --
+        // cancelling for those stopped the walk at every locked house in a town.
         DoorProbe tryOpenBlockingDoor(const MWWorld::Ptr& player, const osg::Vec3f& playerPos, float yaw,
-            float probeLen, bool announce);
+            float probeLen, bool announce, bool blockOnUnopenable);
 
         /// Heading to probe along: the current path bearing when we have a route,
         /// else the player's facing. See tryOpenBlockingDoor's \p yaw note.

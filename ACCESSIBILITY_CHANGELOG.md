@@ -17,8 +17,14 @@ Newest changes are listed first. (OpenMW's own engine changelog lives in
   cases where it mattered most. Two related fixes: a door left very slightly ajar
   counts as closed (it still blocks the doorway, but was previously treated as
   already open and left alone), and the check no longer loses track of the door
-  while sidestepping. Routine doors are opened silently — locked and trapped
-  doors still say so and stop the walk, as before.
+  while sidestepping. Routine doors are opened silently.
+
+  Locked and trapped doors are never opened for you. Spotting one ahead no
+  longer stops the walk, though: because the check now looks wide and several
+  metres ahead, it also notices doors you are only walking past, and every
+  locked house in a town was halting the walk. If a locked or trapped door
+  really is across your route you will come up against it, and the walk then
+  stops and tells you which it is, exactly as before.
 
 ## 2026-08-18
 

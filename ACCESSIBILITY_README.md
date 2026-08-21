@@ -258,9 +258,11 @@ advance notice, and that is the safety net behind them.
 Auto-walk steers you to your selected target, routing around walls and other
 obstacles, opening ordinary closed doors in your way, and warning you up front
 about hazards (deep water, steep drops) on long cross-country routes. It opens
-only safe doors: if a door across your path is **locked** or **trapped**,
-auto-walk stops and tells you which, rather than forcing it — so it never springs
-a trap on you. Unlock or disarm it and walk on.
+only safe doors: a **locked** or **trapped** door is never forced, so auto-walk
+can never spring a trap on you. Passing such a door — a locked house as you
+cross a town, say — doesn't interrupt the walk. But if one genuinely stands
+across your route, you'll come up against it and auto-walk stops and tells you
+which it is. Unlock or disarm it and walk on.
 
 A **door leading to another area** is never opened for you either, so you can't
 be teleported somewhere you didn't choose. Such a door is solid, so if one stands

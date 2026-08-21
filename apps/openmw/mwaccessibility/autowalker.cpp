@@ -755,8 +755,8 @@ namespace MWAccessibility
         return player.getRefData().getPosition().rot[2];
     }
 
-    AutoWalker::DoorProbe AutoWalker::tryOpenBlockingDoor(
-        const MWWorld::Ptr& player, const osg::Vec3f& playerPos, float yaw, float probeLen, bool announce)
+    AutoWalker::DoorProbe AutoWalker::tryOpenBlockingDoor(const MWWorld::Ptr& player,
+        const osg::Vec3f& playerPos, float yaw, float probeLen, bool announce, bool blockOnUnopenable)
     {
         MWBase::World* world = MWBase::Environment::get().getWorld();
         const MWPhysics::RayCastingInterface* rayCasting = world ? world->getRayCasting() : nullptr;
@@ -816,15 +816,32 @@ namespace MWAccessibility
         const std::string spoken = doorName.empty() ? std::string("the door") : doorName;
 
         // A closed door is squarely across the path. Decide whether it's safe to
-        // open. The unsafe cases STOP the walk (DoorProbe::Blocked) with an honest
-        // reason rather than grinding the recovery wiggle into it forever.
+        // open. A locked or trapped door is never auto-opened; the only question
+        // is whether it should also STOP the walk.
+        //
+        // That depends on whether the door is actually IN OUR WAY, and only the
+        // caller knows. A contact probe (`blockOnUnopenable`) fires solely from a
+        // stall handler, so we are physically wedged and the door in front of us
+        // is the reason -- stopping with an honest reason beats grinding the
+        // recovery wiggle into something that will never give. The approach scan
+        // is the opposite: it sweeps a wide fan several metres ahead precisely so
+        // it can find doors we are not aimed at, which means it also sees doors
+        // we are merely walking PAST. Cancelling the walk for one of those is a
+        // pure false positive -- reported 2026-08-21, where every locked house in
+        // a town stopped the walk. Treat them like teleport doors there: not our
+        // blocker, keep walking. If such a door really is across the route, we
+        // will wedge on it and the contact probe will then say so.
         //
         //  - TRAPPED: actuating the door springs its trap on the player, which can
         //    be lethal. We must never auto-open it -- the player has to disarm or
         //    knowingly trigger it themselves. Checked FIRST: a trap is the most
-        //    dangerous property and a door can be both trapped and locked.
+        //    dangerous property and a door can be both trapped and locked. (Note
+        //    the safety property is unchanged by blockOnUnopenable: we do not open
+        //    it either way, we only choose whether to keep walking.)
         if (!door.getCellRef().getTrap().empty())
         {
+            if (!blockOnUnopenable)
+                return DoorProbe::None;
             speakQueued(spoken + " is trapped. Stopping.");
             return DoorProbe::Blocked;
         }
@@ -832,6 +849,8 @@ namespace MWAccessibility
         //    spinning recovery sidesteps against a door that will never give.
         if (door.getCellRef().isLocked())
         {
+            if (!blockOnUnopenable)
+                return DoorProbe::None;
             speakQueued(spoken + " is locked. Stopping.");
             return DoorProbe::Blocked;
         }
@@ -2122,8 +2141,8 @@ namespace MWAccessibility
                 // Silent for routine doors: this is the path where nothing has
                 // gone wrong, so there is nothing the player needs told.
                 // Locked/trapped doors still announce from inside the probe.
-                approachDoor = tryOpenBlockingDoor(
-                    player, playerPos, scanYaw + offsetRad, kDoorApproachProbeLen, /*announce=*/false);
+                approachDoor = tryOpenBlockingDoor(player, playerPos, scanYaw + offsetRad,
+                    kDoorApproachProbeLen, /*announce=*/false, /*blockOnUnopenable=*/false);
             }
             if (approachDoor == DoorProbe::Blocked)
             {
@@ -2415,7 +2434,8 @@ namespace MWAccessibility
             // physical wedge -- try the door/blocker/recovery escalation, and if
             // that's exhausted, give up honestly rather than circle in silence.
             const float oscYaw = pathBearingOrFacing(player, playerPos);
-            const DoorProbe oscDoor = tryOpenBlockingDoor(player, playerPos, oscYaw, kDoorProbeLen, true);
+            const DoorProbe oscDoor = tryOpenBlockingDoor(
+            player, playerPos, oscYaw, kDoorProbeLen, /*announce=*/true, /*blockOnUnopenable=*/true);
             if (oscDoor == DoorProbe::Blocked)
             {
                 // Locked / trapped / teleport door across the path: it already
@@ -2475,7 +2495,8 @@ namespace MWAccessibility
             // shut door stalls progress just like a wall. If we open one, refresh
             // the budgets and let normal steering carry us through.
             const float doorYaw = pathBearingOrFacing(player, playerPos);
-            const DoorProbe progressDoor = tryOpenBlockingDoor(player, playerPos, doorYaw, kDoorProbeLen, true);
+            const DoorProbe progressDoor = tryOpenBlockingDoor(
+            player, playerPos, doorYaw, kDoorProbeLen, /*announce=*/true, /*blockOnUnopenable=*/true);
             if (progressDoor == DoorProbe::Blocked)
             {
                 cancel(); // locked / trapped / teleport: already announced, stop
@@ -2513,7 +2534,8 @@ namespace MWAccessibility
             // the walk a fresh budget and let normal steering carry us through
             // the now-swinging doorway -- no wiggle needed.
             const float doorYaw = pathBearingOrFacing(player, playerPos);
-            const DoorProbe wedgeDoor = tryOpenBlockingDoor(player, playerPos, doorYaw, kDoorProbeLen, true);
+            const DoorProbe wedgeDoor = tryOpenBlockingDoor(
+            player, playerPos, doorYaw, kDoorProbeLen, /*announce=*/true, /*blockOnUnopenable=*/true);
             if (wedgeDoor == DoorProbe::Blocked)
             {
                 cancel(); // locked / trapped / teleport: already announced, stop
