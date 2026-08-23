@@ -6,6 +6,14 @@ Newest changes are listed first. (OpenMW's own engine changelog lives in
 
 ## 2026-08-21
 
+- **Taking an object no longer sends the scanner back to the top of the list.**
+  Picking up the item you had selected cleared the selection outright, so in a
+  library with hundreds of books, taking the one at position 135 meant paging
+  down 135 times to get back to the ones you hadn't looked at yet. The scanner
+  now keeps your *place*: the next object in the list moves into the vacated
+  slot and stays selected, so you carry on from where you were. This is what
+  marking an object with K already did; taking one now behaves the same way.
+
 - **Auto-walk now opens doors on the way in, instead of bumping into them first.**
   Doors were only ever tried *after* the walk had already failed against them, so
   a closed door usually meant several seconds of sidestepping back and forth in

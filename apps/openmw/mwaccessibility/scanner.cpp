@@ -4921,15 +4921,23 @@ namespace MWAccessibility
             return ptr.isEmpty() || ptr.getCellRef().getCount() <= 0 || !ptr.getRefData().isEnabled();
         };
 
+        // How many entries BEFORE the selection are being removed. Subtracting
+        // this from the old index gives the slot the next surviving object
+        // shifts up into -- i.e. the player's place in the list, preserved even
+        // though the object that held it is gone.
+        int deadBeforeSelection = 0;
         bool removedSelection = false;
         std::vector<MWWorld::Ptr> kept;
         kept.reserve(state.mObjects.size());
-        for (MWWorld::Ptr& ptr : state.mObjects)
+        for (int i = 0; i < static_cast<int>(state.mObjects.size()); ++i)
         {
+            MWWorld::Ptr& ptr = state.mObjects[i];
             if (isDead(ptr))
             {
                 if (!selected.isEmpty() && ptr == selected)
                     removedSelection = true;
+                else if (i < state.mIndex)
+                    ++deadBeforeSelection;
                 continue;
             }
             kept.push_back(ptr);
@@ -4941,8 +4949,7 @@ namespace MWAccessibility
         state.mObjects = std::move(kept);
 
         // Re-pin the cursor. If the selected object survived, follow it to its
-        // new index; if it was the one removed (or there's no selection left),
-        // drop the selection so nothing stale is announced or cued.
+        // new index.
         if (!removedSelection && !selected.isEmpty())
         {
             state.mIndex = -1;
@@ -4953,6 +4960,34 @@ namespace MWAccessibility
                     state.mIndex = static_cast<int>(i);
                     break;
                 }
+            }
+        }
+        else if (removedSelection)
+        {
+            // The selected object is the one that vanished -- typically the
+            // player just picked it up. Keep their PLACE in the list rather
+            // than the (now meaningless) object identity: the next surviving
+            // entry shifts up into the vacated slot, which is exactly where
+            // they want to continue. Previously the selection was dropped
+            // entirely, so taking item 135 of 300 in a library sent the cursor
+            // back to the start and everything already searched had to be
+            // paged through again -- one keypress per item, since the cycle
+            // keys don't repeat when held. (Reported 2026-08-21.)
+            //
+            // This mirrors what marking an object already does (see
+            // toggleMarkCurrent), so taking and marking now behave alike.
+            if (state.mObjects.empty())
+            {
+                state.mIndex = -1;
+            }
+            else
+            {
+                const int landed = std::clamp(state.mIndex - deadBeforeSelection, 0,
+                    static_cast<int>(state.mObjects.size()) - 1);
+                state.mIndex = landed;
+                // Refresh the remembered identity, or the next full rebuild
+                // would try to re-pin onto the object we just lost.
+                state.mSelectedRef = state.mObjects[landed].getCellRef().getRefNum();
             }
         }
         else
