@@ -1569,10 +1569,17 @@ namespace MWAccessibility
             mActorRefreshTimer = 0.f;
     }
 
-    bool Scanner::handleKey(int scancode, int modState)
+    bool Scanner::handleKey(int scancode, int modState, bool isRepeat)
     {
         if (!isGameplayActive())
             return false;
+
+        // A held cycle key: interrupt whatever is being read so speech tracks
+        // the selection instead of accumulating a backlog. Only the first
+        // announcement of the run interrupts (speak() clears the flag), so
+        // multi-line announcements still read in full.
+        if (isRepeat)
+            mInterruptNextSpeak = true;
 
         bool ctrl = (modState & KMOD_CTRL) != 0;
         bool shift = (modState & KMOD_SHIFT) != 0;
@@ -5125,9 +5132,19 @@ namespace MWAccessibility
         // destinations are spoken as their localized strings. We queue
         // (interrupt=false) so back-to-back announcements like "Category:
         // NPCs. 2 in range." and the first NPC line both get heard.
+        //
+        // Exception: the FIRST line produced while a cycle key is being held on
+        // auto-repeat interrupts instead. Queueing is right for a single
+        // keystroke, but holding PgDn through a few hundred books would enqueue
+        // every name and leave the player listening to a stale backlog long
+        // after they stopped -- you would hear book 12 while sitting on book
+        // 300. Interrupting once at the start of the run, then queueing within
+        // it, keeps the "one source per keystroke" invariant while making the
+        // held key track what is actually selected.
         auto resolved = MyGUI::LanguageManager::getInstance().replaceTags(text);
-        Accessibility::AccessibilityManager::instance().speak(
-            resolved.asUTF8(), /*interrupt=*/false);
+        const bool interrupt = mInterruptNextSpeak;
+        mInterruptNextSpeak = false;
+        Accessibility::AccessibilityManager::instance().speak(resolved.asUTF8(), interrupt);
     }
 
     MWWorld::Ptr Scanner::currentTarget()

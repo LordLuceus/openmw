@@ -14,6 +14,13 @@ Newest changes are listed first. (OpenMW's own engine changelog lives in
   slot and stays selected, so you carry on from where you were. This is what
   marking an object with K already did; taking one now behaves the same way.
 
+- **Page Up and Page Down can be held down to run through a long list.**
+  They previously ignored the keyboard's auto-repeat, so every single step
+  needed its own tap. Holding one now moves continuously, and each new target
+  interrupts the previous one so speech keeps up with where you actually are
+  instead of falling behind. All other scanner keys still need a separate press
+  each time — they perform actions, so a held key must not fire them repeatedly.
+
 - **Auto-walk now opens doors on the way in, instead of bumping into them first.**
   Doors were only ever tried *after* the walk had already failed against them, so
   a closed door usually meant several seconds of sidestepping back and forth in

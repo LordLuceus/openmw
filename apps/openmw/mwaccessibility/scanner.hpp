@@ -89,9 +89,12 @@ namespace MWAccessibility
         static std::filesystem::path marksSidecarPath(const std::filesystem::path& saveFile);
 
         /// Called from KeyboardManager. \p scancode is an SDL_Scancode,
-        /// \p modState is the raw SDL_GetModState() bitmask. Returns true
-        /// if the scanner consumed the keypress.
-        bool handleKey(int scancode, int modState);
+        /// \p modState is the raw SDL_GetModState() bitmask. \p isRepeat is
+        /// true for an auto-repeat from a held key -- only the list-navigation
+        /// keys are passed through on repeat (see KeyboardManager::keyPressed);
+        /// it makes the resulting announcement interrupt rather than queue.
+        /// Returns true if the scanner consumed the keypress.
+        bool handleKey(int scancode, int modState, bool isRepeat = false);
 
         /// True when no game world is in a usable state (no save loaded,
         /// in a menu, in dialogue, etc.). Scanner keys are no-ops then.
@@ -478,6 +481,11 @@ namespace MWAccessibility
         void pruneDeadObjects();
         void announceCurrent();
         void speak(const std::string& text) override; // also the HudHost speech sink
+
+        // Set for one speak() call to make it interrupt rather than queue. Used
+        // when a held cycle key starts auto-repeating, so a long run of list
+        // navigation doesn't build a backlog of stale names. See speak().
+        bool mInterruptNextSpeak = false;
 
         // Toggle the audio beacon (proximity cue) on/off. Off by default so it
         // isn't constantly sounding; the player enables it only when actively

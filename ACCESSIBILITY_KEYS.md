@@ -60,7 +60,7 @@ selected is your **target**.
 
 | Key | Action |
 | --- | --- |
-| **Page Down / Page Up** | Next / previous target in the current category |
+| **Page Down / Page Up** | Next / previous target in the current category. Hold to run through a long list |
 | **Ctrl + Page Down / Page Up** | Next / previous category |
 | **Shift + Page Down / Page Up** | Cycle the subcategory filter (e.g. Plants / Storage within Containers) |
 | **Ctrl + 1 … 9** | Jump straight to a category: 1 Actors, 2 Doors, 3 Containers, 4 Items, 5 Activators, 6 Detected, 7 Waypoints, 8 Locations, 9 Terrain |

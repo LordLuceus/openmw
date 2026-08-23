@@ -36,8 +36,19 @@ namespace MWInput
         // consumes a small set (PgUp/PgDn, Enter, Home, End, Backspace)
         // and only during gameplay; everything else falls through to
         // normal handling.
-        if (!arg.repeat
-            && MWAccessibility::Scanner::instance().handleKey(arg.keysym.scancode, arg.keysym.mod))
+        //
+        // Auto-repeat is allowed only for the list-navigation keys. Holding
+        // PgUp/PgDn to run through a long list is the whole point of a key
+        // repeat -- a library with hundreds of books was otherwise one tap per
+        // book (reported 2026-08-21). Every other scanner key is an ACTION
+        // (activate, take, mark, teleport, toggle a mode), where a repeat means
+        // firing it dozens of times from one held press, so those stay
+        // edge-triggered.
+        const bool repeatable = arg.keysym.scancode == SDL_SCANCODE_PAGEUP
+            || arg.keysym.scancode == SDL_SCANCODE_PAGEDOWN;
+        if ((!arg.repeat || repeatable)
+            && MWAccessibility::Scanner::instance().handleKey(
+                arg.keysym.scancode, arg.keysym.mod, arg.repeat != 0))
         {
             MWBase::Environment::get().getInputManager()->setJoystickLastUsed(false);
             return;
