@@ -4,6 +4,16 @@ A running log of screen-reader accessibility features added to this OpenMW fork.
 Newest changes are listed first. (OpenMW's own engine changelog lives in
 `CHANGELOG.md`.)
 
+## 2026-08-23
+
+- **The console now tells you the record id of its target, not just the name.**
+  Opening the console, or setting a target with Ctrl + T, announced only the
+  display name — "Target: Arvesa Nadram." But the console's title bar shows
+  sighted players the record id instead, and the id is the thing commands
+  actually operate on and the thing you have to type. It is now announced as
+  "Target: Arvesa Nadram, OR_Vess.", so the identifier you need is available by
+  ear. Objects with no name of their own are still announced by id alone.
+
 ## 2026-08-21
 
 - **Taking an object no longer sends the scanner back to the top of the list.**

@@ -43,6 +43,35 @@ namespace
     {
         return c == ' ' || c == '\t';
     }
+
+    // How the console target is announced to a screen reader.
+    //
+    // The console's own title bar shows ONLY the record id -- see
+    // updateConsoleTitle(), which appends "(OR_Vess)" and never the display
+    // name. That is the identifier console commands actually operate on, and
+    // it is what a sighted player reads off the window while typing. We used
+    // to speak just the display name ("Arvesa Nadram"), which is friendlier
+    // but is NOT what is on screen and cannot be typed into a command, so the
+    // one piece of information the console exists to give you was unavailable
+    // by ear.
+    //
+    // Speak both, name first: the name identifies who you are pointing at, the
+    // id is the thing you need to use. Objects with no name (many activators
+    // and markers) just get the id, so there is never an empty or doubled
+    // announcement.
+    //
+    // Use toString() rather than toDebugString(): the latter wraps string ids
+    // in double quotes for log output, which a screen reader may read aloud as
+    // "quote" or use to change intonation. toString() is also safe for the
+    // ESM4 FormId case, whereas getRefIdString() throws on it.
+    std::string consoleTargetDescription(const MWWorld::Ptr& ptr)
+    {
+        std::string id = ptr.getCellRef().getRefId().toString();
+        std::string_view name = ptr.getClass().getName(ptr);
+        if (name.empty())
+            return id;
+        return std::string(name) + ", " + id;
+    }
 }
 
 namespace MWGui
@@ -221,12 +250,7 @@ namespace MWGui
         mA11yReviewIndex = std::string::npos;
         std::string opening = "Console.";
         if (!mPtr.isEmpty())
-        {
-            std::string name = std::string(mPtr.getClass().getName(mPtr));
-            if (name.empty())
-                name = mPtr.getCellRef().getRefId().toDebugString();
-            opening += " Target: " + name + ".";
-        }
+            opening += " Target: " + consoleTargetDescription(mPtr) + ".";
         A11y::say(opening, /*interrupt=*/true);
     }
 
@@ -958,13 +982,7 @@ namespace MWGui
         updateConsoleTitle();
         MWBase::Environment::get().getWindowManager()->setKeyFocusWidget(mCommandLine);
 
-        // Announce what we adopted. Prefer the display name (e.g. "Calvus
-        // Horatius"); fall back to the record id when an object has no name
-        // (many activators/markers), so the feedback is never empty.
-        std::string name = std::string(target.getClass().getName(target));
-        if (name.empty())
-            name = target.getCellRef().getRefId().toDebugString();
-        A11y::say("Target: " + name, /*interrupt=*/true);
+        A11y::say("Target: " + consoleTargetDescription(target), /*interrupt=*/true);
     }
 
     void Console::updateConsoleTitle()

@@ -187,6 +187,10 @@ way out of a few situations the game can't otherwise recover from — see
 | **Ctrl + Up / Down** | Re-hear previous output, line by line |
 | **Ctrl + T** | Make the scanner's selected object the console target (the keyboard replacement for clicking an object). Press with nothing selected to clear the target |
 
+The target is announced as its name followed by its record id — "Arvesa Nadram,
+OR_Vess" — because the id is what commands actually act on, and it is what the
+console's own title bar shows. Objects with no name are announced by id alone.
+
 ---
 
 ## Terrain: hazards and shafts
