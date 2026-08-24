@@ -4,6 +4,24 @@ A running log of screen-reader accessibility features added to this OpenMW fork.
 Newest changes are listed first. (OpenMW's own engine changelog lives in
 `CHANGELOG.md`.)
 
+## 2026-08-24
+
+- **The modding guide is now a general list of recommended mods, not a copy of
+  one person's install.** It used to hand you a shared mod list and
+  configuration file and a set of commands that reproduced my own setup exactly.
+  That was easy to follow without reading, and at least one person did just
+  that and ended up with far more added content than they wanted. The guide now
+  describes each mod and leaves the installing to you, following Modding
+  OpenMW's own instructions. The mods are grouped by how much they change your
+  game — quality of life first, then rebalancing, companions, quests, and large
+  additions last — so you can stop reading at the point things get bigger than
+  you wanted.
+- **LMM_Access can now be downloaded from the guide.** The small plugin that
+  makes Daisy's Lua Multimark Mod speak had no download link, so it was
+  mentioned but not obtainable. The entry now links it directly and explains
+  what it announces, and notes that it needs this build rather than standard
+  OpenMW.
+
 ## 2026-08-23
 
 - **The console now tells you the record id of its target, not just the name.**

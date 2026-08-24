@@ -13,8 +13,8 @@ see **Reporting problems** at the bottom.
 - **`ACCESSIBILITY_KEYS.html`** — every keystroke, including the menus, journal,
   barter, alchemy and spellmaking.
 - **`ACCESSIBILITY_AUDIO_CUES.html`** — what each sound the mod plays means.
-- **`ACCESSIBILITY_MODDING.html`** — optional. How to install Morrowind mods with
-  this build, plus a recommended mod list. Everything here works without mods.
+- **`ACCESSIBILITY_MODDING.html`** — optional. Mods I recommend for this build,
+  and where to start with modding. Everything here works without mods.
 - **`ACCESSIBILITY_CHANGELOG.html`** — what changed in each release.
 
 ---

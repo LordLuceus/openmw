@@ -5,10 +5,17 @@ of it works with Project Hortator, because Project Hortator *is* OpenMW — the
 accessibility features are built into the engine rather than bolted on. A mod
 does not need to know anything about screen readers to work with this build.
 
-This guide describes the mod setup used by Project Hortator's own developer.
-It is entirely optional. Everything in the accessibility documentation works on
-a plain, unmodded install, and if you are new to Morrowind you may prefer to
-play it that way first.
+This guide is a list of mods I recommend, with my reasons. It is entirely
+optional. Everything in the accessibility documentation works on a plain,
+unmodded install, and if you are new to Morrowind you may prefer to play it that
+way first.
+
+**Read the descriptions before you install anything.** The mods below do very
+different things. Some are small conveniences you will never think about again;
+others add tens of hours of new land and quests, or change the difficulty of the
+whole game. Installing everything here is not the intended use of this list — it
+is my own taste, and taste is the one thing you should not copy. Pick what you
+actually want.
 
 **A word of warning before you start.** Modding Morrowind is fiddly, and it is
 easy to end up with a broken install. Do this on a fresh copy of the game, keep
@@ -20,27 +27,32 @@ misbehaves, the mod is far more likely to be at fault than the engine.
 
 ## Contents
 
-The setup happens in two stages:
+- [Where to start: a base mod list](#where-to-start-a-base-mod-list)
+- [How to install the mods below](#how-to-install-the-mods-below)
+- [Quality of life and accessibility](#quality-of-life-and-accessibility)
+- [Rebalancing and difficulty](#rebalancing-and-difficulty)
+- [Companions](#companions)
+- [New quests and content](#new-quests-and-content)
+- [Large additions](#large-additions)
+- [Shared libraries](#shared-libraries)
+- [If something goes wrong](#if-something-goes-wrong)
 
-1. **Install a base mod list.** This does the heavy lifting — hundreds of
-   patches, fixes and improvements, installed automatically by a tool.
-2. **Apply customisations on top.** This is where personal taste comes in: the
-   extra mods listed further down, and one removal.
-
-You do not have to do stage 2. Stage 1 alone gives you a complete, stable,
-well-tested game.
+The sections are ordered by how much they change your game. If you only want the
+game to be a little smoother, the first section is all you need and you can stop
+reading there. The later sections add substantial amounts of new content.
 
 ---
 
-## Stage 1: the base mod list
+## Where to start: a base mod list
 
-Project Hortator's developer uses **I Heart Vanilla: Director's Cut**, a list
-maintained by the Modding OpenMW project. It stays close to the original game's
-feel — it fixes and refines rather than replacing — which makes it a good
-foundation.
+Before adding anything from this list, it is worth installing a curated base mod
+list. These do the heavy lifting — hundreds of patches, bug fixes and small
+improvements that nobody wants to assemble by hand.
 
-Follow the official installation guide, which is kept up to date and covers
-everything from the tools you need to the final launch:
+I use **I Heart Vanilla: Director's Cut**, maintained by the Modding OpenMW
+project. It stays close to the original game's feel — it fixes and refines
+rather than replacing — which makes it a good foundation. There are other lists
+if you want something more transformative; Modding OpenMW documents them all.
 
 **[I Heart Vanilla: Director's Cut — Windows installation guide](https://modding-openmw.com/guides/auto/i-heart-vanilla-directors-cut/windows#selected-mod-list)**
 
@@ -64,81 +76,11 @@ configuration the guide produced, rather than letting it create its own — see
 guide's OpenMW and this one read the same configuration folder
 (`Documents\My Games\OpenMW`).
 
----
+### One mod I remove from it
 
-## Stage 2: customisations
-
-Modding OpenMW documents the general method here:
-
-**[Customizing mod lists — Modding OpenMW](https://modding-openmw.com/tips/customizing-modlists/)**
-
-It comes down to two files:
-
-| File | What it is | Where it goes |
-| --- | --- | --- |
-| `luceus-custom-mods.json` | The list of extra mods, in a form `umo` can install | Anywhere; you pass it to `umo` |
-| `momw-customizations.toml` | Instructions for the configurator: what to add, what to remove, and in what order | Your OpenMW configuration folder, next to `openmw.cfg` |
-
-Both files are shared, so you can reproduce this setup exactly rather than
-assembling it by hand:
-
-- `luceus-custom-mods.json` —
-  **[download the mod list](https://www.dropbox.com/scl/fi/wc2yx0mqhzdd4767v33in/luceus-custom-mods.json?rlkey=8a7rtek3uwchxin5d92o206ce&dl=1)**
-- `momw-customizations.toml` —
-  **[download the configurator instructions](https://www.dropbox.com/scl/fi/ntmhyv5e2v9943lzyhbb2/momw-customizations.toml?rlkey=a4ixxqwb05u9vsngjfwat8kjo&dl=1)**
-
-Both links download the file directly rather than opening a Dropbox preview
-page, so your browser should just save them. Keep the filenames as they are —
-`umo` takes the list's name from the filename.
-
-### The commands
-
-With both files downloaded, run these in order:
-
-```
-umo.exe list add luceus-custom-mods.json
-```
-
-This adds the list to `umo`'s cache. It takes the name of the file minus the
-extension, so the list is called `luceus-custom-mods`. That naming is
-deliberate: if it were simply called "custom", it would collide with the list
-`umo` uses for *your* own additions. Keeping it separate means you can add your
-own mods later without the two interfering.
-
-```
-umo.exe install --sync luceus-custom-mods
-```
-
-This downloads and installs everything on the list. It will take a while, and
-some mods may need you to be signed in to Nexus Mods.
-
-Next, place `momw-customizations.toml` in your OpenMW configuration folder —
-the one containing `openmw.cfg`, usually `Documents\My Games\OpenMW`. Then:
-
-```
-momw-configurator.exe config -v --run-validator i-heart-vanilla-directors-cut
-```
-
-This rewrites your configuration so the base list and the extra mods are all
-loaded in the correct order, and runs a validator to catch mistakes. Read its
-output rather than assuming it worked.
-
-### If you want only some of these mods
-
-Edit `momw-customizations.toml` and remove the lines for the mods you do not
-want — each mod contributes a data-path line and one or more content-file lines,
-and you need to remove **both** for a given mod. Then re-run the configurator
-command above. Watch for dependencies; the notes below flag them.
-
----
-
-## The one removal: Morrowind Interiors Project
-
-The customisations file **removes** a mod that the base list includes.
-
-Morrowind Interiors Project makes interiors show real sky and weather through
-their windows. It is purely cosmetic, so it offers nothing to a player who is
-not looking at it — and it has a concrete downside. To make interiors show the
+I take **Morrowind Interiors Project** out of the base list. It makes interiors
+show real sky and weather through their windows, which offers nothing to a
+player who is not looking at it — and it has a concrete downside. To show the
 outdoors, it marks those cells as quasi-exterior, which also gives them the
 outdoor water level. In any interior whose floor sits below the world's water
 height, the room floods.
@@ -146,55 +88,67 @@ height, the room floods.
 The clearest example is the Six Fishes in Ebonheart, where the flooding is deep
 enough to drown the innkeeper and the trainers who live there. Losing NPCs to a
 cosmetic mod is a bad trade at the best of times; losing them silently, when you
-cannot see the water, is worse.
-
-All three of its plugins share one folder, so the removal takes out the folder
-and all three content files together.
+cannot see the water, is worse. Note that it ships three plugins in one folder,
+so removing it means removing all three.
 
 ---
 
-## The recommended mods
+## How to install the mods below
 
-Comments below are the developer's own opinions, and are marked as such where
-they are matters of taste rather than fact.
+Modding OpenMW documents how to add your own mods on top of a base list:
 
-### Sound and accessibility
+**[Customizing mod lists — Modding OpenMW](https://modding-openmw.com/tips/customizing-modlists/)**
 
-These matter more than usual for a player who is listening rather than looking.
+The short version: you keep your own list of extra mods in a file `umo` can
+install from, and a customisations file telling `momw-configurator` what to add,
+remove, and in what order. Follow that page rather than copying commands from
+here — it is maintained by the people who wrote the tools, and it explains the
+load-order rules that keep a modded install working.
 
-**Morrowind Acoustic Overhaul** — An overhaul of the game's sound effects. In
-his words: *"Amazing overhaul of the sounds in the game, though some may prefer
-the... unique vanilla noises."* If you have played Morrowind before and are
-attached to its distinctive sound design, this will change a lot of it.
+Two things to watch for as you add mods from this list:
+
+- **Dependencies.** Some entries need another mod present, and a few need to
+  load in a specific order. Where that applies, the entry says so.
+- **Alternative plugins.** A mod sometimes ships several variant plugins of
+  which only one may be active. Read the mod's own documentation.
+
+After every change, re-run the configurator with its validator and read the
+output rather than assuming it worked.
+
+---
+
+## Quality of life and accessibility
+
+Nothing here adds new content. These make the existing game smoother, and the
+first few matter more than usual for a player who is listening rather than
+looking.
 
 **Maxar's Dynamic Footsteps Sounds** *(maxar)* — Footstep sounds that respond to
 what you are walking on, how fast you are moving, your race, and your armour,
 including water depth.
 
-**Custom Music** *(LordLuceus)* — A handful of extra music tracks, taken from
-Morrowind-adjacent projects: ESO Morrowind and Skywind.
+**Morrowind Acoustic Overhaul** — An overhaul of the game's sound effects.
+Amazing overhaul of the sounds in the game, though some may prefer the... unique
+vanilla noises. If you have played Morrowind before and are attached to its
+distinctive sound design, this will change a lot of it.
 
-**LMM_Access** *(LordLuceus)* — A small accessibility plugin that makes Daisy's
-Lua Multimark Mod (below) usable with a screen reader. Install it only if you
-are installing Multimark.
+**Daisy's Lua Multimark Mod** *(DaisyHasACat)* — Vanilla Morrowind allows a
+single Mark location for the Recall spell; this lifts that limit. Lets you have
+more than one mark, really handy. Install **LMM_Access** alongside it.
 
-### Companions and followers
+**[LMM_Access](https://www.dropbox.com/scl/fi/6kvyeink8keug3xfsaotu/LMM_Access.7z?rlkey=61cxxfut7onhrvpo40ej7awpr&dl=1)** *(LordLuceus)* — A small accessibility plugin that makes Daisy's
+Lua Multimark Mod usable with a screen reader. It speaks the selected mark and
+its position in the list, how many mark slots are free, the key hints, and the
+text as you type when renaming. It adds no keys of its own and does not change
+Multimark, which keeps all of its own navigation.
 
-**Arvesa — An Armiger's Tale** *(MasterofChim)* — *"Excellent companion mod,
-highly recommended."* A fully voiced companion with a long personal questline
-that runs alongside the main quest.
-
-**Arvesa — Tamriel Rebuilt** *(Mitya Skinny)* — Extends the same companion into
-the Tamriel Rebuilt landmass.
+Only useful if you are installing Multimark, and it needs this build — it relies
+on an interface that Project Hortator adds to OpenMW, so it will not load on a
+standard OpenMW install. It is not on Nexus Mods, hence the direct download.
 
 **Attend Me** *(urm)* — Makes your followers teleport with you when you use
-Recall or Intervention, and it prevents the common and
-maddening situation where a companion is stranded on the other side of the
-province.
-
-**Shock Centurion Companion** *(Cyberwarth)* — *"Neat little mod that lets you
-order a certain centurion to stay in a specific place or patrol the area instead
-of following you around everywhere."*
+Recall or Intervention, which prevents the common and maddening situation where
+a companion is stranded on the other side of the province.
 
 **Friendlier Fire** *(Sosnoviy Bor)* — Stops followers turning on you, and on
 each other, after an accidental hit. Friendly blows miss or do reduced damage,
@@ -202,29 +156,7 @@ and neither you nor your companions can hurt each other with spells. This is
 worth more to a blind player than to a sighted one: you cannot see exactly where
 a companion is standing when you swing a weapon or place an area spell, and in
 vanilla a stray hit can turn a long-running companion hostile with no warning.
-
-**Follower Detection Util** *(Sosnoviy Bor)* — A library, not content. It does
-nothing on its own; Friendlier Fire needs it. **It must load before Friendlier
-Fire** — the customisations file already puts it in the right place.
-
-### Quests and content
-
-**AFFiliates — Guild of Mages** *(AFFA)* — *"Fun and at times absurd quest mod written by AFFA AKA Douglas Goodall, one of the original writers of Morrowind. You finally get to play both sides of the Ajira vs Galbedir war."*
-
-**Barristers Guild — Old Ebonheart Questline** *(levanesque)* — Lets you join
-the Old Ebonheart Barristers Guild. *"Haven't played through this one yet but it should
-be a lot of fun."*
-
-**OAAB Brother Juniper's Twin Lamps** *(Brother Juniper, updated by Lucevar)* —
-Quests for the abolitionist underground. *"For the abolitionists. Haven't
-actually played through most of these quests yet myself."*
-
-**Red Wisdom — An Ashlander Prophecy** *(AFFA, Greatness7, Melchior Dahrk)* —
-*"I was a bit disappointed with this one. Unlike Rise of House Telvanni, it's
-not that the writing was bad, it's that I felt like there wasn't enough. I expected something a bit more substantial."*
-
-**Solstheim — Tomb of the Snow Prince** *(TOTSP Team)* — A large overhaul of
-Solstheim. Recommended by the Tamriel Rebuilt team.
+**Needs Follower Detection Util**, loaded before it.
 
 **Vegtabill's Threads of the Webspinner** *(vegtabill)* — Makes the Morag Tong's
 Sanguine item hunt completable from inside the game. In vanilla, only two of the
@@ -233,104 +165,143 @@ mentions, so the quest is effectively unfinishable without consulting a wiki or
 killing people at random. This fleshes out existing dialogue topics and adds new
 ones so the leads exist in-game.
 
-The mod ships four alternative plugins and only one may be active. This setup
-uses `veg-TotW-books-MSrestored.esp`, the fullest of them: the dialogue changes,
-plus in-world journals and letters, plus Mephala's Skill restored to its original
-form (it fortified Short Blade as well, before Bethesda changed it).
+It ships four alternative plugins and only one may be active. I use the fullest
+of them, which combines the dialogue changes with in-world journals and letters,
+and restores Mephala's Skill to its original form — it fortified Short Blade as
+well, before Bethesda changed it.
 
-**The Popular Plague** *(AFFA, Greatness7, Melchior Dahrk, Seelof)* — A strange
-disease reaches Pelagiad, and its victims cannot stop dancing. Written by Douglas
-Goodall, who wrote much of the original game's dialogue. Start it by talking to
-Prupius Danulus in Pelagiad. It leads somewhere considerably odder than it first
-appears, and ends with a home of your own in Oblivion that you can teleport to
-and from at will. Needs OAAB_Data, which is already on this list.
-
-### Rise of House Telvanni — read this one carefully
-
-**Rise of House Telvanni** *(Pozzo, Karpik777, bhl)* and **Rise of House
-Telvanni 2.0** *(mort)*.
-
-This is the one entry with a genuinely mixed recommendation, quoted at length
-because the decision is yours:
-
-> *"I have mixed feelings on this one. The best way I can describe it is that it
-> feels very 'fanfiction-like', in a bad way, and as someone who really
-> appreciates lore and writing, this really bothers me. On the other hand, it
-> introduces some ridiculously overpowered items and spells (also debatable whether that's a
-> good thing — these really are insanely overpowered) and some fun combat
-> encounters. So your mileage may vary; dropping it would be a totally valid
-> choice."*
-
-On the 2.0 update: *"Apparently the older version of this was even more
-ridiculous, complete with a self-insert character. This fixes some of it, but
-not enough."*
-
-**If you drop it, you must also drop everything that depends on it**, or the
-game will fail to load. That means all of the following:
-
-- `Rise of House Telvanni.esm` and `ROHT_2_0_8.ESP` (the mod itself)
-- `TL_DukeFallbackToIlmeni.omwaddon` — the Duchess Ilmeni Dren compatibility
-  patch, which exists only to reconcile this mod with Brother Juniper's Twin
-  Lamps
-- `UL_3.5_RoHT_1.52_Add-on.esp` — the Uvirith's Legacy compatibility addon
-
-Remove their data-path lines from `momw-customizations.toml` as well as their
-content lines. Uvirith's Legacy itself, and its Tamriel Rebuilt addon, are
-unaffected and can stay.
-
-### Uvirith's Legacy and the Telvanni stronghold
-
-**Uvirith's Legacy** *(Stuporstar)* — A vast expansion of the Telvanni player
-stronghold, Tel Uvirith. *"Just an excellent mod. Still holds up ten years after its
-last update. The tower can be a bit difficult to navigate for blind players at
-times, but it's worth it."*
-
-**Building Up Uvirith's Legacy** *(Acheron & Artimis Fowl)* — *"Also quite good,
-and mostly passive. It's nice to watch a little town spring up around your
-tower."*
-
-**LGNPC — Tel Uvirith** — *"Integrates exceptionally well with Uvirith's Legacy
-and makes your retainers, well, less generic and into actual characters."*
-
-**Null's Minor Patches** *(NullCascade)* — Provides the Uvirith's Legacy /
-Tamriel Rebuilt compatibility addon used here.
-
-### Difficulty and rebalancing
-
-**Tribunal Rebalance**, **Bloodmoon Rebalance**, and **Beware the Sixth House**
-*(all by mort)* — *"These last three are all by the same person so the rebalance
-is cohesive. Makes the Sixth House the most difficult content in the game, as it
-should be, instead of random werewolves."*
-
-Because they are by one author and designed together, treat them as a set.
-
-**Expansion Delay** *(Half11)* — Stops the Tribunal and Bloodmoon content from
-ambushing you at level one, so the expansions begin when you go looking for
-them. *"A must-have in my opinion."*
-
-**Speechcraft Rebalance** *(Aphain)* — *"A nice little mod making speechcraft a
-little more usable than in vanilla."*
+**Speechcraft Rebalance** *(Aphain)* — A nice little mod making speechcraft a
+little more usable than in vanilla.
 
 **Pickpocket Rebalance** *(Aphain)* — By the same author. Vanilla pickpocketing
 caps your success chance below 100% no matter how skilled you are, and weights
 heavily against anything valuable; this raises the cap and relaxes the weighting,
 so a thief character can actually steal things worth stealing.
 
-### World and integration
+**Expansion Delay** *(Half11)* — Stops the Tribunal and Bloodmoon content from
+ambushing you at level one, so the expansions begin when you go looking for
+them. A must-have in my opinion.
+
+---
+
+## Rebalancing and difficulty
+
+These change how hard the game is. They do not add new places to go, but they do
+change the experience throughout.
+
+**Tribunal Rebalance**, **Bloodmoon Rebalance** and **Beware the Sixth House**
+*(all by mort)* — These three are all by the same person so the rebalance is
+cohesive. Makes the Sixth House the most difficult content in the game, as it
+should be, instead of random werewolves. Because they are designed together,
+treat them as a set.
+
+---
+
+## Companions
+
+Followers who travel with you. These add dialogue and questlines of their own.
+
+**Arvesa — An Armiger's Tale** *(MasterofChim)* — Excellent companion mod,
+highly recommended. A fully voiced companion with a long personal questline that
+runs alongside the main quest.
+
+**Arvesa — Tamriel Rebuilt** *(Mitya Skinny)* — Extends the same companion into
+the Tamriel Rebuilt landmass. Needs both Arvesa and Tamriel Rebuilt.
+
+**Shock Centurion Companion** *(Cyberwarth)* — Neat little mod that lets you
+order a certain centurion to stay in a specific place or patrol the area instead
+of following you around everywhere.
+
+---
+
+## New quests and content
+
+Each of these adds a self-contained questline. You can install one and ignore
+the rest.
+
+**AFFiliates — Guild of Mages** *(AFFA)* — Fun and at times absurd quest mod
+written by AFFA AKA Douglas Goodall, one of the original writers of Morrowind.
+You finally get to play both sides of the Ajira vs Galbedir war.
+
+**The Popular Plague** *(AFFA, Greatness7, Melchior Dahrk, Seelof)* — A strange
+disease reaches Pelagiad, and its victims cannot stop dancing. Also written by
+Douglas Goodall. Start it by talking to Prupius Danulus in Pelagiad. It leads
+somewhere considerably odder than it first appears, and ends with a home of your
+own in Oblivion that you can teleport to and from at will. Needs OAAB_Data.
+
+**Barristers Guild — Old Ebonheart Questline** *(levanesque)* — Lets you join
+the Old Ebonheart Barristers Guild. Haven't played through this one yet but it
+should be a lot of fun.
+
+**OAAB Brother Juniper's Twin Lamps** *(Brother Juniper, updated by Lucevar)* —
+Quests for the abolitionist underground. Haven't actually played through most of
+these quests yet myself.
+
+**Red Wisdom — An Ashlander Prophecy** *(AFFA, Greatness7, Melchior Dahrk)* — I
+was a bit disappointed with this one. Unlike Rise of House Telvanni, it's not
+that the writing was bad, it's that I felt like there wasn't enough. I expected
+something a bit more substantial.
+
+**Rise of House Telvanni** *(Pozzo, Karpik777, bhl)* and **Rise of House
+Telvanni 2.0** *(mort)* — The one entry here I am genuinely unsure about. I have
+mixed feelings on this one. The best way I can describe it is that it feels very
+"fanfiction-like", in a bad way, and as someone who really appreciates lore and
+writing, this really bothers me. On the other hand, it introduces some
+ridiculously overpowered items and spells (also debatable whether that's a good
+thing — these really are insanely overpowered) and some fun combat encounters.
+So your mileage may vary; skipping it would be a totally valid choice.
+
+On the 2.0 update: apparently the older version of this was even more
+ridiculous, complete with a self-insert character. This fixes some of it, but
+not enough.
+
+Be aware that other mods build compatibility patches on top of it — there is a
+Duchess Ilmeni Dren patch reconciling it with Brother Juniper's Twin Lamps, and
+an Uvirith's Legacy addon. If you skip Rise of House Telvanni, skip those too,
+or the game will refuse to load.
+
+---
+
+## Large additions
+
+These are big. Each one adds substantial new land, buildings or systems, and
+between them they change the shape of a playthrough considerably. This is the
+section to be most selective about.
+
+**Uvirith's Legacy** *(Stuporstar)* — A vast expansion of the Telvanni player
+stronghold, Tel Uvirith. Just an excellent mod. Still holds up ten years after
+its last update. The tower can be a bit difficult to navigate for blind players
+at times, but it's worth it.
+
+**Building Up Uvirith's Legacy** *(Acheron & Artimis Fowl)* — Also quite good,
+and mostly passive. It's nice to watch a little town spring up around your
+tower. Needs Uvirith's Legacy.
+
+**LGNPC — Tel Uvirith** — Integrates exceptionally well with Uvirith's Legacy
+and makes your retainers, well, less generic and into actual characters.
+
+**Solstheim — Tomb of the Snow Prince** *(TOTSP Team)* — A large overhaul of
+Solstheim, recommended by the Tamriel Rebuilt team.
 
 **Repopulated Creatures** *(GrumblingVomit)* — Adds Tamriel Rebuilt creatures to
-Vvardenfell. *"Any mod that makes the integration between vanilla and Tamriel
-Rebuilt more seamless is a good one in my book."*
+Vvardenfell. Any mod that makes the integration between vanilla and Tamriel
+Rebuilt more seamless is a good one in my book. Needs Tamriel Rebuilt.
 
-**OAAB_Data** *(OAAB_Data Team)* — A shared asset library that many of the mods
-above depend on. Not content in itself; install it and forget about it.
+---
 
-### Utility
+## Shared libraries
 
-**Daisy's Lua Multimark Mod** *(DaisyHasACat)* — *"Lets you have more than one
-mark, really handy."* Vanilla Morrowind allows a single Mark location for the
-Recall spell; this lifts that limit. Install **LMM_Access** alongside it to make
-its interface speak.
+Not content. These do nothing on their own, but other mods need them. Install
+and forget about them.
+
+**OAAB_Data** *(OAAB_Data Team)* — A shared asset library that a great many
+mods depend on, including several above.
+
+**Follower Detection Util** *(Sosnoviy Bor)* — Needed by Friendlier Fire. **It
+must load before Friendlier Fire.**
+
+**Null's Minor Patches** *(NullCascade)* — Provides the Uvirith's Legacy /
+Tamriel Rebuilt compatibility addon.
 
 ---
 
@@ -339,8 +310,8 @@ its interface speak.
 Work backwards. A modded Morrowind that misbehaves is almost always a load-order
 or dependency problem, not an engine bug.
 
-1. **Re-run the configurator with the validator** — the command in Stage 2. It
-   reports missing dependencies and ordering mistakes.
+1. **Re-run the configurator with the validator.** It reports missing
+   dependencies and ordering mistakes.
 2. **Check whether it happens without mods.** Launch with a plain profile. If
    the problem disappears, it is a mod.
 3. **Only then report it as a Project Hortator problem** — and say which mod
