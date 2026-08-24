@@ -10,6 +10,7 @@
 #include <QPair>
 #include <QProgressDialog>
 #include <QPushButton>
+#include <QShortcut>
 #include <QTimer>
 
 #include <algorithm>
@@ -196,6 +197,38 @@ Launcher::DataFilesPage::DataFilesPage(const Files::ConfigurationManager& cfg, C
     connect(ui.directoryListWidget->model(), &QAbstractItemModel::rowsMoved, this, &DataFilesPage::sortDirectories);
     connect(ui.archiveListWidget->model(), &QAbstractItemModel::rowsMoved, this, &DataFilesPage::sortArchives);
 
+    // Accessibility: the content list could previously only be reordered by
+    // dragging, unlike the directory and archive lists which have had Move
+    // Up / Move Down buttons all along. Load order is not a cosmetic
+    // preference, so a player who cannot use a mouse could not arrange their
+    // mods at all. Buttons for discoverability and parity with the other tabs;
+    // Ctrl+Up / Ctrl+Down so a long list can be sorted without tabbing out to
+    // the buttons after every single move. Both call the same code.
+    connect(ui.contentUpButton, &QPushButton::released, this, [this]() { this->moveContentFiles(-1); });
+    connect(ui.contentDownButton, &QPushButton::released, this, [this]() { this->moveContentFiles(1); });
+
+    auto* moveUpShortcut = new QShortcut(QKeySequence(Qt::CTRL | Qt::Key_Up), ui.dataTab);
+    moveUpShortcut->setContext(Qt::WidgetWithChildrenShortcut);
+    connect(moveUpShortcut, &QShortcut::activated, this, [this]() { this->moveContentFiles(-1); });
+
+    auto* moveDownShortcut = new QShortcut(QKeySequence(Qt::CTRL | Qt::Key_Down), ui.dataTab);
+    moveDownShortcut->setContext(Qt::WidgetWithChildrenShortcut);
+    connect(moveDownShortcut, &QShortcut::activated, this, [this]() { this->moveContentFiles(1); });
+
+    // Accessibility: with no explicit tab order, Qt uses widget creation
+    // order. The content selector's widgets are created at runtime into an
+    // empty placeholder from the .ui file, so they are appended to the END of
+    // the focus chain -- putting the content list after the profile combo box,
+    // and leaving the Move Up / Move Down buttons stranded where the empty
+    // placeholder sat, nowhere near the list they act on. State the order
+    // explicitly so the buttons follow the list, as they do on the other tabs.
+    setTabOrder(mSelector->gameFileView(), mSelector->searchFilter());
+    setTabOrder(mSelector->searchFilter(), mSelector->languageBox());
+    setTabOrder(mSelector->languageBox(), mSelector->refreshButton());
+    setTabOrder(mSelector->refreshButton(), mSelector->addonView());
+    setTabOrder(mSelector->addonView(), ui.contentUpButton);
+    setTabOrder(ui.contentUpButton, ui.contentDownButton);
+
     buildView();
     loadSettings();
 
@@ -203,6 +236,9 @@ Launcher::DataFilesPage::DataFilesPage(const Files::ConfigurationManager& cfg, C
     // the addons and don't want to get signals of the system doing it during startup.
     connect(mSelector, &ContentSelectorView::ContentSelector::signalAddonDataChanged, this,
         &DataFilesPage::slotAddonDataChanged);
+    connect(mSelector, &ContentSelectorView::ContentSelector::signalSelectionChanged, this,
+        &DataFilesPage::updateContentMoveButtons);
+    updateContentMoveButtons();
 
     mReloadCellsTimer = new QTimer(this);
     mReloadCellsTimer->setSingleShot(true);
@@ -424,6 +460,10 @@ void Launcher::DataFilesPage::populateFileViews(const QString& contentModelName)
             font.setBold(true);
             font.setItalic(true);
             item->setFont(font);
+            // Accessibility: as above, the bold+italic cue is invisible to a
+            // screen reader, and the tooltip may not be read.
+            item->setData(Qt::AccessibleTextRole,
+                tr("%1, not in content list").arg(currentDir.originalRepresentation));
         }
 
         // deactivate data-local and resources/vfs: they are always included
@@ -931,6 +971,33 @@ void Launcher::DataFilesPage::setCheckStateForMultiSelectedItems(QListWidget* li
     }
 }
 
+void Launcher::DataFilesPage::moveContentFiles(int step)
+{
+    if (mSelector->moveSelection(step))
+    {
+        // Reordering the content list changes the load order, which is what
+        // the profile stores. Reuse saveSettings() rather than serialising
+        // here, so a keyboard reorder persists by exactly the same path as a
+        // drag and the two cannot drift apart.
+        saveSettings();
+    }
+
+    updateContentMoveButtons();
+}
+
+void Launcher::DataFilesPage::updateContentMoveButtons()
+{
+    // A move is possible only when something is selected and there is
+    // somewhere for it to go. Disabling the buttons is what tells a screen
+    // reader user they have reached the end of the list -- silence would be
+    // indistinguishable from the feature being broken.
+    const bool canMoveUp = mSelector->moveSelectionPossible(-1);
+    const bool canMoveDown = mSelector->moveSelectionPossible(1);
+
+    ui.contentUpButton->setEnabled(canMoveUp);
+    ui.contentDownButton->setEnabled(canMoveDown);
+}
+
 void Launcher::DataFilesPage::moveSources(QListWidget* sourceList, int step)
 {
     const QList<QPair<int, QListWidgetItem*>> sortedItems = sortedSelectedItems(sourceList, step > 0);
@@ -964,6 +1031,10 @@ void Launcher::DataFilesPage::addArchive(const QString& name, Qt::CheckState sel
         font.setBold(true);
         font.setItalic(true);
         item->setFont(font);
+        // Accessibility: the bold+italic marks an archive that is not part of
+        // the current content list -- a cue announced to nobody. Say it in
+        // words, appended so the archive name still comes first.
+        item->setData(Qt::AccessibleTextRole, tr("%1, not in content list").arg(name));
     }
 }
 

@@ -178,6 +178,38 @@ QVariant ContentSelectorModel::ContentModel::data(const QModelIndex& index, int 
             return QVariant();
         }
 
+        // Accessibility: screen readers read this role in preference to
+        // DisplayRole. Files that are not part of the current Content List are
+        // shown bold and italic (see FontRole above), a cue that is announced
+        // to nobody -- and the note label under the list describes it in purely
+        // visual terms. Say it in words instead, appended so the file name
+        // still comes first.
+        case Qt::AccessibleTextRole:
+        {
+            if (column < 0 || column > EsmFile::FileProperty_GameFile)
+                return QVariant();
+
+            const QVariant display = file->fileProperty(static_cast<EsmFile::FileProperty>(column));
+
+            // Only the name column is worth qualifying; repeating this on
+            // every column would be noise.
+            if (column != 0)
+                return display;
+
+            QString text = display.toString();
+
+            if (isNew(file->fileName()))
+                text = tr("%1, not in content list").arg(text);
+
+            // NB: the position within the list is deliberately NOT added here.
+            // This model is viewed through a filtering proxy, so a row number
+            // taken from here would disagree with the position the user is
+            // actually navigating -- badly so while the search box is in use.
+            // AddOnProxyModel appends it, since only the proxy knows what is
+            // visible and in what order.
+            return text;
+        }
+
         case Qt::EditRole:
         case Qt::DisplayRole:
         {
@@ -365,6 +397,63 @@ bool ContentSelectorModel::ContentModel::dropMimeData(
 
     dataChanged(index(minRow, 0), index(maxRow, 0));
     // at this point we know that drag and drop has finished.
+
+    return true;
+}
+
+int ContentSelectorModel::ContentModel::firstModifiableRow() const
+{
+    int row = 0;
+    while (row < mFiles.size() && (mFiles.at(row)->builtIn() || mFiles.at(row)->fromAnotherConfigFile()))
+        ++row;
+    return row;
+}
+
+bool ContentSelectorModel::ContentModel::canMoveRowsBy(const QList<int>& sourceRows, int step) const
+{
+    if (step == 0 || sourceRows.isEmpty())
+        return false;
+
+    const int firstModifiable = firstModifiableRow();
+
+    // Refuse the whole gesture if any row cannot make the move, rather than
+    // half-applying it. A partial move is very hard to understand by ear.
+    for (const int row : sourceRows)
+    {
+        const int target = row + step;
+        if (row < firstModifiable || target < firstModifiable || target >= mFiles.size())
+            return false;
+    }
+
+    return true;
+}
+
+bool ContentSelectorModel::ContentModel::moveRowsBy(const QList<int>& sourceRows, int step)
+{
+    if (!canMoveRowsBy(sourceRows, step))
+        return false;
+
+    // Process in the direction of travel: moving up, handle the topmost row
+    // first, so a block of selected rows keeps its internal order and cannot
+    // overwrite a sibling mid-move.
+    QList<int> rows = sourceRows;
+    std::sort(rows.begin(), rows.end());
+    if (step > 0)
+        std::reverse(rows.begin(), rows.end());
+
+    for (const int row : rows)
+    {
+        const int target = row + step;
+        beginMoveRows(QModelIndex(), row, row, QModelIndex(), step > 0 ? target + 1 : target);
+        mFiles.move(row, target);
+        endMoveRows();
+    }
+
+    // Load order errors are evaluated lazily in data(), and depend on relative
+    // position -- moving one file can resolve or create a warning on another,
+    // anywhere in the list. Refresh the whole model rather than just the rows
+    // that moved, so no stale warning icon or tooltip is left behind.
+    refreshModel();
 
     return true;
 }

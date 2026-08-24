@@ -32,6 +32,11 @@
      <property name="contextMenuPolicy">
       <enum>Qt::CustomContextMenu</enum>
      </property>
+     <!-- Accessibility: see contentselector.ui. Qt's default traps Tab inside
+          the view, so focus can never reach the dialog's OK/Cancel buttons. -->
+     <property name="tabKeyNavigation">
+      <bool>false</bool>
+     </property>
     </widget>
    </item>
   </layout>

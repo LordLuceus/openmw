@@ -5,6 +5,7 @@
 #include <components/contentselector/model/esmfile.hpp>
 
 #include <QClipboard>
+#include <QItemSelection>
 #include <QMenu>
 #include <QModelIndex>
 #include <QProgressDialog>
@@ -66,6 +67,30 @@ public:
 
         return QSortFilterProxyModel::filterAcceptsRow(sourceRow, sourceParent) && userRole == contentTypeAddon;
     }
+
+    QVariant data(const QModelIndex& index, int role) const override
+    {
+        // Accessibility: append the position in the list to what a screen
+        // reader reads out. Load order is the entire purpose of this list, and
+        // after moving a file with Ctrl+Up/Down its position is the only thing
+        // that changed -- without this there is no confirmation that the move
+        // happened at all.
+        //
+        // This has to be done here rather than in the source model: the view
+        // shows a FILTERED subset (the game file is excluded, and the search
+        // box may hide more), so a row number taken from the source model
+        // would not match the list actually being navigated. Only the proxy
+        // knows what is visible and in what order.
+        if (role == Qt::AccessibleTextRole && index.column() == 0)
+        {
+            const QVariant base = QSortFilterProxyModel::data(index, role);
+
+            if (base.isValid())
+                return tr("%1, %2 of %3").arg(base.toString()).arg(index.row() + 1).arg(rowCount());
+        }
+
+        return QSortFilterProxyModel::data(index, role);
+    }
 };
 
 bool ContentSelectorView::ContentSelector::isGamefileSelected() const
@@ -93,6 +118,72 @@ QLineEdit* ContentSelectorView::ContentSelector::searchFilter() const
     return ui->searchFilter;
 }
 
+QComboBox* ContentSelectorView::ContentSelector::gameFileView() const
+{
+    return ui->gameFileView;
+}
+
+QTableView* ContentSelectorView::ContentSelector::addonView() const
+{
+    return ui->addonView;
+}
+
+QList<int> ContentSelectorView::ContentSelector::selectedSourceRows() const
+{
+    QList<int> sourceRows;
+
+    if (!ui->addonView->selectionModel())
+        return sourceRows;
+
+    // Reordering while a search filter hides rows would move files past
+    // invisible neighbours, which is impossible to follow by ear -- so refuse
+    // it outright rather than doing something surprising.
+    if (!ui->searchFilter->text().isEmpty())
+        return sourceRows;
+
+    // The view is sorted/filtered through a proxy, so map every selected row
+    // back to the underlying model before touching it.
+    const QModelIndexList selected = ui->addonView->selectionModel()->selectedRows();
+    sourceRows.reserve(selected.size());
+    for (const QModelIndex& index : selected)
+        sourceRows.append(mAddonProxyModel->mapToSource(index).row());
+
+    return sourceRows;
+}
+
+bool ContentSelectorView::ContentSelector::moveSelectionPossible(int step) const
+{
+    return mContentModel->canMoveRowsBy(selectedSourceRows(), step);
+}
+
+bool ContentSelectorView::ContentSelector::moveSelection(int step)
+{
+    const QList<int> sourceRows = selectedSourceRows();
+
+    if (!mContentModel->moveRowsBy(sourceRows, step))
+        return false;
+
+    // Keep the moved files selected and the view scrolled to them, so a
+    // repeated press keeps acting on the same files.
+    QItemSelection newSelection;
+    for (const int sourceRow : sourceRows)
+    {
+        const QModelIndex moved = mAddonProxyModel->mapFromSource(mContentModel->index(sourceRow + step, 0));
+        if (moved.isValid())
+            newSelection.select(moved, moved);
+    }
+
+    if (!newSelection.isEmpty())
+    {
+        ui->addonView->selectionModel()->select(
+            newSelection, QItemSelectionModel::ClearAndSelect | QItemSelectionModel::Rows);
+        ui->addonView->setCurrentIndex(newSelection.indexes().constFirst());
+        ui->addonView->scrollTo(newSelection.indexes().constFirst());
+    }
+
+    return true;
+}
+
 void ContentSelectorView::ContentSelector::buildAddonView()
 {
     ui->addonView->setVisible(true);
@@ -109,6 +200,10 @@ void ContentSelectorView::ContentSelector::buildAddonView()
     ui->addonView->setModel(mAddonProxyModel);
 
     connect(ui->addonView, &QTableView::activated, this, &ContentSelector::slotAddonTableItemActivated);
+    // Let the launcher keep its Move Up / Move Down buttons in step with what
+    // the current selection can actually do.
+    connect(ui->addonView->selectionModel(), &QItemSelectionModel::selectionChanged, this,
+        [this]() { emit signalSelectionChanged(); });
     connect(mContentModel, &ContentSelectorModel::ContentModel::dataChanged, this,
         &ContentSelector::signalAddonDataChanged);
     connect(mContentModel, &ContentSelectorModel::ContentModel::dataChanged, this, &ContentSelector::slotRowsMoved);

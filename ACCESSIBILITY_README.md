@@ -52,6 +52,28 @@ In the launcher:
   `Resource 'meshes/base_anim.nif' not found` error, it means the archives are not
   ticked — come back here and tick them.
 
+### Getting around the launcher
+
+The launcher is an ordinary desktop window, so your screen reader's normal
+reading and navigation commands work. A few things are worth knowing:
+
+- It has **four pages** — Data Files, Display, Settings and Import — selected by
+  buttons at the top of the window. Tab reaches them, or jump straight there
+  with **Ctrl + 1** through **Ctrl + 4**. The Display and Settings pages hold a
+  great many game options that are easy to miss otherwise.
+- **Tab** moves out of a list to the next control; **arrow keys** move within
+  the list.
+- On the **Content Files** tab, load order matters, and you can change it with
+  the **Move Up** and **Move Down** buttons (just after the list) or with
+  **Ctrl + Up** and **Ctrl + Down** while in the list. Each file is announced
+  with its position, so you can hear where it landed. Use **Up / Down** to move
+  through the list and **Shift + Up / Down** to select several at once; they
+  move together and keep their order.
+- A **content list** is a named, saved set of mods — which directories, archives
+  and content files are enabled and in what order. You can keep several and
+  switch between them, which swaps your whole mod setup at once. Files that
+  aren't part of the current one are announced as "not in content list".
+
 ---
 
 ## Playing

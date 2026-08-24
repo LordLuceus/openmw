@@ -34,6 +34,7 @@ Two things to know before the tables:
 - [Saving and loading](#saving-and-loading)
 - [Settings](#settings)
 - [The console](#the-console)
+- [The launcher](#the-launcher)
 - [Keys that mean different things](#keys-that-mean-different-things)
 
 ---
@@ -330,6 +331,52 @@ already open, and puts you back where you were when you close it.
 
 ---
 
+## The launcher
+
+These are the launcher's own keys, not the game's. The launcher is a standard
+desktop window, so your screen reader's usual reading and navigation commands
+work throughout.
+
+| Key | Action |
+| --- | --- |
+| **Ctrl + 1** | Data Files page |
+| **Ctrl + 2** | Display page |
+| **Ctrl + 3** | Settings page |
+| **Ctrl + 4** | Import page |
+| **Tab / Shift + Tab** | Move between controls, including the four page buttons |
+| **Up / Down** | Move through a list |
+| **Shift + Up / Down** | Extend the selection to several items |
+| **Ctrl + Up / Down** | Content Files tab: move the selected mods up or down the load order |
+| **Space** | Tick or untick the focused item |
+
+The four pages can also be reached by tabbing to the buttons at the top of the
+window. Earlier versions left those buttons out of the tab order entirely, so
+the Display, Settings and Import pages could not be reached from the keyboard
+at all.
+
+On the **Content Files** tab, **Ctrl + Up** and **Ctrl + Down** do the same
+thing as the Move Up and Move Down buttons beside the list — the shortcut just
+saves tabbing back and forth when reordering several mods. The buttons are
+disabled when the selection cannot move any further, and reordering is turned
+off while the search box has text in it, since files would otherwise move past
+neighbours you cannot see.
+
+Content files, data directories and archives that are **not part of the current
+content list** are announced with "not in content list" after the name. Sighted
+users see these in bold italics.
+
+Each content file is also announced with its **position in the list** — for
+example "Tribunal.esm, 2 of 37". Load order is the whole point of that list, and
+after a move the position is the only thing that has changed, so this is how you
+confirm the move happened. The count reflects what is actually shown, so it
+follows the search box when you filter the list.
+
+Note that **Ctrl + Up / Down** normally moves the cursor without changing the
+selection in a list like this. On the Content Files tab it reorders instead.
+Use **Up / Down** and **Shift + Up / Down** to move and select.
+
+---
+
 ## Keys that mean different things
 
 Most keys do one job everywhere. These don't, so they're worth knowing:
@@ -341,7 +388,7 @@ Most keys do one job everywhere. These don't, so they're worth knowing:
 | **Tab** | Settings: next tab. Journal lists: switch between Topics and Quests. Elsewhere: switch between side-by-side panes |
 | **E** | Your inventory: your encumbrance. A companion's: theirs. Alchemy: re-read the potion's effects |
 | **Ctrl + Left / Right** | Inventory: change category filter. Editing a spell effect: adjust a slider by 10. In the world: turn to the next compass point |
-| **Ctrl + Up / Down** | Journal, while reading: move by journal entry. Conversations: jump to an unexhausted topic. In the world, Ctrl+Up is the direction filter and Ctrl+Down turns you around. In menus: jump between sections |
+| **Ctrl + Up / Down** | Journal, while reading: move by journal entry. Conversations: jump to an unexhausted topic. In the world, Ctrl+Up is the direction filter and Ctrl+Down turns you around. In menus: jump between sections. In the launcher's Content Files tab: move a mod up or down the load order |
 | **Up / Down** | Journal, while reading: turn a page spread. Books: move by paragraph. Elsewhere: move between options |
 | **Home** | In the world: repeat the target. Submenus: jump to the first item. On a slider: lowest value. While typing: start of the line |
 | **Escape** | While typing: stop editing. In a submenu: close the submenu. Journal lists: go back a level. Otherwise: close the window |

@@ -100,6 +100,15 @@
           <verstretch>0</verstretch>
          </sizepolicy>
         </property>
+        <!-- Accessibility: Qt defaults tabKeyNavigation to true, which makes
+             Tab step between CELLS and wrap around at the end, so keyboard
+             focus can never leave the view. A screen reader user has no way
+             out except object navigation. This view is a single meaningful
+             column navigated with the arrow keys, so cell-wise Tab gains
+             nothing; false lets Tab move to the next control as usual. -->
+        <property name="tabKeyNavigation">
+         <bool>false</bool>
+        </property>
         <property name="contextMenuPolicy">
          <enum>Qt::DefaultContextMenu</enum>
         </property>

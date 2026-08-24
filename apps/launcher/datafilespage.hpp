@@ -89,6 +89,15 @@ namespace Launcher
         void removeDirectory();
         void moveSources(QListWidget* sourceList, int step);
 
+        /// Move the selected content files one position up (-1) or down (+1),
+        /// and update the button enabled states. Shared by the Move Up / Move
+        /// Down buttons and the Ctrl+Up / Ctrl+Down shortcuts.
+        void moveContentFiles(int step);
+
+        /// Enable or disable the content Move Up / Move Down buttons to match
+        /// what the current selection can actually do.
+        void updateContentMoveButtons();
+
         void slotShowArchiveContextMenu(const QPoint& pos);
         void slotShowDataFilesContextMenu(const QPoint& pos);
         void slotShowDirectoryPickerContextMenu(const QPoint& pos);

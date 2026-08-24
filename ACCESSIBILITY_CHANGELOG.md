@@ -6,6 +6,48 @@ Newest changes are listed first. (OpenMW's own engine changelog lives in
 
 ## 2026-08-24
 
+- **Lists in the launcher no longer trap the keyboard.** Tabbing through the
+  content files, data directories or archives list moved between items and then
+  wrapped back to the first one, so there was no way to tab out to the buttons
+  or the rest of the window — you had to fall back on your screen reader's
+  object navigation. Tab now moves out of the list to the next control, and the
+  arrow keys move within it as before.
+- **The Display, Settings and Import pages can now be reached from the
+  keyboard.** The four page buttons at the top of the launcher were skipped by
+  Tab entirely, so unless you went looking with object navigation you would
+  never find three of the four pages — or know they existed. They are now in
+  the tab order, and each has a shortcut: **Ctrl + 1** for Data Files,
+  **Ctrl + 2** Display, **Ctrl + 3** Settings, **Ctrl + 4** Import.
+- **Mods can now be reordered without a mouse.** The Data Directories and
+  Archives tabs have always had Move Up and Move Down buttons, but the Content
+  Files tab had none — load order could only be changed by dragging, which is
+  not possible without sight. That tab now has the same two buttons, plus
+  **Ctrl + Up** and **Ctrl + Down** inside the list so you can reorder a long
+  list without tabbing out to the buttons after every move. Several selected
+  mods move together and keep their relative order. The buttons go dim when the
+  selection cannot move any further. Note that Ctrl + Up / Down would otherwise
+  move the cursor without changing the selection; on this tab it reorders, and
+  Up / Down with Shift still selects.
+- **The launcher's tab order follows the layout again.** Everything the content
+  selector adds — the master file box, the search box, the language box and the
+  content list itself — was tacked onto the very end of the tab order, because
+  those controls are built after the window is laid out. That put the content
+  list after the profile controls, and left the new Move Up and Move Down
+  buttons stranded next to the content list dropdown rather than after the list
+  they act on. Tab now walks the Data Files tab in the order it is laid out.
+- **Content files are announced with their position in the list.** Nothing told
+  you where in the load order a file sat, so after moving one there was no way
+  to tell whether it had moved, or how far. Files now read as "name, 4 of 37".
+  The count follows the search box, so it always matches the list you are
+  actually moving through.
+- **Content files that are not in the current content list now say so.** They
+  were shown in bold italics, and a note under the list explained the
+  highlighting — a cue with nothing behind it if you cannot see it. Such files
+  are now announced as "name, not in content list", in all three lists.
+- **The launcher explains what a content list is.** The Content List box gave no
+  hint what it was for. It now describes itself: a named, saved set of mods —
+  which directories, archives and content files are enabled and in what order —
+  so you can keep separate setups for different playthroughs.
 - **The modding guide is now a general list of recommended mods, not a copy of
   one person's install.** It used to hand you a shared mod list and
   configuration file and a set of commands that reproduced my own setup exactly.

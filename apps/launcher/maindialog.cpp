@@ -110,6 +110,45 @@ void Launcher::MainDialog::createIcons()
     connect(graphicsAction, &QAction::triggered, this, &MainDialog::enableGraphicsPage);
     connect(settingsAction, &QAction::triggered, this, &MainDialog::enableSettingsPage);
     connect(importAction, &QAction::triggered, this, &MainDialog::enableImportPage);
+
+    // Accessibility: the four pages are only reachable through these toolbar
+    // buttons, and QToolButton defaults to Qt::NoFocus -- so Tab skips the
+    // toolbar entirely and three of the four pages are unreachable from the
+    // keyboard without screen-reader object navigation. Users have reported
+    // not knowing the Display/Settings/Import pages existed at all.
+    //
+    // Two independent fixes, because they solve different halves of the
+    // problem: focus makes them DISCOVERABLE by tabbing, shortcuts make them
+    // FAST once known.
+    const struct
+    {
+        QAction* action;
+        QKeySequence shortcut;
+        QString description;
+    } pages[] = {
+        { dataAction, QKeySequence(Qt::CTRL | Qt::Key_1), tr("Data Files page") },
+        { graphicsAction, QKeySequence(Qt::CTRL | Qt::Key_2), tr("Display page") },
+        { settingsAction, QKeySequence(Qt::CTRL | Qt::Key_3), tr("Settings page") },
+        { importAction, QKeySequence(Qt::CTRL | Qt::Key_4), tr("Import page") },
+    };
+
+    for (const auto& page : pages)
+    {
+        page.action->setShortcut(page.shortcut);
+        // Spell the shortcut out in the tooltip; the visual hint (a underlined
+        // mnemonic) is no use to a screen reader, and the tooltip is read.
+        const QString tip = page.action->toolTip();
+        page.action->setToolTip(tr("%1 (%2)").arg(tip, page.shortcut.toString(QKeySequence::NativeText)));
+
+        if (QWidget* button = toolBar->widgetForAction(page.action))
+        {
+            // Tab reaches it, but clicking it does not steal focus from
+            // whatever the user was doing.
+            button->setFocusPolicy(Qt::TabFocus);
+            button->setAccessibleName(page.action->text());
+            button->setAccessibleDescription(page.description);
+        }
+    }
 }
 
 void Launcher::MainDialog::createPages()

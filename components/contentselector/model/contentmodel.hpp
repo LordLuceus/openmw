@@ -46,6 +46,22 @@ namespace ContentSelectorModel
         bool dropMimeData(
             const QMimeData* data, Qt::DropAction action, int row, int column, const QModelIndex& parent) override;
 
+        /// Move the given source rows one position up (step -1) or down
+        /// (step +1), preserving their relative order. Returns true if
+        /// anything moved. This is the keyboard/button equivalent of the
+        /// drag-and-drop reordering the view offers, which a player who cannot
+        /// use a mouse has no other way to perform.
+        bool moveRowsBy(const QList<int>& sourceRows, int step);
+
+        /// Whether moveRowsBy would succeed. Shares its validity rules with
+        /// the move itself, so a button's enabled state can never disagree
+        /// with what pressing it actually does.
+        bool canMoveRowsBy(const QList<int>& sourceRows, int step) const;
+
+        /// First row the user is allowed to reorder; earlier rows are built-in
+        /// or come from another config file and are fixed in place.
+        int firstModifiableRow() const;
+
         void addFiles(const QString& path, bool newfiles);
         void sortFiles();
         bool containsDataFiles(const QString& path);
