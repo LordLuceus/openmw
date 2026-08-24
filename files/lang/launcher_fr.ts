@@ -93,7 +93,7 @@
     </message>
     <message>
         <source>Select a content list</source>
-        <translation>Sélectionne une Liste de contenu.</translation>
+        <translation type="vanished">Sélectionne une Liste de contenu.</translation>
     </message>
     <message>
         <source>New Content List</source>
@@ -141,15 +141,15 @@
     </message>
     <message>
         <source>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Note: content files that are not part of current Content List are &lt;span style=&quot; font-style:italic;font-weight: bold&quot;&gt;highlighted&lt;/span&gt;&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</source>
-        <translation>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Note : Les fichiers de contenu qui ne font pas partie de la &lt;em&gt;Liste de contenu&lt;/em&gt; actuelle sont &lt;span style=&quot; font-style:italic;font-weight: bold&quot;&gt;surlignés&lt;/span&gt;.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</translation>
+        <translation type="vanished">&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Note : Les fichiers de contenu qui ne font pas partie de la &lt;em&gt;Liste de contenu&lt;/em&gt; actuelle sont &lt;span style=&quot; font-style:italic;font-weight: bold&quot;&gt;surlignés&lt;/span&gt;.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</translation>
     </message>
     <message>
         <source>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Note: directories that are not part of current Content List are &lt;span style=&quot; font-style:italic;font-weight: bold&quot;&gt;highlighted&lt;/span&gt;&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</source>
-        <translation>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Note : Les dossiers de données qui ne font pas partie de la &lt;em&gt;Liste de contenu&lt;/em&gt; actuelle sont &lt;span style=&quot; font-style:italic;font-weight: bold&quot;&gt;surlignés&lt;/span&gt;.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</translation>
+        <translation type="vanished">&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Note : Les dossiers de données qui ne font pas partie de la &lt;em&gt;Liste de contenu&lt;/em&gt; actuelle sont &lt;span style=&quot; font-style:italic;font-weight: bold&quot;&gt;surlignés&lt;/span&gt;.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</translation>
     </message>
     <message>
         <source>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Note: archives that are not part of current Content List are &lt;span style=&quot; font-style:italic;font-weight: bold&quot;&gt;highlighted&lt;/span&gt;&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</source>
-        <translation>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Note : Les archives qui ne font pas partie de la &lt;em&gt;Liste de contenu&lt;/em&gt; actuelle sont &lt;span style=&quot; font-style:italic;font-weight: bold&quot;&gt;surlignées&lt;/span&gt;.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</translation>
+        <translation type="vanished">&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Note : Les archives qui ne font pas partie de la &lt;em&gt;Liste de contenu&lt;/em&gt; actuelle sont &lt;span style=&quot; font-style:italic;font-weight: bold&quot;&gt;surlignées&lt;/span&gt;.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</translation>
     </message>
     <message>
         <source>Remove Unused Tiles</source>
@@ -158,6 +158,38 @@
     <message>
         <source>Max Size</source>
         <translation>Taille maximale</translation>
+    </message>
+    <message>
+        <source>Move selected content file one position up (Ctrl+Up)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Move selected content file one position down (Ctrl+Down)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Note: content files that are not part of current Content List are &lt;span style=&quot; font-style:italic;font-weight: bold&quot;&gt;highlighted&lt;/span&gt; and announced as &quot;not in content list&quot;&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Note: directories that are not part of current Content List are &lt;span style=&quot; font-style:italic;font-weight: bold&quot;&gt;highlighted&lt;/span&gt; and announced as &quot;not in content list&quot;&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Note: archives that are not part of current Content List are &lt;span style=&quot; font-style:italic;font-weight: bold&quot;&gt;highlighted&lt;/span&gt; and announced as &quot;not in content list&quot;&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>A content list is a named, saved set of mods: which data directories, archives and content files are enabled, and in what order. Switching lists swaps your whole mod setup, so you can keep separate ones for different playthroughs without re-enabling anything by hand.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Content list</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>A named, saved set of mods. Switching lists swaps your whole mod setup.</source>
+        <translation type="unfinished"></translation>
     </message>
 </context>
 <context>
@@ -398,6 +430,10 @@ to default Morrowind fonts. Check this box if you still prefer original fonts ov
         <source>&amp;Open Path in File Explorer</source>
         <translation>&amp;Ouvrir l&apos;emplacement dans l&apos;explorateur de fichiers</translation>
     </message>
+    <message>
+        <source>%1, not in content list</source>
+        <translation type="unfinished"></translation>
+    </message>
 </context>
 <context>
     <name>Launcher::GraphicsPage</name>
@@ -566,6 +602,26 @@ to default Morrowind fonts. Check this box if you still prefer original fonts ov
     <message>
         <source>&lt;br&gt;&lt;b&gt;Could not create directory %0&lt;/b&gt;&lt;br&gt;&lt;br&gt;%1&lt;br&gt;</source>
         <translation>&lt;br&gt;&lt;b&gt;Impossible de créer le dossier %0&lt;/b&gt;&lt;br&gt;&lt;br&gt;%1&lt;br&gt;</translation>
+    </message>
+    <message>
+        <source>Data Files page</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Display page</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Settings page</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Import page</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>%1 (%2)</source>
+        <translation type="unfinished"></translation>
     </message>
 </context>
 <context>

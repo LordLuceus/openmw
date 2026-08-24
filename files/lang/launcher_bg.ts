@@ -9,7 +9,7 @@
     </message>
     <message>
         <source>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Note: content files that are not part of current Content List are &lt;span style=&quot; font-style:italic;font-weight: bold&quot;&gt;highlighted&lt;/span&gt;&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</source>
-        <translation>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Бележка: файловете със съдържание, които не са част от текущия списък, са &lt;span style=&quot; font-style:italic;font-weight: bold&quot;&gt;удебелени&lt;/span&gt;&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</translation>
+        <translation type="vanished">&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Бележка: файловете със съдържание, които не са част от текущия списък, са &lt;span style=&quot; font-style:italic;font-weight: bold&quot;&gt;удебелени&lt;/span&gt;&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</translation>
     </message>
     <message>
         <source>Data Directories</source>
@@ -57,7 +57,7 @@
     </message>
     <message>
         <source>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Note: directories that are not part of current Content List are &lt;span style=&quot; font-style:italic;font-weight: bold&quot;&gt;highlighted&lt;/span&gt;&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</source>
-        <translation>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Бележка: директориите, които не са част от текущия списък, са &lt;span style=&quot; font-style:italic;font-weight: bold&quot;&gt;удебелени&lt;/span&gt;&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</translation>
+        <translation type="vanished">&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Бележка: директориите, които не са част от текущия списък, са &lt;span style=&quot; font-style:italic;font-weight: bold&quot;&gt;удебелени&lt;/span&gt;&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</translation>
     </message>
     <message>
         <source>Archive Files</source>
@@ -73,7 +73,7 @@
     </message>
     <message>
         <source>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Note: archives that are not part of current Content List are &lt;span style=&quot; font-style:italic;font-weight: bold&quot;&gt;highlighted&lt;/span&gt;&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</source>
-        <translation>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Бележка: архивите, които не са част от текущия списък, са &lt;span style=&quot; font-style:italic;font-weight: bold&quot;&gt;удебелени&lt;/span&gt;&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</translation>
+        <translation type="vanished">&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Бележка: архивите, които не са част от текущия списък, са &lt;span style=&quot; font-style:italic;font-weight: bold&quot;&gt;удебелени&lt;/span&gt;&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</translation>
     </message>
     <message>
         <source>Navigation Mesh Cache</source>
@@ -113,7 +113,7 @@
     </message>
     <message>
         <source>Select a content list</source>
-        <translation>Изберете списък със съдържание</translation>
+        <translation type="vanished">Изберете списък със съдържание</translation>
     </message>
     <message>
         <source>New Content List</source>
@@ -158,6 +158,38 @@
     <message>
         <source>Ctrl+R</source>
         <translation>Ctrl+R</translation>
+    </message>
+    <message>
+        <source>Move selected content file one position up (Ctrl+Up)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Move selected content file one position down (Ctrl+Down)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Note: content files that are not part of current Content List are &lt;span style=&quot; font-style:italic;font-weight: bold&quot;&gt;highlighted&lt;/span&gt; and announced as &quot;not in content list&quot;&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Note: directories that are not part of current Content List are &lt;span style=&quot; font-style:italic;font-weight: bold&quot;&gt;highlighted&lt;/span&gt; and announced as &quot;not in content list&quot;&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Note: archives that are not part of current Content List are &lt;span style=&quot; font-style:italic;font-weight: bold&quot;&gt;highlighted&lt;/span&gt; and announced as &quot;not in content list&quot;&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>A content list is a named, saved set of mods: which data directories, archives and content files are enabled, and in what order. Switching lists swaps your whole mod setup, so you can keep separate ones for different playthroughs without re-enabling anything by hand.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Content list</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>A named, saved set of mods. Switching lists swaps your whole mod setup.</source>
+        <translation type="unfinished"></translation>
     </message>
 </context>
 <context>
@@ -400,6 +432,10 @@ to default Morrowind fonts. Check this box if you still prefer original fonts ov
         <source>&amp;Open Path in File Explorer</source>
         <translation>&amp;Отвори местоположението във файловия мениджър</translation>
     </message>
+    <message>
+        <source>%1, not in content list</source>
+        <translation type="unfinished"></translation>
+    </message>
 </context>
 <context>
     <name>Launcher::GraphicsPage</name>
@@ -568,6 +604,26 @@ to default Morrowind fonts. Check this box if you still prefer original fonts ov
     <message>
         <source>&lt;br&gt;&lt;b&gt;You do not have a game file selected.&lt;/b&gt;&lt;br&gt;&lt;br&gt;OpenMW will not start without a game file selected.&lt;br&gt;</source>
         <translation>&lt;br&gt;&lt;b&gt;Не сте избрали файл на играта.&lt;/b&gt;&lt;br&gt;&lt;br&gt;OpenMW няма да стартира без избран файл на играта.&lt;br&gt;</translation>
+    </message>
+    <message>
+        <source>Data Files page</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Display page</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Settings page</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Import page</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>%1 (%2)</source>
+        <translation type="unfinished"></translation>
     </message>
 </context>
 <context>

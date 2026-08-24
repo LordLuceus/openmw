@@ -2,6 +2,13 @@
 <!DOCTYPE TS>
 <TS version="2.1" language="sv_SE">
 <context>
+    <name>AddOnProxyModel</name>
+    <message>
+        <source>%1, %2 of %3</source>
+        <translation type="unfinished"></translation>
+    </message>
+</context>
+<context>
     <name>ContentSelector</name>
     <message>
         <source>Select language used by ESM/ESP content files to allow OpenMW to detect their encoding. </source>
@@ -21,6 +28,10 @@
     <message>
         <source>This file needs to load after %1</source>
         <translation>Denna fil måste laddas efter %1</translation>
+    </message>
+    <message>
+        <source>%1, not in content list</source>
+        <translation type="unfinished"></translation>
     </message>
 </context>
 <context>
