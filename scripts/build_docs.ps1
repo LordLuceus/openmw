@@ -140,6 +140,20 @@ foreach ($doc in $docs) {
         if ($thTotal -ne $thScope) {
             $failures += "$($doc.Html): $($thTotal - $thScope) of $thTotal <th> cells lack scope=col"
         }
+
+        # No table row may have been rendered as prose. Interrupting a Markdown
+        # table with a paragraph (or leaving a blank line mid-table) silently ends
+        # the table: pandoc emits the remaining rows as one run-on paragraph full
+        # of pipe characters. It still passes every check above, and a screen
+        # reader then reads those keys as prose instead of labelled cells -- so it
+        # is invisible in review and only obvious to the person relying on it.
+        # Shipped once this way (beta-2026-08-25), hence this gate.
+        foreach ($para in [regex]::Matches($html, '(?s)<p>.*?</p>')) {
+            if ($para.Value -match '\|\s*<strong>') {
+                $failures += "$($doc.Html): a table broke into prose -- check for a paragraph or blank line interrupting a Markdown table"
+                break
+            }
+        }
     }
 }
 

@@ -148,17 +148,17 @@ came with this package.
 | **Ctrl + Page Down / Page Up** | Switch to the next / previous category |
 | **Shift + Page Down / Page Up** | Cycle the subcategory filter (e.g. Plants / Storage within Containers) |
 | **Ctrl + 0 … 9** | Jump straight to a category: 0 All, 1 Actors, 2 Doors, 3 Containers, 4 Items, 5 Activators, 6 Detected, 7 Waypoints, 8 Locations, 9 Terrain |
-
-Detected, Waypoints, Locations and Terrain only appear while they have something
-in them, so cycling with Ctrl + Page Down skips them when they are empty. Their
-Ctrl + number keys always work and will say "0 in range", so use those to check
-rather than assuming a category has gone missing.
 | **Home** | Announce current target |
 | **Backspace** | Jump back to the first (nearest) target in the category |
 | **End** | Clear the current selection |
 | **/** (slash) | Search: filter the current category by name, a door's destination, or any note you've attached with Ctrl + K |
 | **Ctrl + /** | Clear an active search filter |
 | **Ctrl + Up** | Direction filter: show only things lying the way you're facing. Affects every category at once and follows you as you turn; press again to switch off. Handy when an NPC says something is "to the north" |
+
+Detected, Waypoints, Locations and Terrain only appear while they have something
+in them, so cycling with Ctrl + Page Down skips them when they are empty. Their
+Ctrl + number keys always work and will say "0 in range", so use those to check
+rather than assuming a category has gone missing.
 
 ### Acting on the target
 

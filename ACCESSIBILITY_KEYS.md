@@ -74,6 +74,12 @@ here" is a much shorter list than "what is in this room".
 | **Ctrl + Page Down / Page Up** | Next / previous category |
 | **Shift + Page Down / Page Up** | Cycle the subcategory filter (e.g. Plants / Storage within Containers) |
 | **Ctrl + 0 … 9** | Jump straight to a category: 0 All, 1 Actors, 2 Doors, 3 Containers, 4 Items, 5 Activators, 6 Detected, 7 Waypoints, 8 Locations, 9 Terrain |
+| **Home** | Announce the current target again |
+| **Backspace** | Back to the first (nearest) target in the category |
+| **End** | Clear the selection |
+| **/** | Search: filter the current category by name, a door's destination, or any note you've attached with Ctrl + K |
+| **Ctrl + /** | Clear the search filter |
+| **Ctrl + Up** | Direction filter: show only what lies the way you're facing, and keep following you as you turn. Press again to switch off |
 
 Four categories only appear while they have something in them: **Detected**
 (while a Detect effect is revealing something), **Waypoints** (once you have a
@@ -83,12 +89,6 @@ Ctrl + Page Down skips them when they are empty, so the ring you hear is often
 shorter than ten. Their **Ctrl + number** keys always work regardless, and
 announce "0 in range" when there is nothing there — so use Ctrl + 6 … 9 to check
 a category rather than assuming it is missing.
-| **Home** | Announce the current target again |
-| **Backspace** | Back to the first (nearest) target in the category |
-| **End** | Clear the selection |
-| **/** | Search: filter the current category by name, a door's destination, or any note you've attached with Ctrl + K |
-| **Ctrl + /** | Clear the search filter |
-| **Ctrl + Up** | Direction filter: show only what lies the way you're facing, and keep following you as you turn. Press again to switch off |
 
 ---
 
