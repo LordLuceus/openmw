@@ -112,7 +112,8 @@ it, attacking it — acts on the currently selected target, so you never need to
 aim a crosshair you can't see.
 
 **Auto-walk.** Once you have a target, you can have the game walk you to it
-automatically, routing around obstacles. Press any movement key to cancel.
+automatically, routing around obstacles. Press one of your forward, back, left or
+right movement keys to cancel.
 
 **The audio beacon.** A looping directional sound placed on your target so you
 can find the way by ear, useful when auto-walk can't reach somewhere and you need
@@ -123,9 +124,11 @@ to navigate the last stretch yourself.
 ## Key bindings
 
 Menus and dialogs are navigated with the **arrow keys**; **Enter** activates,
-**Escape** backs out. **R** re-reads the last spoken line (dialogue, book page,
-etc.) — in menus, conversations and books. Out in the world, **Home** repeats the
-last announcement instead, since R is Morrowind's own "ready / put away magic".
+**Escape** backs out. **R** repeats a spoken *passage or prompt* — a conversation
+line, a journal page, a Yes/No question. It does not repeat the menu row or book
+paragraph you are on; for those, arrow off and back on. Out in the world, **Home**
+repeats the last announcement instead, since R is Morrowind's own "ready / put
+away magic".
 
 The keys below are in addition to OpenMW's normal controls. The accessibility
 keys use keys that Morrowind itself leaves free (the number row with Ctrl, Page
@@ -145,6 +148,11 @@ came with this package.
 | **Ctrl + Page Down / Page Up** | Switch to the next / previous category |
 | **Shift + Page Down / Page Up** | Cycle the subcategory filter (e.g. Plants / Storage within Containers) |
 | **Ctrl + 0 … 9** | Jump straight to a category: 0 All, 1 Actors, 2 Doors, 3 Containers, 4 Items, 5 Activators, 6 Detected, 7 Waypoints, 8 Locations, 9 Terrain |
+
+Detected, Waypoints, Locations and Terrain only appear while they have something
+in them, so cycling with Ctrl + Page Down skips them when they are empty. Their
+Ctrl + number keys always work and will say "0 in range", so use those to check
+rather than assuming a category has gone missing.
 | **Home** | Announce current target |
 | **Backspace** | Jump back to the first (nearest) target in the category |
 | **End** | Clear the current selection |
@@ -198,7 +206,11 @@ came with this package.
 | **Home** | Re-read the current row |
 
 While the HUD is open, the scanner and quick-info keys keep working, so you can
-still cycle targets, check health, and so on.
+still cycle targets, check health, and so on. The two exceptions are the keys the
+HUD uses itself: plain **Enter** and plain **Home** act on the HUD rather than the
+target. Modified combinations still reach the scanner, so Shift + Enter to
+auto-walk, Ctrl + Enter for the beacon, and Ctrl + Shift + Enter to teleport all
+work as usual.
 
 ### The console
 
@@ -303,8 +315,10 @@ reach the target — step through the door yourself and carry on from the other
 side.
 
 - **Start it** with **Shift + Enter** on a target.
-- **Cancel it** by pressing any of your movement keys, or by selecting a new
-  target and starting again.
+- **Cancel it** by pressing one of your forward, back, left or right movement
+  keys, or by selecting a new target and starting again. Jumping, sneaking and
+  turning do not cancel it, and neither does Space — so you can walk to a door and
+  open it the moment you arrive.
 - On arrival it announces "Arrived at *name*." If it can't get all the way there,
   it stops, turns to face the target, and tells you how far short it is (and
   whether the target is above or below you) so you can finish on foot — the audio

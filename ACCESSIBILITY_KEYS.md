@@ -1,7 +1,9 @@
 # Project Hortator — Complete Key Reference
 
 Every key the accessibility layer adds or changes, grouped by where you use it.
-The readme covers the essentials; this is the full list.
+The readme covers the essentials; this goes through the lot. If you find a key
+that works but isn't written down here, that's a bug in this document — please
+report it.
 
 Two things to know before the tables:
 
@@ -32,6 +34,7 @@ Two things to know before the tables:
 - [Books and scrolls](#books-and-scrolls)
 - [The journal](#the-journal)
 - [Saving and loading](#saving-and-loading)
+- [Yes / No questions](#yes--no-questions)
 - [Settings](#settings)
 - [The console](#the-console)
 - [The launcher](#the-launcher)
@@ -71,6 +74,15 @@ here" is a much shorter list than "what is in this room".
 | **Ctrl + Page Down / Page Up** | Next / previous category |
 | **Shift + Page Down / Page Up** | Cycle the subcategory filter (e.g. Plants / Storage within Containers) |
 | **Ctrl + 0 … 9** | Jump straight to a category: 0 All, 1 Actors, 2 Doors, 3 Containers, 4 Items, 5 Activators, 6 Detected, 7 Waypoints, 8 Locations, 9 Terrain |
+
+Four categories only appear while they have something in them: **Detected**
+(while a Detect effect is revealing something), **Waypoints** (once you have a
+map note or a Mark), **Locations** (once you have discovered a named place) and
+**Terrain** (in a cell with damaging terrain or a levitation shaft). Cycling with
+Ctrl + Page Down skips them when they are empty, so the ring you hear is often
+shorter than ten. Their **Ctrl + number** keys always work regardless, and
+announce "0 in range" when there is nothing there — so use Ctrl + 6 … 9 to check
+a category rather than assuming it is missing.
 | **Home** | Announce the current target again |
 | **Backspace** | Back to the first (nearest) target in the category |
 | **End** | Clear the selection |
@@ -96,7 +108,9 @@ here" is a much shorter list than "what is in this room".
 | **Shift + K** | Cycle which objects you see: all → unmarked only → marked only → all |
 | **I** | Inspect the target's hidden state — says whether a one-shot mechanism has "Already used" or is "Not used yet", then reads out script values such as whether a lever is on or off. Says "has no readable state" if there's nothing to report |
 
-Any movement key cancels auto-walk.
+Your forward, back, left or right movement keys cancel auto-walk. Jumping,
+sneaking and turning do not, and neither does Space (so you can walk to a door
+and open it on arrival).
 
 ---
 
@@ -126,7 +140,11 @@ Any movement key cancels auto-walk.
 | **Left / Escape** | Back out of the effects list, or close the HUD |
 | **Home** | Re-read the current row |
 
-The scanner and quick-info keys keep working while the HUD is open.
+The scanner and quick-info keys keep working while the HUD is open, with two
+exceptions: plain **Enter** and plain **Home** belong to the HUD itself (Enter
+opens the effects row, Home re-reads the current row). The modified Enter
+combinations — Shift for auto-walk, Ctrl for the beacon, Ctrl + Shift for
+teleport — still reach the scanner as usual.
 
 ---
 
@@ -142,16 +160,18 @@ These work in every accessible menu and window unless that window says otherwise
 | **Enter** or **Space** | Activate the option — open a submenu, run the action, or start editing a text box |
 | **T** | Cycle the extra detail lines for the focused option (an item's weight, value and so on) |
 | **Shift + T** | Cycle those detail lines backwards |
-| **R** | Repeat the last announcement |
+| **R** | Repeat the last spoken passage or prompt (a conversation line, a journal page, a Yes/No question). Not the menu row you're on — arrow off it and back for that |
 | **Escape** | Close the window |
-| **Tab / Shift + Tab** | Switch between panes shown side by side (Stats, Inventory, Magic, Map; a container and your inventory; a merchant and your inventory) |
+| **Tab / Shift + Tab** | Switch between panes shown side by side (Stats, Inventory, Magic, Map; a container and your inventory; a companion and your inventory; a merchant and your inventory) |
 
 When a submenu is open:
 
 | Key | Action |
 | --- | --- |
 | **Up / Down** | Move between the submenu's items |
+| **Ctrl + Up / Down** | Jump to the previous / next section within the submenu (for example between the sources of your active effects) |
 | **Home / End** | Jump to the first / last item |
+| **T** / **Shift + T** | Cycle the extra detail lines for the focused item, forwards / backwards |
 | **Escape** or **Left** | Close the submenu and go back to the option it came from |
 | **Enter / Space** | Activate the item, if it does anything |
 
@@ -193,7 +213,7 @@ Empty positions read as "blank"; spaces, tabs and line breaks are spoken by name
 | --- | --- |
 | **Up / Down** | Move through the items |
 | **Enter** | Take, store, equip or use the focused item — whole stack |
-| **Shift + Enter** | The same, but ask how many first |
+| **Shift + Enter** | The same, but ask how many first. Applies when moving items to or from an open container or companion; bartering always asks, and equipping from your own inventory always takes the whole stack |
 | **T** | Cycle the item's details (weight, value, condition, effects) |
 | **Ctrl + Left / Right** | Cycle the category filter: All, Weapon, Apparel, Magic, Misc |
 | **Delete** | Drop the focused item (asks how many for a stack). Bound and conjured items can't be dropped |
@@ -265,8 +285,10 @@ When editing an effect while making a spell or enchantment, on a slider
 | --- | --- |
 | **Up / Down** | Previous / next paragraph |
 | **Enter** | Take the book, or close it, when on those options |
-| **R** | Re-read the current paragraph |
 | **Escape** | Close |
+
+To hear a paragraph again, arrow off it and back on with Up then Down. **R** does
+not repeat book text.
 
 A book with no readable text says so — either that it contains only pictures, or
 that it's blank.
@@ -284,6 +306,7 @@ that it's blank.
 | **Left / Right** | Back / forward one page |
 | **T** | Open the topics browser |
 | **Q** | Open the quest list |
+| **R** | Read the current page or entry again |
 
 **In the topic and quest lists:**
 
@@ -307,7 +330,19 @@ list, T goes back to its usual job of reading out extra detail.
 | --- | --- |
 | **Up / Down** | Move through your saves |
 | **Enter** | Load, or save to the focused slot |
-| **Delete** | Delete the focused save. You'll be asked to confirm, and the save is named |
+| **Delete** | Delete the focused save. You'll be asked to confirm, and the save is named. It only works with the cursor on a save in the list — from the name box or a button, nothing happens |
+
+---
+
+## Yes / No questions
+
+Confirmation prompts — deleting a save or a spell, confirming a teleport, and the
+game's own warnings. Arrow keys and Tab move between the choices, Enter picks one
+and Escape cancels, all as usual.
+
+| Key | Action |
+| --- | --- |
+| **R** | Read the question again |
 
 ---
 
@@ -396,7 +431,9 @@ Most keys do one job everywhere. These don't, so they're worth knowing:
 | **Ctrl + Left / Right** | Inventory: change category filter. Editing a spell effect: adjust a slider by 10. In the world: turn to the next compass point |
 | **Ctrl + Up / Down** | Journal, while reading: move by journal entry. Conversations: jump to an unexhausted topic. In the world, Ctrl+Up is the direction filter and Ctrl+Down turns you around. In menus: jump between sections. In the launcher's Content Files tab: move a mod up or down the load order |
 | **Up / Down** | Journal, while reading: turn a page spread. Books: move by paragraph. Elsewhere: move between options |
-| **Home** | In the world: repeat the target. Submenus: jump to the first item. On a slider: lowest value. While typing: start of the line |
+| **Enter** | In the world: face the target. Accessible HUD: open the active-effects row. Your inventory: equip or use the item. Container or companion: move the item across. Barter: choose how many. Save/Load: load, or overwrite. Menus: activate the option, or start editing a text box |
+| **R** | Conversations, the journal while reading, a Yes/No message box, the class quiz: repeat what was just spoken. Menus, lists and books: nothing — arrow off the row and back instead. In the world: Morrowind's own ready / put away magic |
+| **Home** | In the world: repeat the target. Accessible HUD: re-read the current row. Submenus: jump to the first item. On a slider: lowest value. While typing: start of the line |
 | **Escape** | While typing: stop editing. In a submenu: close the submenu. Journal lists: go back a level. Otherwise: close the window |
 
 ---
@@ -409,6 +446,9 @@ plain letters (**H**, **K**, **X**, **I**, **L**, **N**). If one of these clashe
 with something you've rebound, you can change your own binding in the game's
 controls settings; the accessibility keys themselves are fixed for now.
 
-Note that **R** appears only in menus, conversations and books — in the world it
-stays Morrowind's own "ready / put away magic". To hear the last thing spoken
-again while you're playing, use **Home**.
+**R** repeats a spoken *passage or prompt* — a conversation line, a journal page
+or entry, a Yes/No message box, or a class-quiz question. It does **not** repeat
+menu rows, list items or book paragraphs: to hear one of those again, arrow off
+it and back on. In the world (outside any menu) R stays Morrowind's own "ready /
+put away magic"; to hear the last thing spoken while you're playing, use
+**Home**.
