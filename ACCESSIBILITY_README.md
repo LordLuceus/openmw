@@ -101,6 +101,12 @@ so you can sweep one storey before moving on instead of being sent up and down
 stairs. (Outdoors it stays plain nearest-first.) The currently selected object
 is your *target*.
 
+It starts on the **All** category, which holds everything interactable at once —
+actors, doors, containers, items and activators — so walking into a strange room
+and pressing Page Down tells you what's there without having to guess which
+category to look in first. Narrow to a single category (**Ctrl + 1** … **5**)
+when you want a shorter, more specific list.
+
 **The target.** Almost everything you do — facing it, walking to it, activating
 it, attacking it — acts on the currently selected target, so you never need to
 aim a crosshair you can't see.
@@ -138,7 +144,7 @@ came with this package.
 | **Page Down / Page Up** | Cycle to the next / previous target in the current category |
 | **Ctrl + Page Down / Page Up** | Switch to the next / previous category |
 | **Shift + Page Down / Page Up** | Cycle the subcategory filter (e.g. Plants / Storage within Containers) |
-| **Ctrl + 1 … 9** | Jump straight to a category: 1 Actors, 2 Doors, 3 Containers, 4 Items, 5 Activators, 6 Detected, 7 Waypoints, 8 Locations, 9 Terrain |
+| **Ctrl + 0 … 9** | Jump straight to a category: 0 All, 1 Actors, 2 Doors, 3 Containers, 4 Items, 5 Activators, 6 Detected, 7 Waypoints, 8 Locations, 9 Terrain |
 | **Home** | Announce current target |
 | **Backspace** | Jump back to the first (nearest) target in the category |
 | **End** | Clear the current selection |

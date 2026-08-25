@@ -4,6 +4,23 @@ A running log of screen-reader accessibility features added to this OpenMW fork.
 Newest changes are listed first. (OpenMW's own engine changelog lives in
 `CHANGELOG.md`.)
 
+## 2026-08-25
+
+- **New "All" scanner category: everything interactable in one list.** Surveying
+  an unfamiliar room meant cycling through five categories in turn — actors,
+  doors, containers, items, activators — just to find out what was in it, and
+  anything in a category you didn't think to check went unnoticed. **Ctrl + 0**
+  now gives you all five at once, distance-sorted together, and the scanner
+  starts on it instead of Actors. Entries read exactly as they do in their own
+  categories, and everything you can do to a target (facing, auto-walk,
+  activating, marking, searching) works the same here. The single categories are
+  unchanged for when you want a shorter, more specific list.
+- **Marks now follow the object, not the list you set them from.** A mark or
+  note (**K** / **Ctrl + K**) was stored per category, so the same door could
+  read as marked in one list and unmarked in another. Marks are now a property
+  of the object, so one set in All shows in Doors and vice versa. Searching by
+  note works from either.
+
 ## 2026-08-24
 
 - **Lists in the launcher no longer trap the keyboard.** Tabbing through the

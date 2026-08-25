@@ -59,12 +59,18 @@ The world is grouped into categories (actors, doors, containers and so on). You
 pick a category, then cycle through what's in it, nearest first. Whatever is
 selected is your **target**.
 
+The scanner starts on **All**, which is every interactable thing around you in
+one list — actors, doors, containers, items and activators together, nearest
+first. It's the quickest way to survey an unfamiliar room. Switch to a single
+category when you want to ignore everything else: "where are the doors out of
+here" is a much shorter list than "what is in this room".
+
 | Key | Action |
 | --- | --- |
 | **Page Down / Page Up** | Next / previous target in the current category. Hold to run through a long list |
 | **Ctrl + Page Down / Page Up** | Next / previous category |
 | **Shift + Page Down / Page Up** | Cycle the subcategory filter (e.g. Plants / Storage within Containers) |
-| **Ctrl + 1 … 9** | Jump straight to a category: 1 Actors, 2 Doors, 3 Containers, 4 Items, 5 Activators, 6 Detected, 7 Waypoints, 8 Locations, 9 Terrain |
+| **Ctrl + 0 … 9** | Jump straight to a category: 0 All, 1 Actors, 2 Doors, 3 Containers, 4 Items, 5 Activators, 6 Detected, 7 Waypoints, 8 Locations, 9 Terrain |
 | **Home** | Announce the current target again |
 | **Backspace** | Back to the first (nearest) target in the category |
 | **End** | Clear the selection |

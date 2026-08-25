@@ -578,7 +578,30 @@ namespace MWAccessibility
         // N of M) -- the position-based analogue of announceCurrent().
         void announceCurrentWaypoint();
 
-        Category mCategory = Category::Npcs;
+        // --- Marks (Ctrl+K) ------------------------------------------------
+        // A mark is a property of the OBJECT, not of the list the player
+        // happened to be looking at, so the Category::All view must share marks
+        // with the record-type category the object belongs to -- otherwise
+        // marking a door in All then switching to Doors would show it unmarked,
+        // which reads as a bug. Marks are therefore always stored in and read
+        // from the object's OWN category, and the All list keeps no marks of its
+        // own. These helpers are the only sanctioned way to reach them.
+        //
+        // The category whose mMarked map owns \p ptr's marks: the record-type
+        // category it belongs to, never Category::All.
+        Category markOwnerCategory(const MWWorld::Ptr& ptr) const;
+        // The mark note for \p ptr, or nullptr when it isn't marked.
+        const std::string* findMark(const MWWorld::Ptr& ptr) const;
+        bool isMarked(const MWWorld::Ptr& ptr) const { return findMark(ptr) != nullptr; }
+        // Every marks map that can contribute to the ACTIVE category's list:
+        // just that category's own, except for All, which spans the five
+        // record-type categories it unions.
+        std::vector<const std::unordered_map<ESM::RefNum, std::string>*> activeMarkMaps() const;
+
+        // Starts on All (everything interactable in one list) rather than a
+        // single record type, so the first Page Down after opening the scanner
+        // surveys the room instead of only its actors.
+        Category mCategory = Category::All;
 
         struct CategoryState
         {
@@ -803,6 +826,10 @@ namespace MWAccessibility
         // object rather than whatever happens to be selected on confirm.
         ESM::RefNum mPendingNoteRef;
         Category mPendingNoteCategory = Category::Count;
+        // The object's spoken name, captured with the ref above. Needed because
+        // mPendingNoteCategory is the MARK-OWNING category, whose cached list
+        // need not contain the object when the note was typed from the All view.
+        std::string mPendingNoteName;
 
         // The last cell name we announced on entry. Cities span several cells
         // that all share one name (e.g. every Balmora exterior cell is named

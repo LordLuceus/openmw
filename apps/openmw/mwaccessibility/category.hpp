@@ -43,6 +43,20 @@ namespace MWAccessibility
         // bespoke key. Skipped when cycling while the current cell has neither.
         Terrain,
 
+        // Everything interactable in one list: the union of Npcs, Doors,
+        // Containers, Items and Activators, distance-sorted together. Not
+        // Detected/Waypoints/Locations/Terrain -- those aren't cell-scanned
+        // record types (the last three are bare positions, and Detected is a
+        // query result), so folding them in would mix incompatible entry kinds.
+        //
+        // Deliberately LAST in the enum despite being first in the key order
+        // (Ctrl+0) and the startup default: the marks sidecar stores the
+        // category as a raw integer, so inserting a value anywhere earlier
+        // would silently repoint every existing save's marks at the wrong
+        // category. Cycle order is decoupled from enum order (see kCycleOrder)
+        // so this costs nothing at the keyboard.
+        All,
+
         Count
     };
 }

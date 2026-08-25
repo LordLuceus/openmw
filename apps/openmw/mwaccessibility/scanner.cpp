@@ -284,10 +284,44 @@ using MWAccessibility::kPi;
                 return "Locations";
             case MWAccessibility::Category::Terrain:
                 return "Terrain";
+            case MWAccessibility::Category::All:
+                return "All";
             case MWAccessibility::Category::Count:
                 break;
         }
         return "?";
+    }
+
+    // The order Ctrl+PageUp/PageDown steps through the categories, and the
+    // order the Ctrl+number quick-keys are assigned. Kept separate from the
+    // enum's own order because Category::All must sit last in the enum (the
+    // marks sidecar stores the enum value numerically) while reading first at
+    // the keyboard, where it is the default and the broadest view.
+    constexpr MWAccessibility::Category kCycleOrder[] = {
+        MWAccessibility::Category::All,
+        MWAccessibility::Category::Npcs,
+        MWAccessibility::Category::Doors,
+        MWAccessibility::Category::Containers,
+        MWAccessibility::Category::Items,
+        MWAccessibility::Category::Activators,
+        MWAccessibility::Category::Detected,
+        MWAccessibility::Category::Waypoints,
+        MWAccessibility::Category::Locations,
+        MWAccessibility::Category::Terrain,
+    };
+
+    static_assert(std::size(kCycleOrder) == static_cast<size_t>(MWAccessibility::Category::Count),
+        "kCycleOrder must list every Category exactly once -- a category missing from it becomes "
+        "unreachable by cycling, and a stale entry would cycle to the wrong list.");
+
+    // Position of \p cat within kCycleOrder, or 0 if absent (can't happen: the
+    // static_assert above pins the size, and every value is listed).
+    int cycleIndexOf(MWAccessibility::Category cat)
+    {
+        for (int i = 0; i < static_cast<int>(std::size(kCycleOrder)); ++i)
+            if (kCycleOrder[i] == cat)
+                return i;
+        return 0;
     }
 
     bool matchesCategory(const MWWorld::Ptr& ptr, MWAccessibility::Category cat)
@@ -315,6 +349,25 @@ using MWAccessibility::kPi;
                     return false;
                 return !isEditorMarker(ptr);
             }
+            // The union of the five cell-scanned categories above, expressed by
+            // delegating to them rather than restating their predicates -- so a
+            // future change to what counts as an Item or an Activator (e.g. the
+            // editor-marker exclusion) applies here automatically and the two
+            // can never drift apart.
+            case MWAccessibility::Category::All:
+                return matchesCategory(ptr, MWAccessibility::Category::Npcs)
+                    || matchesCategory(ptr, MWAccessibility::Category::Doors)
+                    || matchesCategory(ptr, MWAccessibility::Category::Containers)
+                    || matchesCategory(ptr, MWAccessibility::Category::Items)
+                    || matchesCategory(ptr, MWAccessibility::Category::Activators);
+            case MWAccessibility::Category::Detected:
+            case MWAccessibility::Category::Waypoints:
+            case MWAccessibility::Category::Locations:
+            case MWAccessibility::Category::Terrain:
+                // Not cell-scanned by record type: Detected comes from the
+                // engine's detection query, and the other three are bare
+                // positions rather than objects. Never reached via this path.
+                break;
             case MWAccessibility::Category::Count:
                 break;
         }
@@ -821,8 +874,11 @@ using MWAccessibility::kPi;
     // for "silt" finds them, even though nothing in the game calls them that.
     // It is the only search text the player controls, so it is the only way to
     // find objects the game names unhelpfully (every guard is "Guard").
-    std::string objectSearchText(
-        const MWWorld::Ptr& ptr, const std::unordered_map<ESM::RefNum, std::string>& marks)
+    // \p markNote is the object's own mark note (Ctrl+K), or empty when it has
+    // none. Taken as the resolved note rather than a whole marks map because the
+    // owning map depends on the object (see Scanner::markOwnerCategory): in the
+    // All view the notes come from five different maps.
+    std::string objectSearchText(const MWWorld::Ptr& ptr, std::string_view markNote)
     {
         std::string text = objectDisplayName(ptr);
         appendDoorDestination(ptr, text);
@@ -832,8 +888,8 @@ using MWAccessibility::kPi;
         // searchable ("up", "down", a bearing).
         if (const std::string leads = internalTeleportLeadsLabel(ptr); !leads.empty())
             text += ", " + leads;
-        if (const auto it = marks.find(ptr.getCellRef().getRefNum()); it != marks.end() && !it->second.empty())
-            text += ", " + it->second;
+        if (!markNote.empty())
+            text += ", " + std::string(markNote);
         return MyGUI::LanguageManager::getInstance().replaceTags(text).asUTF8();
     }
 
@@ -1648,6 +1704,10 @@ namespace MWAccessibility
             int catIndex = -1;
             switch (scancode)
             {
+                // Ctrl+0 is All: it reads first in the cycle order and is the
+                // startup default, and 0 sits next to 1 so stepping from the
+                // everything-view to Actors is adjacent at the keyboard.
+                case SDL_SCANCODE_0: catIndex = static_cast<int>(Category::All); break;
                 case SDL_SCANCODE_1: catIndex = static_cast<int>(Category::Npcs); break;
                 case SDL_SCANCODE_2: catIndex = static_cast<int>(Category::Doors); break;
                 case SDL_SCANCODE_3: catIndex = static_cast<int>(Category::Containers); break;
@@ -1886,6 +1946,48 @@ namespace MWAccessibility
         }
     }
 
+    Category Scanner::markOwnerCategory(const MWWorld::Ptr& ptr) const
+    {
+        // The five record-type categories Category::All unions, in enum order.
+        // The first match wins; they are mutually exclusive by construction
+        // (an object is an actor, a door, a container, an item or an activator),
+        // so the order only matters as a tiebreak that can't occur.
+        for (const Category cat : { Category::Npcs, Category::Doors, Category::Containers, Category::Items,
+                 Category::Activators })
+        {
+            if (matchesCategory(ptr, cat))
+                return cat;
+        }
+        // Not one of the unioned record types -- it must have come from a
+        // category that scans by something other than record type (Detected).
+        // Its marks live in whichever category is active.
+        return mCategory == Category::All ? Category::Detected : mCategory;
+    }
+
+    const std::string* Scanner::findMark(const MWWorld::Ptr& ptr) const
+    {
+        const ESM::RefNum ref = ptr.getCellRef().getRefNum();
+        const auto& marks = mLists[static_cast<size_t>(markOwnerCategory(ptr))].mMarked;
+        const auto it = marks.find(ref);
+        return it == marks.end() ? nullptr : &it->second;
+    }
+
+    std::vector<const std::unordered_map<ESM::RefNum, std::string>*> Scanner::activeMarkMaps() const
+    {
+        std::vector<const std::unordered_map<ESM::RefNum, std::string>*> maps;
+        if (mCategory == Category::All)
+        {
+            for (const Category cat : { Category::Npcs, Category::Doors, Category::Containers, Category::Items,
+                     Category::Activators })
+                maps.push_back(&mLists[static_cast<size_t>(cat)].mMarked);
+        }
+        else
+        {
+            maps.push_back(&mLists[static_cast<size_t>(mCategory)].mMarked);
+        }
+        return maps;
+    }
+
     bool Scanner::isCategoryAvailable(Category cat) const
     {
         if (cat == Category::Detected)
@@ -1931,8 +2033,11 @@ namespace MWAccessibility
 
     void Scanner::cycleCategory(int delta)
     {
-        int n = static_cast<int>(Category::Count);
-        int cur = static_cast<int>(mCategory);
+        int n = static_cast<int>(std::size(kCycleOrder));
+        // Step through kCycleOrder rather than the enum's own order: All must
+        // be last in the enum (the marks sidecar stores the value numerically)
+        // but reads first at the keyboard.
+        int cur = cycleIndexOf(mCategory);
         // Step in the requested direction, skipping any category that isn't
         // currently available (today only Detected, which is hidden unless a
         // Detect effect is revealing something). Bounded to one full loop so we
@@ -1940,10 +2045,10 @@ namespace MWAccessibility
         for (int steps = 0; steps < n; ++steps)
         {
             cur = ((cur + delta) % n + n) % n;
-            if (isCategoryAvailable(static_cast<Category>(cur)))
+            if (isCategoryAvailable(kCycleOrder[cur]))
                 break;
         }
-        selectCategory(static_cast<Category>(cur));
+        selectCategory(kCycleOrder[cur]);
     }
 
     void Scanner::selectCategory(Category cat)
@@ -2096,17 +2201,22 @@ namespace MWAccessibility
         const ESM::RefNum ref = target.getCellRef().getRefNum();
         const std::string name = objectDisplayName(target);
 
+        // Store the mark against the object's OWN record-type category, not the
+        // list being viewed, so a mark set from the All view is the same mark
+        // Doors/Items/etc. show (and vice versa).
+        auto& marks = mLists[static_cast<size_t>(markOwnerCategory(target))].mMarked;
+
         // Flip the mark, and remember both what we did (for the verb) and the
         // object's new marked-state (for the visibility check below).
         bool nowMarked;
-        if (state.mMarked.count(ref))
+        if (marks.count(ref))
         {
-            state.mMarked.erase(ref);
+            marks.erase(ref);
             nowMarked = false;
         }
         else
         {
-            state.mMarked.emplace(ref, std::string()); // plain mark, no note
+            marks.emplace(ref, std::string()); // plain mark, no note
             nowMarked = true;
         }
         const std::string verb = nowMarked ? " marked." : " unmarked.";
@@ -2167,14 +2277,22 @@ namespace MWAccessibility
         // Capture which object (and category) the prompt is for: the modal text
         // entry returns asynchronously, so onMarkNoteEntered must re-find THIS
         // object rather than whatever is selected when the prompt closes.
-        mPendingNoteCategory = mCategory;
+        // Record the MARK-OWNING category rather than the viewed one, so a note
+        // typed from the All view lands in the object's own category (and is
+        // therefore visible from both).
+        mPendingNoteCategory = markOwnerCategory(target);
         mPendingNoteRef = target.getCellRef().getRefNum();
+        // The object may not be in the owning category's cached list (it was
+        // selected from the All list), so remember it for the name lookup on
+        // return rather than searching that list.
+        mPendingNoteName = objectDisplayName(target);
 
         // Pre-fill with the existing note (if any) so Ctrl+K edits in place.
+        // Read through findMark so a note written from another category (or from
+        // the All view) is the one being edited, not a blank.
         std::string existing;
-        if (auto it = mLists[static_cast<size_t>(mCategory)].mMarked.find(mPendingNoteRef);
-            it != mLists[static_cast<size_t>(mCategory)].mMarked.end())
-            existing = it->second;
+        if (const std::string* note = findMark(target))
+            existing = *note;
 
         MWBase::Environment::get().getWindowManager()->openMarkNote(existing);
     }
@@ -2187,17 +2305,11 @@ namespace MWAccessibility
         const ESM::RefNum ref = mPendingNoteRef;
         mPendingNoteCategory = Category::Count; // consume the pending state
 
-        // Resolve a spoken name for the object if it's still in range; fall back to
-        // a neutral word if it has since despawned/left the list.
-        std::string name = "Object";
-        for (const MWWorld::Ptr& p : state.mObjects)
-        {
-            if (p.getCellRef().getRefNum() == ref)
-            {
-                name = objectDisplayName(p);
-                break;
-            }
-        }
+        // The name was captured when the prompt opened: the object may not be in
+        // the owning category's own cached list at all (it was selected from the
+        // All view), so searching that list would wrongly report "Object".
+        std::string name = mPendingNoteName.empty() ? std::string("Object") : mPendingNoteName;
+        mPendingNoteName.clear();
 
         // The prompt already treats an empty submission as cancel, but guard
         // anyway: empty text clears the note (keeping the mark) rather than
@@ -4734,7 +4846,9 @@ namespace MWAccessibility
             if (!state.mFilter.empty())
             {
                 std::erase_if(state.mObjects, [&](const MWWorld::Ptr& ptr) {
-                    return Misc::StringUtils::ciFind(objectSearchText(ptr, state.mMarked), state.mFilter)
+                    const std::string* note = findMark(ptr);
+                    return Misc::StringUtils::ciFind(
+                               objectSearchText(ptr, note ? *note : std::string_view{}), state.mFilter)
                         == std::string_view::npos;
                 });
             }
@@ -4838,17 +4952,25 @@ namespace MWAccessibility
                 // destination, so "guild" matches "Door, to ... Guild of
                 // Mages", plus any custom mark note the player wrote). Empty
                 // filter matches everything.
-                if (!state.mFilter.empty()
-                    && Misc::StringUtils::ciFind(objectSearchText(ptr, state.mMarked), state.mFilter)
+                // Marks are read via markOwnerCategory rather than from this
+                // list's own map, so the All view sees (and can search) the
+                // notes written in Doors/Items/etc. -- a mark belongs to the
+                // object, not to the list it was set from.
+                if (!state.mFilter.empty())
+                {
+                    const std::string* note = findMark(ptr);
+                    if (Misc::StringUtils::ciFind(
+                            objectSearchText(ptr, note ? *note : std::string_view{}), state.mFilter)
                         == std::string_view::npos)
-                    return true;
+                        return true;
+                }
                 // Global direction filter (Ctrl+Up): drop anything not lying in
                 // the compass sector the player faces. No-op when disengaged.
                 if (!passesDirectionFilter(ptr.getRefData().getPosition().asVec3()))
                     return true;
                 // Marked-object view (Shift+K): hide marked or unmarked objects
                 // depending on the mode. No-op in the default "All" mode.
-                if (isHiddenUnderMarkedView(state.mMarked.count(ptr.getCellRef().getRefNum()) != 0))
+                if (isHiddenUnderMarkedView(isMarked(ptr)))
                     return true;
                 state.mObjects.push_back(ptr);
                 return true;
@@ -5072,10 +5194,12 @@ namespace MWAccessibility
         // and keyed by the same stable RefNum as the disambiguation letters. A
         // custom note (Ctrl+K) is spoken just before the ", marked" cue, so a
         // labelled object reads e.g. "Gjalund, Khuul shipmaster, marked".
-        if (auto it = state.mMarked.find(target.getCellRef().getRefNum()); it != state.mMarked.end())
+        // Read through findMark, not this list's own map, so an object marked in
+        // its record-type category still reads as "marked" from the All view.
+        if (const std::string* note = findMark(target))
         {
-            if (!it->second.empty())
-                name += ", " + it->second;
+            if (!note->empty())
+                name += ", " + *note;
             name += ", marked";
         }
 
