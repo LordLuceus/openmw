@@ -157,6 +157,20 @@ foreach ($doc in $docs) {
     }
 }
 
+# Every key named in a doc TABLE must have a handler somewhere in the a11y code.
+# Runs once for the whole doc set (not per document), in well under a second, and
+# catches the documented-but-dead key -- the failure mode a blind player cannot
+# tell apart from the screen reader having died. Found by hand in ~50 minutes on
+# 2026-08-25 (book R); this makes it affordable on every release.
+$keyCheck = Join-Path $PSScriptRoot 'check_doc_keys.ps1'
+if ($Check -and (Test-Path $keyCheck)) {
+    $keyOut = & powershell -NoProfile -File $keyCheck 2>&1
+    if ($LASTEXITCODE -ne 0) {
+        $failures += @($keyOut | Where-Object { $_ -match 'documents ' } |
+            ForEach-Object { $_.ToString().Trim() -replace '^-\s*', '' })
+    }
+}
+
 if ($failures.Count) {
     Write-Host ''
     Write-Host 'DOCUMENT BUILD FAILED:' -ForegroundColor Red
