@@ -5,10 +5,12 @@ each one means, and when it fires. These are short sound effects that convey
 status at a glance without waiting for (or talking over) speech. They are
 distinct from spoken output.
 
-All cues play on the dedicated **A11y sound channel** (`MWSound::Type::A11y`),
-so their volume can be managed independently of game audio. The sound files live
-in `files/data/sounds/a11y/` (copied into the VFS at build time). If a file is
-missing, the cue simply plays nothing and the game continues normally.
+All cues play on their own dedicated sound channel, so you can set their volume
+independently of game audio: it is the **Accessibility Cues** slider on the
+**Audio** tab of the settings window. Turn it down if the cues talk over your
+screen reader, or up if you want to rely on them more than on speech. The sound
+files live in `files/data/sounds/a11y/` (copied into the VFS at build time). If a
+file is missing, the cue simply plays nothing and the game continues normally.
 
 Cues are one of two kinds:
 

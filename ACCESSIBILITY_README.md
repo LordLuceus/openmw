@@ -85,9 +85,11 @@ play. Press **H** in gameplay to open the accessible HUD and confirm speech is
 working. If you hear nothing, check that your screen reader or the system speech
 output is running, then see **Troubleshooting** below.
 
-Your saved games live in your Documents folder, under `My Games\OpenMW`. They are
-kept **separately** from any normal OpenMW install, so testing this beta will not
-touch or overwrite your existing OpenMW progress.
+Your saved games live in your Documents folder, under `My Games\OpenMW`. Note
+that this is the **same** folder a normal OpenMW install uses: saves, settings and
+your config file are shared with it, not kept separately. If you already play
+OpenMW and want your existing progress left untouched, back up that folder before
+running this beta.
 
 ---
 
@@ -126,9 +128,11 @@ to navigate the last stretch yourself.
 Menus and dialogs are navigated with the **arrow keys**; **Enter** activates,
 **Escape** backs out. **R** repeats a spoken *passage or prompt* — a conversation
 line, a journal page, a Yes/No question. It does not repeat the menu row or book
-paragraph you are on; for those, arrow off and back on. Out in the world, **Home**
-repeats the last announcement instead, since R is Morrowind's own "ready / put
-away magic".
+paragraph you are on; for those, arrow off and back on. Out in the world R stays
+Morrowind's own "ready / put away magic"; there, **Home** re-announces your
+current target. (Home re-reads the target specifically — it is not a general
+"repeat the last thing you heard", so it won't bring back a time-of-day readout
+or a hazard warning.)
 
 The keys below are in addition to OpenMW's normal controls. The accessibility
 keys use keys that Morrowind itself leaves free (the number row with Ctrl, Page
@@ -144,7 +148,7 @@ came with this package.
 
 | Key | Action |
 | --- | --- |
-| **Page Down / Page Up** | Cycle to the next / previous target in the current category |
+| **Page Down / Page Up** | Cycle to the next / previous target in the current category. Hold to run through a long list |
 | **Ctrl + Page Down / Page Up** | Switch to the next / previous category |
 | **Shift + Page Down / Page Up** | Cycle the subcategory filter (e.g. Plants / Storage within Containers) |
 | **Ctrl + 0 … 9** | Jump straight to a category: 0 All, 1 Actors, 2 Doors, 3 Containers, 4 Items, 5 Activators, 6 Detected, 7 Waypoints, 8 Locations, 9 Terrain |
@@ -175,6 +179,13 @@ rather than assuming a category has gone missing.
 | **Ctrl + K** | Attach or edit a note on the target — a label of your own that reads back with it (e.g. naming a silt-strider caravaner). Notes are searchable with **/**, so labelling someone "silt strider" lets you find them by typing "silt". Marks the object if it wasn't already |
 | **Shift + K** | Cycle the marked-object view: show all objects (the default), then unmarked only (hides what you've checked, so you cycle only what's left), then marked only (focus on just the objects you've flagged), then back to all |
 
+A mark belongs to the **object**, not to the list you set it from. Mark a door
+while browsing All and it reads as marked under Doors as well, and a note you
+attach from either list is searchable from both.
+
+Taking an item keeps your place in the list, so clearing a container is a matter
+of pressing Space repeatedly rather than being thrown back to the top each time.
+
 ### Information and orientation
 
 | Key | Action |
@@ -202,7 +213,8 @@ rather than assuming a category has gone missing.
 | **H** | Open / close the accessible HUD (pauses the world) |
 | **Up / Down** | Move through the list of stats / status |
 | **Enter** | On the active-effects row, drill into the list of individual effects |
-| **Left / Escape** | Back out of the effects sub-list (or close the HUD from the top level) |
+| **Left** | Back out of the effects sub-list |
+| **Escape** | Back out of the effects sub-list, or close the HUD from the top level |
 | **Home** | Re-read the current row |
 
 While the HUD is open, the scanner and quick-info keys keep working, so you can
@@ -295,13 +307,20 @@ notice when it has walked you into some — it stops, pulls you back to safe
 ground, and says *"Path crosses a hazard"* — so the warnings above are your
 advance notice, and that is the safety net behind them.
 
+Two things to know about that net. It waits until you have actually lost some
+health (around ten points) before it acts, so expect to be hurt a little rather
+than not at all; and it stays out of the way while something is fighting you,
+since yanking you backwards mid-combat would be worse than the damage.
+
 ---
 
 ## Auto-walk in depth
 
 Auto-walk steers you to your selected target, routing around walls and other
 obstacles, opening ordinary closed doors in your way, and warning you up front
-about hazards (deep water, steep drops) on long cross-country routes. It opens
+about hazards (deep water, steep drops). That advance warning is given only on
+long cross-country routes — on a short walk you may reach the hazard before
+anything is said, so silence is not a promise that the way is clear. It opens
 only safe doors: a **locked** or **trapped** door is never forced, so auto-walk
 can never spring a trap on you. Passing such a door — a locked house as you
 cross a town, say — doesn't interrupt the walk. But if one genuinely stands
@@ -444,8 +463,9 @@ facing itself), and it isn't tied to a specific save being broken.
 ### Mods that shrink the player's collision box ("Jammings off")
 
 **Short version: these mods are fine to use and genuinely help in tight spaces.
-Auto-walk will no longer let them kill you — but in complex multi-level Dwemer
-ruins they can fail to *reach* a target, so go in with levitation available.**
+Auto-walk now catches the dangerous falls they cause — but in complex multi-level
+Dwemer ruins they can fail to *reach* a target, so go in with levitation
+available.**
 
 A few mods shrink the player's physical collision box, usually to stop you
 snagging on doorways and narrow gaps. The best-known is **"Jammings off"**
@@ -466,8 +486,15 @@ off a ledge inside.
 **What auto-walk now does about it.** When the shrunk body pitches into a fall
 during auto-walk, the game **catches you** — it snaps you back to the last safe
 ground you crossed, stops, and says *"Path drops off. Cannot reach … safely."*
-You stay alive and standing instead of dying. So these mods are **no longer
-dangerous** to use.
+You stay alive and standing instead of dying.
+
+The catch is aimed at the falls that would really hurt: it steps in when the drop
+would cost you a large share of your remaining health, and lets small stumbles
+run their course. It is armed on the rougher route types — including the
+hand-authored waypoint path these mods push you onto, which is exactly the case
+described above — rather than on every walk. So these mods are **much safer**
+than they were, though "safer" is not "risk-free": keep an ear on your health in
+unfamiliar multi-level ruins.
 
 What the catch *can't* do is get you up a crest your body physically can't climb.
 So in those spots auto-walk will stop short rather than reach the target. Practical

@@ -137,7 +137,8 @@ and open it on arrival).
 | **H** | Open / close |
 | **Up / Down** | Move through your stats and status |
 | **Enter** | On the active-effects row, open the list of individual effects |
-| **Left / Escape** | Back out of the effects list, or close the HUD |
+| **Left** | Back out of the effects list |
+| **Escape** | Back out of the effects list, or close the HUD |
 | **Home** | Re-read the current row |
 
 The scanner and quick-info keys keep working while the HUD is open, with two
@@ -369,6 +370,12 @@ already open, and puts you back where you were when you close it.
 | **Up / Down** | Recall previous commands |
 | **Ctrl + Up / Down** | Re-hear previous output, line by line |
 | **Ctrl + T** | Make the scanner's selected object the console target — this replaces clicking on an object. Press with nothing selected to clear it |
+| **Ctrl + W** | Delete the word before the cursor |
+| **Ctrl + U** | Delete from the cursor back to the start of the line |
+| **Tab** | Complete the command or name you are typing |
+
+Setting a target announces its **record id** as well as its name — that id is
+what you type into commands, so you rarely need to look it up elsewhere.
 
 ---
 
