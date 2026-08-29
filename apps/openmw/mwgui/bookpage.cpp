@@ -253,6 +253,102 @@ namespace MWGui
             return result;
         }
 
+        // Append one run to an in-progress link list.
+        //
+        // A single topic is usually several runs: the typesetter splits at word
+        // boundaries, so "Hospitality Papers" arrives as two, and they may fall on
+        // either side of a line break. Runs that are genuinely CONSECUTIVE are
+        // joined into one link; \p contiguous says whether this run directly
+        // follows the previous one we saw, which is false across a line break so
+        // the words are joined with a space rather than run together
+        // ("HospitalityPapers").
+        //
+        // Crucially, sharing an id is NOT enough to join. The same topic can be
+        // mentioned twice in one entry ("...unless they have Hospitality Papers.
+        // Hospitality Papers may be obtained..."), and those mentions are separate,
+        // non-adjacent runs; joining them produced one entry reading "Hospitality
+        // PapersHospitalityPapers". A repeat of an id already collected is instead
+        // DROPPED: it is the same destination, and a list navigated by ear should
+        // not offer it twice.
+        // \p prevId is the id of the run immediately before this one, but ONLY if
+        // that run was actually appended to the link being built (0 otherwise).
+        // That distinction matters: when a topic is mentioned a second time its
+        // runs are dropped as duplicates, and if a dropped run still counted as
+        // "previous" the run after it would be appended to the FIRST mention,
+        // giving "Hospitality Papers Papers". Callers therefore update their
+        // tracker from this function's return value, not from the run they passed.
+        //
+        // Two runs belong to the same link only if they are neighbours carrying
+        // the same id; sharing an id alone is not enough, since separate mentions
+        // are divided by ordinary text whose runs have no id. \p newLine adds the
+        // space a line break stands for, mirroring how getSectionText joins lines
+        // -- without it "Hospitality" and "Papers" split across lines would be
+        // spoken as "HospitalityPapers".
+        //
+        // Returns the id now being accumulated, or 0 if this run contributed
+        // nothing (not a link, or a duplicate that was dropped).
+        static InteractiveId appendRunLink(
+            std::vector<Link>& out, const Run& run, InteractiveId prevId, bool newLine)
+        {
+            if (!run.mStyle || run.mStyle->mInteractiveId == 0)
+                return 0;
+            const InteractiveId id = run.mStyle->mInteractiveId;
+            if (prevId == id && !out.empty() && out.back().mId == id)
+            {
+                if (newLine && !out.back().mText.empty() && out.back().mText.back() != ' ')
+                    out.back().mText += ' ';
+                appendRunText(out.back().mText, run);
+                return id;
+            }
+            for (const Link& existing : out)
+            {
+                if (existing.mId == id)
+                    return 0;
+            }
+            Link link;
+            link.mId = id;
+            appendRunText(link.mText, run);
+            out.push_back(std::move(link));
+            return id;
+        }
+
+        std::vector<Link> getPageLinks(size_t page) const override
+        {
+            if (page >= mPages.size())
+                return {};
+
+            std::vector<Link> result;
+            const Line* lastLine = nullptr;
+            InteractiveId prevId = 0;
+            visitRuns(mPages[page].first, mPages[page].second,
+                [&](const Section&, const Line& line, const Run& run) {
+                    prevId = appendRunLink(result, run, prevId, lastLine && &line != lastLine);
+                    lastLine = &line;
+                });
+            return result;
+        }
+
+        std::vector<Link> getSectionLinks(size_t section) const override
+        {
+            if (section >= mSections.size())
+                return {};
+
+            std::vector<Link> result;
+            InteractiveId prevId = 0;
+            bool firstLine = true;
+            for (const Line& line : mSections[section].mLines)
+            {
+                bool firstRun = true;
+                for (const Run& run : line.mRuns)
+                {
+                    prevId = appendRunLink(result, run, prevId, firstRun && !firstLine);
+                    firstRun = false;
+                }
+                firstLine = false;
+            }
+            return result;
+        }
+
         // Which page's vertical window contains a section's top edge. Pages are
         // contiguous vertical windows in document order, so the section begins on
         // the first page whose window bottom reaches past its top.

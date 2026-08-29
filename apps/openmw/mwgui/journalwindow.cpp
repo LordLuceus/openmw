@@ -74,6 +74,12 @@ namespace
         // than a page. npos = not yet placed on an entry this reading session
         // (the next Ctrl+Up/Down derives a starting entry from the visible page).
         size_t mA11yEntry = std::numeric_limits<size_t>::max();
+        // Screen reader: cursor into the topic links of whatever is currently
+        // being read, cycled with Page Down / Page Up. npos = nothing selected
+        // yet, so the next Page Down starts at the first link. The list itself is
+        // derived from the context on each press rather than cached, so this is
+        // reset whenever that context changes (page turn, entry step, new book).
+        size_t mA11yLink = std::numeric_limits<size_t>::max();
         // Virtual-focus accessibility screen. The journal's page text isn't a
         // list of navigable options, so this registers NO elements: the anchor
         // merely captures keys (so the engine's button-focus navigation can't
@@ -323,6 +329,32 @@ namespace
                     case MyGUI::KeyCode::ArrowRight:
                         a11yPageRight(mA11yAnchor);
                         return true;
+                    case MyGUI::KeyCode::PageDown:
+                        // Cycle the topics referenced by what you are reading.
+                        // Vanilla highlights these words so a sighted player can
+                        // click straight through to a topic instead of hunting the
+                        // A-Z browser; Page Up/Down is the same ring the scanner
+                        // uses, and nothing else in the journal binds it.
+                        a11yStepLink(1);
+                        return true;
+                    case MyGUI::KeyCode::PageUp:
+                        a11yStepLink(-1);
+                        return true;
+                    case MyGUI::KeyCode::Return:
+                    case MyGUI::KeyCode::NumpadEnter:
+                        // Enter opens the highlighted link, exactly as clicking it
+                        // does. Only consume the key when a link is actually
+                        // selected, so Enter keeps its usual meaning otherwise.
+                        return a11yOpenSelectedLink();
+                    case MyGUI::KeyCode::Backspace:
+                        // Return to what we were reading before a topic was
+                        // opened. Only consume the key when there is somewhere to
+                        // go back to, so at the top level Backspace keeps whatever
+                        // meaning the window otherwise gives it.
+                        if (mStates.size() < 2)
+                            return false;
+                        a11yBackOut();
+                        return true;
                     case MyGUI::KeyCode::T:
                         a11yOpenTopics();
                         return true;
@@ -560,6 +592,11 @@ namespace
             // resyncs to whatever page is now visible. a11yReadEntry sets the
             // anchor itself and does not route through here.
             mA11yEntry = std::numeric_limits<size_t>::max();
+            // The link list is derived from the context, so a changed context
+            // invalidates the cursor into it: Page Down after a page turn must
+            // start again at that page's first topic, not resume an index into a
+            // list that no longer exists.
+            mA11yLink = std::numeric_limits<size_t>::max();
 
             if (mOptionsMode || mStates.empty())
                 return;
@@ -578,8 +615,80 @@ namespace
             text += std::to_string(page + 1);
             text += " of ";
             text += std::to_string(pageCount);
+            a11yAppendLinkCount(text, book->getPageLinks(page).size());
             text += '.';
             MWGui::A11y::sayRereadable(text, /*interrupt=*/true);
+            mA11yLink = std::numeric_limits<size_t>::max();
+        }
+
+        // The topic links belonging to what is currently being read. Context
+        // follows the reader: once Ctrl+Up/Down has placed a cursor on an entry
+        // the links are that whole entry's (so an entry spanning a page break
+        // still offers all of them); otherwise they are the visible page's.
+        std::vector<MWGui::TypesetBook::Link> a11yCurrentLinks() const
+        {
+            if (mOptionsMode || mStates.empty())
+                return {};
+            const std::shared_ptr<MWGui::TypesetBook>& book = mStates.top().mBook;
+            if (!book)
+                return {};
+            if (mA11yEntry != std::numeric_limits<size_t>::max())
+                return book->getSectionLinks(mA11yEntry);
+            return book->getPageLinks(mStates.top().mPage + (mA11yRightPage ? 1 : 0));
+        }
+
+        // Cycle the topics referenced by the current page or entry. These are the
+        // words vanilla highlights for a mouse click; offering them as a list is
+        // the equivalent affordance, and it saves walking the A-Z browser to reach
+        // a topic the text in front of you already names.
+        void a11yStepLink(int delta)
+        {
+            const std::vector<MWGui::TypesetBook::Link> links = a11yCurrentLinks();
+            if (links.empty())
+            {
+                MWGui::A11y::say("No topics referenced.", /*interrupt=*/true);
+                return;
+            }
+
+            const size_t count = links.size();
+            if (mA11yLink == std::numeric_limits<size_t>::max())
+                mA11yLink = (delta < 0) ? count - 1 : 0;
+            else
+                mA11yLink = (mA11yLink + static_cast<size_t>(delta < 0 ? count - 1 : 1)) % count;
+
+            std::string text = links[mA11yLink].mText;
+            if (text.empty())
+                text = "Unnamed topic";
+            text += ", ";
+            text += std::to_string(mA11yLink + 1);
+            text += " of ";
+            text += std::to_string(count);
+            text += '.';
+            MWGui::A11y::sayRereadable(text, /*interrupt=*/true);
+        }
+
+        // Open the selected link, dispatching exactly what a mouse click would so
+        // speech and pixels cannot diverge. Returns false when no link is
+        // selected, leaving Enter its usual meaning.
+        bool a11yOpenSelectedLink()
+        {
+            if (mA11yLink == std::numeric_limits<size_t>::max())
+                return false;
+            const std::vector<MWGui::TypesetBook::Link> links = a11yCurrentLinks();
+            if (mA11yLink >= links.size())
+                return false;
+
+            const MWDialogue::Topic& topic
+                = *reinterpret_cast<const MWDialogue::Topic*>(links[mA11yLink].mId);
+            notifyTopicClicked(topic);
+            // notifyTopicClicked only swaps the book in; the reading state has to
+            // be resynced and the new page spoken, exactly as opening a topic from
+            // the browser does (a11yActivateTopic). Without this the book-page
+            // sound plays and nothing is read.
+            mA11yRightPage = false;
+            a11yBuildView(/*announceHeader=*/false);
+            a11yReadCurrentPage();
+            return true;
         }
 
         // --- Screen-reader entry stepping (Ctrl+Up/Down) -----------------
@@ -659,8 +768,29 @@ namespace
             text += std::to_string(entry + 1);
             text += " of ";
             text += std::to_string(count);
+            a11yAppendLinkCount(text, book->getSectionLinks(entry).size());
             text += '.';
             MWGui::A11y::sayRereadable(text, /*interrupt=*/true);
+            // Stepping to a new entry changes the link context, so the Page
+            // Down/Up cursor starts again at this entry's first topic.
+            mA11yLink = std::numeric_limits<size_t>::max();
+        }
+
+        // Tell the reader that what they just heard cross-references topics, so
+        // they know Page Down has something to offer without having to try it.
+        // Appended after the page/entry number, per the convention that positional
+        // and summary info goes at the end. Silent when there are none: an absent
+        // count is the common case and saying "0 topics" every time would be noise
+        // on every page turn. Kept to the bare word "topics" because this rides on
+        // the end of every page and entry announcement, where a longer phrase is
+        // paid for on every single turn.
+        static void a11yAppendLinkCount(std::string& text, size_t links)
+        {
+            if (links == 0)
+                return;
+            text += ", ";
+            text += std::to_string(links);
+            text += (links == 1) ? " topic" : " topics";
         }
 
         // Up/Down turn a whole two-page spread (the native behaviour), landing
@@ -944,6 +1074,18 @@ namespace
                     a11yReadCurrentPage();
                     break;
                 case A11yView::Reading:
+                    // A topic opened from a link (or the browser) was PUSHED onto
+                    // the book stack, so reading is not necessarily the bottom
+                    // level: step back to whatever we were reading before. Only
+                    // when the stack is already at its base is there nothing to
+                    // go back to, and Backspace should do nothing rather than
+                    // close the journal out from under the reader.
+                    if (mStates.size() > 1)
+                    {
+                        popBook();
+                        mA11yRightPage = false;
+                        a11yReadCurrentPage();
+                    }
                     break;
             }
         }

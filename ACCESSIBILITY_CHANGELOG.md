@@ -4,6 +4,26 @@ A running log of screen-reader accessibility features added to this OpenMW fork.
 Newest changes are listed first. (OpenMW's own engine changelog lives in
 `CHANGELOG.md`.)
 
+## 2026-08-29
+
+- **Follow the topic links in your journal.** Journal text mentions topics you
+  have already discussed, and the game highlights those words so a mouse player
+  can click one and jump straight to what people have told you about it. There
+  was no way to reach them without a mouse, so the only route to a topic named in
+  a quest entry was to open the topics browser and find it by letter among
+  hundreds. **Page Down** and **Page Up** now move through the topics referenced
+  by whatever you are reading — announced as "Caius Cosades, 2 of 5" — and
+  **Enter** opens the one you stopped on. The list follows you: normally the
+  topics on the visible page, or, once you are stepping entry by entry with
+  **Ctrl + Up / Down**, those in that whole entry, even where it runs across a
+  page break. If nothing is referenced you hear "no topics referenced" rather
+  than silence, and **Backspace** takes you back to what you were reading before.
+  Only topics you have actually discussed are offered, exactly as on screen.
+- **Page and entry announcements now tell you if there is anything to follow.**
+  When the text references topics, the announcement ends with a count — "Entry 47
+  of 56, 3 topics" — so you know Page Down has something to offer
+  without having to try it. Nothing is added when there are none.
+
 ## 2026-08-25
 
 - **New "All" scanner category: everything interactable in one list.** Surveying

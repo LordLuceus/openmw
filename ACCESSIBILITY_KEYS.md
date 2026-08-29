@@ -305,6 +305,9 @@ that it's blank.
 | **Up / Down** | Previous / next two-page spread |
 | **Ctrl + Up / Down** | Previous / next journal entry, read in full even if it runs across a page break |
 | **Left / Right** | Back / forward one page |
+| **Page Down / Page Up** | Next / previous topic referenced by what you are reading |
+| **Enter** | Open the topic you last moved to with Page Down / Page Up |
+| **Backspace** | Go back to what you were reading before you opened a topic |
 | **T** | Open the topics browser |
 | **Q** | Open the quest list |
 | **R** | Read the current page or entry again |
@@ -322,6 +325,20 @@ In the All Quests list, finished quests are read out as "completed".
 
 Note that **T** opens the topics browser only while *reading*. Once you're in a
 list, T goes back to its usual job of reading out extra detail.
+
+Journal text mentions topics you have already discussed, and the game highlights
+those words so they can be clicked. **Page Down** and **Page Up** move through
+those topics for whatever you are reading, announcing each as "topic, 2 of 5",
+and **Enter** opens the one you stopped on and reads it -- the same page you
+would reach through the topics browser, but without hunting for it. Which topics
+are offered follows you: normally those on the visible page, or, once you have
+moved to an entry with **Ctrl + Up / Down**, those in that whole entry. If there
+are none, you will hear "no topics referenced". **Backspace** takes you back to
+what you were reading before.
+
+So you know whether there is anything to follow, page and entry announcements end
+with a count when the text references any topics -- for example "Entry 47 of 56,
+3 topics". Nothing is added when there are none.
 
 ---
 

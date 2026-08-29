@@ -69,6 +69,28 @@ namespace MWGui
         /// Returns 0 for an out-of-range page.
         virtual size_t sectionForPage(size_t page) const = 0;
 
+        /// One clickable link in the document: the text a sighted player sees
+        /// highlighted, plus the id that activating it would dispatch.
+        struct Link
+        {
+            std::string mText;
+            InteractiveId mId;
+        };
+
+        /// The links laid out on page \p page, in reading order, so a screen
+        /// reader can offer the same cross-references a sighted player can click.
+        /// Consecutive runs sharing one id are joined, so a multi-word topic
+        /// ("Caius Cosades") comes back as a single link rather than one per run.
+        /// Duplicates of the same id are omitted -- a topic named twice on a page
+        /// is one destination, and repeats would pad a list navigated by ear.
+        /// Returns empty for an out-of-range page.
+        virtual std::vector<Link> getPageLinks(size_t page) const = 0;
+
+        /// As getPageLinks, but for a whole section (entry), independent of
+        /// pagination -- so an entry spanning a page break still yields all of
+        /// its links. Returns empty for an out-of-range section.
+        virtual std::vector<Link> getSectionLinks(size_t section) const = 0;
+
         virtual ~TypesetBook() = default;
     };
 
